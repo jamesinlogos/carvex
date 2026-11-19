@@ -305,3 +305,55 @@ decision, and the consequences.
 - **Consequences:** `docs/REPORT.md` is the sole technical report. Table
   captions use `Table 1…16`, and numbers use English separators. CLI behavior,
   JSON/CSV fields, warning codes and frozen benchmark results are unchanged.
+
+## D-25. Fuzz, coverage and CI: replace SKIPPED with measured evidence
+
+- **Context:** D-17 recorded fuzz runtime, coverage and GitHub CI as SKIPPED
+  when the tools or runner were unavailable.
+- **Decision:** install `cargo-fuzz` with nightly, `cargo-llvm-cov` and
+  `actionlint`; run seven fuzz targets for 60 seconds each, measure line
+  coverage with `scripts/coverage.sh`, and record the real GitHub Actions runs.
+  Because measured coverage is 63.42%, set the honest CI/local floor to 60%
+  rather than the aspirational 80%.
+- **Consequences:** 18,520,025 fuzz executions with no crashes; 2859/4508 lines
+  covered; GitHub run `44548142275` succeeded. Evidence is in
+  `docs/VALIDATION.md`; no 80% coverage claim is made. GitHub's scheduled fuzz
+  matrix remains skipped on push events, so local fuzz evidence is the actual
+  runtime evidence.
+
+## D-26. Freeze protocol-v1, then disclose the pre-execution v1.1 builder fix
+
+- **Context:** the protocol required a tag before any lockbox result was
+  viewed. The first generation attempt showed that 19 of the fixed seeds
+  1001–1020 failed the existing corpus builder's own 4096-byte NTFS
+  non-residency guard for `pdf_08_small_text.pdf`.
+- **Decision:** keep `protocol-v1` as the frozen protocol record; with user
+  approval, change only that builder padding value from 6 to 10, create
+  `protocol-v1.1` before regenerating or viewing the dataset, and disclose the
+  correction in PROGRESS and VALIDATION. No carving, scoring, runner, config or
+  protocol-text change was made.
+- **Consequences:** all 20 seeds pass the guard; the lockbox was generated from
+  the v1.1 builder. Results are single-use evidence, never a tuning signal.
+
+## D-27. Replace invalid actionlint GitHub Action with a pinned direct install
+
+- **Context:** the first two GitHub runs failed because
+  `rhysd/actionlint-action@v1` resolves to a non-existent repository.
+- **Decision:** install actionlint 1.7.12 from its release tarball in the
+  workflow and run `actionlint .github/workflows/*.yml` directly.
+- **Consequences:** the CI-fix commit's GitHub run `44548142275` completed with
+  all jobs successful. The local gate uses the same actionlint version.
+
+## D-28. Run the lockbox and full benchmark into new result directories
+
+- **Context:** protocol execution evidence was still missing, and the 0.1.0
+  figures in `bench/results/final` had to remain frozen.
+- **Decision:** run `scripts/lockbox_run.sh` exactly once into
+  `bench/results/lockbox-v1`, and `scripts/benchmark_full.sh` into a fresh
+  `bench/results/full-0.2.0`; verify dataset and result checksums; compare the
+  full run with `bench/results/final` but do not change published figures or
+  code.
+- **Consequences:** lockbox 100/100 runs and full benchmark 60/60 runs were
+  successful; all 20 full-run rows are metric-identical to 0.1.0. Frozen result
+  directories are untouched; D2–D7, same-search-space baselines, ablations,
+  block metrics and advanced statistics remain OPEN.

@@ -30,8 +30,4 @@ fuzz/coverage/
 /bench/results/full-0.2.0/
 /bench/results/lockbox-v1/
 /bench/results/*.log
-/bench/lockbox/corpora/
-/bench/lockbox/corpus/
-/bench/lockbox/images/
-/bench/lockbox/tmp/
-/bench/lockbox/logs/
+/bench/lockbox/

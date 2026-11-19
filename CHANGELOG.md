@@ -48,7 +48,8 @@ additive and schema 1 remains available.
   `len`, `scanned`, `partition_index`), so a reader can see exactly which
   bytes were read.
 - New documentation: `SECURITY.md`, `CONTRIBUTING.md`, `docs/ARCHITECTURE.md`;
-  `docs/DECISIONS.md` (D-01…D-23) records every consequential decision.
+  `docs/DECISIONS.md` (D-01…D-28) records every consequential decision, and
+  `docs/VALIDATION.md` records the execution evidence.
 - Rebuilt distribution binaries: `dist/carvex-linux-x86_64` (static-pie musl,
   stripped) and `dist/carvex-windows-x86_64.exe` (PE32+, stripped), both
   `carvex 0.2.0`, with `dist/SHA256SUMS` regenerated after the final internal
@@ -60,11 +61,14 @@ additive and schema 1 remains available.
   `tests/cli_contract.rs`), property tests (`tests/properties.rs`) and seven
   cargo-fuzz targets with seeds from the benchmark images.
 - `.github/workflows/ci.yml` (3-OS fmt/clippy/test/doc/build, MSRV,
-  cargo-deny/audit, benchmark smoke, nightly fuzz matrix).
+  cargo-deny/audit, benchmark smoke, conditional nightly fuzz matrix) with a
+  pinned direct actionlint 1.7.12 install and lint step.
 - `bench/run_benchmark.py --smoke`: builds an 8 MiB synthetic FAT32 image
   without root/loop devices and runs CarveX unallocated + raw.
-- `scripts/gate.sh`, `deny.toml`, `docs/{PROGRESS,DECISIONS,DEPENDENCIES,
-  BENCHMARK_PROTOCOL,REVIEW_RESPONSE}.md`.
+- `scripts/gate.sh`, `scripts/fuzz.sh`, `scripts/coverage.sh`,
+  `scripts/lockbox_run.sh`, `scripts/benchmark_full.sh`, `deny.toml`,
+  `docs/{PROGRESS,DECISIONS,DEPENDENCIES,BENCHMARK_PROTOCOL,
+  REVIEW_RESPONSE,VALIDATION}.md`.
 - Local supply-chain verification with `cargo-audit 0.23.0` and
   `cargo-deny 0.21.0`; `deny.toml` updated for the current `unmaintained`
   configuration field.
@@ -153,13 +157,37 @@ additive and schema 1 remains available.
 - Published benchmark numbers remain those of 0.1.0; the 0.2.0 carve results
   were verified byte-for-byte identical on all four benchmark images.
 
+### Validation
+
+All execution evidence is collected in `docs/VALIDATION.md`; published figures
+remain those of 0.1.0.
+
+- `scripts/gate.sh` finished **GATE GREEN**: 62 tests, 10/10 repro PASS, smoke
+  TP=3/FP=0 unallocated and TP=3/FP=1 raw, plus fmt/clippy/doc/MSRV/release,
+  actionlint, cargo-deny and cargo-audit.
+- `scripts/fuzz.sh 60` ran 7 targets × 60 s: 18,520,025 executions, no crash,
+  timeout, OOM or artifact.
+- `scripts/coverage.sh 60` measured 2859/4508 covered lines = **63.42%**; the
+  CI/local floor is honestly 60%, not 80%.
+- GitHub Actions run `44548142275` on `42376a9` succeeded with all jobs green;
+  the push-event fuzz matrix was skipped by its schedule/workflow_dispatch
+  trigger.
+- The 20-seed lockbox was executed exactly once into `bench/results/lockbox-v1`
+  with dataset and result checksums verified; results were not used for tuning.
+- The full 4-image/3-repetition benchmark was re-run into
+  `bench/results/full-0.2.0` with checksums verified. All 20 rows are
+  metric-identical to the frozen 0.1.0 `bench/results/final/results.json`.
+
 ### Known gaps
 
 See `docs/REVIEW_RESPONSE.md` for the status of every guide ID (A-01…D-03).
 Scientific benchmark items C-02 and C-09 are open and C-06/C-07 are partial;
-no lockbox result is claimed. Fuzz, coverage, cargo-deny/audit and Windows
-execution were not run locally (tools or hardware unavailable) and are marked
-`SKIPPED` in `docs/PROGRESS.md`.
+lockbox-v1 covers only the D1-style profile and D2–D7 remain OPEN. The packaged
+Windows binary, the `viewable` PDF check (`qpdf`/`pdftoppm` unavailable),
+same-search-space baselines, ablations, block-level metrics and advanced
+statistics are not claimed. Fuzz, coverage, cargo-deny/audit and GitHub CI were
+executed as recorded in `docs/VALIDATION.md`; no claim is made beyond that
+evidence.
 
 ## [0.1.0] — 2026-11-17
 

@@ -46,9 +46,9 @@ whether you have already disclosed it publicly.
   `docs/DECISIONS.md` D-03).
 - **Image-derived memory limits:** every allocation derived from image data is
   bounded by `--max-memory` / `--max-size` / `--max-truncated-size`.
-- Fuzz status: the skeleton is in the repo but **has not been run** (missing
-  nightly/cargo-fuzz in the development environment) — recorded as `SKIPPED`
-  in `docs/PROGRESS.md`; no claim of "clean fuzzing" is made.
+- Fuzz status: seven targets were run for 60 s each with cargo-fuzz on nightly
+  (18,520,025 executions, no crash, timeout, OOM or artifact). This is not
+  exhaustive fuzzing; the executed evidence is recorded in `docs/VALIDATION.md §4`.
 
 ## Reporting non-vulnerability issues
 

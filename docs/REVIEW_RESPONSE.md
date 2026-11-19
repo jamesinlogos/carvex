@@ -18,7 +18,7 @@ release, repro, bench `--smoke`).
 |----|------------|-------------------|-----------------|
 | A-01 | **FIXED** | R1, R2 PASS; unit `early_eof_requests_more_when_incremental_update_follows`, `smart_selects_last_incremental_revision` | No 2–3 MiB linearized PDF compliant with Annex F has been built; no fixtures for xref stream/ObjStm. |
 | A-02 | **FIXED** | R3 PASS; `embedded_pdf_is_not_a_document_boundary`, `adjacent_pdfs_are_split_at_the_second_header`; nested suppression before writing | — |
-| A-03 | **MITIGATED** | `#![forbid(unsafe_code)]`; deny `indexing_slicing`/`unwrap`/`expect` in `fs/*`+`signatures/*`; `catch_unwind` around `fs::detect`; release unwind + `overflow-checks`; R7 PASS; 7 fuzz targets compile-checked | **Fuzz runtime SKIPPED** (missing nightly/cargo-fuzz) → no claim of "clean fuzz". |
+| A-03 | **MITIGATED** | `#![forbid(unsafe_code)]`; deny `indexing_slicing`/`unwrap`/`expect` in `fs/*`+`signatures/*`; `catch_unwind` around `fs::detect`; release unwind + `overflow-checks`; R7 PASS; 7 fuzz targets run 60 s each (18,520,025 executions, no crashes/artifacts) | Fuzzing is not exhaustive; no claim beyond the executed 7×60 s run (`docs/VALIDATION.md §4`). |
 | A-04 | **FIXED** | `--validate structure\|decode` (default `structure` per A-04's decision rule); `validation`+`validated_bytes`; R4c PASS (JPEG with appended tail → `partial`); measured: structure 0.11–0.20 s vs decode 0.49–1.10 s, 30/30 `decoded` | Field name kept as `validation` (0.1.0) instead of `validity` — see D-22; decode supports only baseline sequential; progressive → `unverified`. |
 | A-05 | **FIXED** | R6 PASS; zero-tail trim + `--max-truncated-size 16M` (default); salvage JPEG/PNG prefixes (R4a/R4b) with `status=truncated` | No `--salvage`/`--partial-min-fraction` flag (B-07). |
 | A-06 | **FIXED** | R5 PASS: 0.48–0.79 s for 25,811 fake headers/64 MiB (target ≤1 s); `--max-memory`/`--max-size` capped; parallel carvex, deterministic (1 vs 4 thread test) | Measured on warm cache, single machine. |
@@ -26,8 +26,8 @@ release, repro, bench `--smoke`).
 | A-08 | **MITIGATED** | `trait ImageSource {len, read_at}` + `RawFile` (pread by offset); fallback `seek(End)` when `metadata().len()==0`; `--hash-image` streaming | No `BlockDevice`/`--sector-size`/`--on-read-error`/`unreadable_regions[]`; `info /dev/loopN` not tested; Windows multithread safety not verified. |
 | A-09 | **MITIGATED** | Fixed NTFS sector off-by-one (`field+1` clamped to `available`, D-21, unit test `volume_sector_count_includes_the_backup_boot_sector`); all FS parse errors → `FS_DETECTION_FAILED` in `warnings[]` | No `$ATTRIBUTE_LIST`, multi-extent `$MFT`, `$MFTMirr` fallback, backup boot fallback, FAT #2/backup BPB yet. |
 | A-10 | **FIXED** | Lib crate + thin `main.rs`; pipeline `plan_extents→build_tasks→scan_task→carve_candidates→postfilter→write_outputs`; format registry; no more `allow(too_many_arguments)`; `cargo doc -D warnings` green; deterministic tests | No full public `#![warn(missing_docs)]`; pedantic cleanup not done by group. |
-| A-11 | **MITIGATED** | **62 tests** (31 unit + 12 `cli_contract` + 8 `fs_detect` + 5 `properties` + 6 `scan_integration`); `scripts/review_repro.py --assert/--xfail` (10/10); red baseline `docs/baseline/repro_v0.1.0.txt`; every Critical/High finding has a red-before/green-after test | **Coverage SKIPPED** (missing `cargo-llvm-cov`) → no claim of ≥80%; integration tests named `tests/*.rs` rather than `tests/regress_*.rs`. |
-| A-12 | **MITIGATED** | MSRV **1.85** (`rust-version` + README corrected from "Rust 1.74"); `cargo +1.85 check --locked` in gate; `.github/workflows/ci.yml` (3 OS, MSRV, deny/audit, smoke, fuzz nightly); `rustfmt.toml`/`clippy.toml`/`deny.toml`; dist 0.2.0 rebuild + `SHA256SUMS`; local `cargo audit` 0.23.0 and `cargo deny` 0.21.0 both pass in `scripts/gate.sh` | **CI not yet run on GitHub**; `actionlint` SKIPPED (not installed); Windows `.exe` only built, **not run on Windows**; no SBOM/signatures; removing binaries from `dist/` is STOP-AND-ASK — kept unchanged. |
+| A-11 | **MITIGATED** | **62 tests** (31 unit + 12 `cli_contract` + 8 `fs_detect` + 5 `properties` + 6 `scan_integration`); `scripts/review_repro.py --assert/--xfail` (10/10); red baseline `docs/baseline/repro_v0.1.0.txt`; every Critical/High finding has a red-before/green-after test; measured coverage 2859/4508 lines = 63.42% | No claim of ≥80% coverage; floor is honestly 60%. Integration tests are named `tests/*.rs` rather than `tests/regress_*.rs`. |
+| A-12 | **MITIGATED** | MSRV **1.85** (`rust-version` + README corrected from "Rust 1.74"); `cargo +1.85 check --locked` in gate; `.github/workflows/ci.yml` (3 OS, MSRV, deny/audit, smoke, conditional nightly fuzz); `rustfmt.toml`/`clippy.toml`/`deny.toml`; dist 0.2.0 rebuild + `SHA256SUMS`; local `cargo audit` 0.23.0, `cargo deny` 0.21.0 and `actionlint` 1.7.12 pass; GitHub run `44548142275` on `42376a9` succeeded with all jobs green | Packaged Windows `.exe` **not executed**; GitHub's push-event fuzz matrix was skipped; no SBOM/signatures; removing binaries from `dist/` is STOP-AND-ASK — kept unchanged. |
 | A-13 | **MITIGATED** | Exit codes 0/1/2/3/4 documented (README) and CLI contract tests; coded warnings (`*_NOT_SCANNED` → exit 3, D-19); `RAW_SCANS_ALLOCATED` informational (D-20); short error messages with suggested actions | No `thiserror` types, no leveled logger/`--log-format json`, no `ProgressSink`/ETA for the carve phase, no partial report written on interruption (exit 4). |
 | A-14 | **FIXED** | Schema v2: `schema_version`, `argv`, `options`, `tool_info`, `input` (SHA-256 before/after), ISO-8601, `case_id`, `examiner`, `warnings[]` (objects), `volumes[]`, `regions[]`, per-file actual `lba`/`cluster`/`partition_index`/`extent_id`/`allocated`/`source`/`fragments`; `docs/report.schema.json` + test `emitted_report_matches_the_published_schema`; `report_schema_one_has_the_v01_shape`; atomic write; `--manifest` | `unreadable_regions[]` belongs to A-08 (not present); field `validity` kept as `validation` (D-22); `tool_info.commit` may be empty when built outside git. |
 | A-15 | **MITIGATED** | Caps on `--max-memory`/`--max-size`/`--max-truncated-size`; atomic write (temp+rename); `--force` for non-empty directory; nested does not write-then-delete | No rejection of output located inside the source image/source device; no `--overwrite` (force still does not overwrite existing files? — needs test); no free-space/`--max-output` check; symlink following not forbidden. |
@@ -42,18 +42,18 @@ release, repro, bench `--smoke`).
 | B-09 | **OPEN** | Per-file `notes[]` exists and is used when the parser skips unsupported parts | No fixtures+tests for individual variants (APNG, xref stream, `/Encrypt`, trailer after EOI…); no format-support table in docs. |
 | B-10 | **OPEN** | Format registry (A-10) is an existing foundation | No `--signatures sig.toml`; no ZIP/OOXML. |
 | B-11 | **OPEN** | — | No `posix_fadvise`, no `--io-threads`, no re-measurement of time-vs-size. |
-| C-01 | **MITIGATED** | `docs/BENCHMARK_PROTOCOL.md` exists, with file SHA-256; frozen baseline `bench/results/baseline-v0.1/` + `SHA256SUMS` | **Cannot tag `protocol-v1`** (workspace is not a git repo); lockbox not created → no lockbox results published. |
-| C-02 | **OPEN** | — | Dataset is still D1 (30 files × 4 images); no builder `--seed/--profile`, no D2–D7, no fragmentation/overwrite self-check. |
+| C-01 | **MITIGATED** | Frozen protocol at `protocol-v1`, builder fix disclosed at `protocol-v1.1`; 20-seed lockbox run once into `bench/results/lockbox-v1` with dataset/result checksums verified (`docs/VALIDATION.md §6`) | D1-style profile only; D2–D7 remain OPEN. Results are single-use evidence and were not used for tuning. |
+| C-02 | **OPEN** | `bench/lockbox.py` supports `--seeds/--profile` for the 20-seed D1 lockbox; the dev corpus remains D1 (30 files × 4 images) | No D2–D7 profiles and no fragmentation/overwrite self-check. |
 | C-03 | **MITIGATED** | Ground truth from `bench/corpus/manifest.json` (generated by Pillow, independent of CarveX); runner checks SHA-256 before each run; metrics do not use the CarveX validator (ADR-007) | No automated "viewable" PDF check with pypdf/qpdf (`qpdf`/`pdftoppm` missing → SKIPPED); no pixel comparison. |
 | C-04 | **MITIGATED** | File-level exact + usable, one-to-one metric; FP classification kept/unknown; **F-17 verified by re-run**: Foremost 44/44 unknown = 40 JPEGs embedded in PDFs + 4 early-truncated incremental PDFs; Scalpel 54 = 40 + 4 + 10 child spans (8 EXIF thumbnails + 2 four-byte `FFD8FFD9` fragments) — matching the guide's "40 of 44 / 40 of 54" | No block-level `byte_recall`/`splice_rate`; classification not automated in the runner (still merges `unknown_fp`). |
 | C-05 | **MITIGATED** | REPORT abstract states Wilson 95% CI: 100/100 → [96.3%; 100%], 30/30 → [88.6%; 100%], with n and conditions; runner warns `metric_variance` | No McNemar/bootstrap; no CI for every number table. |
 | C-06 | **MITIGATED** | Foremost/Scalpel/PhotoRec configurations stored in `bench/`; search-space confound documented (README, REPORT §6.4 item 9, F-16) | No baseline run with the same search space (unallocated blob); no ablation (validator, align, FS-aware). |
 | C-07 | **MITIGATED** | Runner records host/versions/argv/seed, relative to the repo root; `--smoke`; all numbers drawn from `bench/results/final/results.json` | **No `render_docs.py`** to generate numbers into docs → figures still hand-written (with sources); no `bench/config.toml`/`--full`. |
 | C-08 | **MITIGATED** | `docs/CFREDS.md §5`: actual RM#2 results (318 files, 276 hashes, 178 embedded OOXML, 0 PDF, CarveX 0.1.0 + hashed binary), explicitly stating these are not precision/recall | DFRWS 2006/2007 not run; 0.2.0 not re-run on CFReDS (noted in doc). |
-| C-09 | **OPEN** | `bench/run_benchmark.py` has a timing/throughput table (median, `runtime_min/max`) | No 1–4 GiB/sparse 8–16 GiB images; no cold cache + IQR ≥10 repetitions; no per-scenario table in `BENCHMARK.md`. |
+| C-09 | **OPEN** | `bench/run_benchmark.py` has a timing/throughput table (median, `runtime_min/max`); full 4-image/3-rep 0.2.0 re-run completed with checksums verified (`docs/VALIDATION.md §7`) | No 1–4 GiB/sparse 8–16 GiB images; no cold cache + IQR ≥10 repetitions; no per-scenario table in `BENCHMARK.md`. |
 | D-01 | **FIXED** | Removed absolute paths like `/home/…` from REPORT/CFREDS/README (`$CARVEX`, `$HOME/cfreds-data`); corrected "Pillow/ReportLab" → Pillow + internal PDF script; "100%" in abstract tied to type/n/CI/conditions; **16 numbered tables `Table 1…16`**; tool SHA-256s (foremost/scalpel/photorec) + explicit note that the benchmark binary hash was not recorded; §6.2 explains FPs with evidence (40/44, 40/54); README "Rust 1.74" → 1.85; "fair" conclusion qualified; confound F-16 added to §6.4; Windows `.exe` noted as untested (README + REPORT §6.4) | Figures still hand-written from `results.json` (see C-07). |
 | D-02 | **FIXED** | REPORT §1.4 Related Work: 5-branch taxonomy + feature comparison table; references [11]–[16] **DOI/publisher pages opened before insertion** (Garfinkel 10.1016/j.diin.2007.06.017; Richard–Roussev DFRWS 2005 dfrws.org; Pal–Memon 10.1109/MSP.2008.931081; Sencar–Memon 10.1016/j.diin.2009.06.007; Cohen 10.1016/j.diin.2007.10.001; Poisel–Tjoa 10.1109/ARES.2013.62) | Not every claim is cited (some left as "no source"). |
-| D-03 | **FIXED** | `CHANGELOG.md` (0.2.0, Keep a Changelog, *Changed*/*Behavior changes* sections); `SECURITY.md`; `CONTRIBUTING.md`; `docs/ARCHITECTURE.md`; `docs/DECISIONS.md` (D-01…D-24); `docs/DEPENDENCIES.md`; `docs/REVIEW_RESPONSE.md` (this document); `docs/REPORT.md` | Real CI/release jobs not yet run (A-12). |
+| D-03 | **FIXED** | `CHANGELOG.md` (0.2.0, Keep a Changelog, *Changed*/*Behavior changes* sections); `SECURITY.md`; `CONTRIBUTING.md`; `docs/ARCHITECTURE.md`; `docs/DECISIONS.md` (D-01…D-28); `docs/DEPENDENCIES.md`; `docs/REVIEW_RESPONSE.md` (this document); `docs/REPORT.md`; `docs/VALIDATION.md` | Real CI run succeeded (`44548142275`); no release job, SBOM or signing is claimed; packaged Windows binary not executed (A-12). |
 
 ## Cross-reference of old findings (F-01…F-21) → new IDs
 
@@ -97,7 +97,9 @@ the 38-ID table above is the current source of truth.
 - `fs::detect_guarded` wraps `catch_unwind`; CLI auto-mode falls back to raw + exit 3.
 - Release: unwind + `overflow-checks = true`.
 - Fuzz targets: `jpeg`, `png`, `pdf`, `fat32_boot`, `ntfs_boot`, `ntfs_mft`,
-  `partition_table`; seeds from corpus/benchmark. Fuzz runtime not run.
+  `partition_table`; seeds from corpus/benchmark. `scripts/fuzz.sh 60` ran each
+  target for 60 s on nightly: 18,520,025 executions, no crash, timeout, OOM or
+  artifact. Logs are in `bench/results/fuzz/`; see `docs/VALIDATION.md §4`.
 
 ### A-04 — Deep validation (F-04)
 
@@ -143,14 +145,19 @@ the 38-ID table above is the current source of truth.
 ### A-11 / A-12 — Test/CI (F-15)
 
 - **62 tests** (31 unit + 12 CLI contract + 8 FS detection + 5 property +
-  6 integration); `scripts/gate.sh` runs fmt, clippy, test, doc, MSRV, release,
-  repro, smoke → **GATE GREEN 2026-11-19**.
-- CI 3 OS + MSRV + security + smoke + fuzz nightly matrix (declared in
-  `.github/workflows/ci.yml`, not actually run).
+  6 integration); `scripts/gate.sh` runs fmt, clippy, test, doc, actionlint,
+  MSRV, release, repro, smoke and supply-chain checks → **GATE GREEN
+  2026-11-19**.
+- CI 3 OS + MSRV + security + smoke + conditional nightly fuzz matrix is
+  declared in `.github/workflows/ci.yml`. Real run `44548142275` on `42376a9`
+  succeeded with every job green; the push-event fuzz matrix was skipped by its
+  schedule/workflow_dispatch trigger.
 - Local `cargo audit` (0 vulnerabilities in 91 crates) and `cargo deny check`
   (advisories/bans/licenses/sources ok) both pass; the four unused
-  `license-not-encountered` warnings are informational.
-- No coverage and no real CI run; recorded as `SKIPPED`.
+  `license-not-encountered` warnings are informational. `actionlint 1.7.12`
+  passes locally and in CI.
+- `scripts/coverage.sh 60` measured 2859/4508 lines = **63.42%**; the CI/local
+  floor is honestly 60%, not 80%. Full evidence: `docs/VALIDATION.md §§2–5`.
 
 ### C-04 / D-01 — FP classification (F-17) — **verified**
 
@@ -185,13 +192,21 @@ the 38-ID table above is the current source of truth.
 
 ## What is not claimed
 
-- No claim of "clean fuzz": cargo-fuzz has not been run.
-- No claim of coverage ≥80%: not measured.
+- No claim of exhaustive or "clean" fuzzing: 7 targets ran for 60 s each
+  (18,520,025 executions, no crashes); no broader guarantee is made
+  (`docs/VALIDATION.md §4`).
+- No claim of ≥80% coverage: measured line coverage is 63.42% with a 60% floor.
 - No claim of a "fair" benchmark per C-06: the same search space has not been run
-  for every tool.
-- No claim of lockbox: not created/run; `protocol-v1` cannot be tagged
-  (workspace is not a git repo).
-- No claim that the Windows binary was tested: only built and format-checked.
-- No claim of green CI: workflows have never run on GitHub.
-- No claim of new benchmark numbers for 0.2.0: published figures are from 0.1.0;
-  0.2.0 carving has been verified byte-for-byte (100/100 files).
+  for every tool; no ablations or advanced statistics are claimed.
+- No claim of lockbox generalization: 20 seeds were run exactly once on the
+  D1-style profile, D2–D7 remain OPEN, and no result was used for tuning.
+- No claim that the packaged Windows executable was executed: it was built and
+  format-checked only. GitHub's `test (windows-latest)` job ran the Rust test
+  suite, not `dist/carvex-windows-x86_64.exe`.
+- No claim of CI beyond the observed run `44548142275`: all its jobs succeeded,
+  while the push-event fuzz matrix was skipped by design.
+- No claim of new benchmark numbers for 0.2.0: published figures are from 0.1.0.
+  The full 3-repetition re-run is validation evidence only; all 20 rows are
+  metric-identical to the frozen `bench/results/final/results.json`.
+- No claim that the protocol `viewable` PDF metric was computed: `qpdf` and
+  `pdftoppm` were unavailable.

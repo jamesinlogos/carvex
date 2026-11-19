@@ -73,9 +73,12 @@ seeds), committed as a new annotated tag `protocol-v1.1`, and pushed before the
 lockbox dataset was regenerated. Carving, scoring, runner commands, configs,
 published figures and `docs/BENCHMARK_PROTOCOL.md` were **not** changed.
 
-`SKIPPED` items: running the Windows binary on real Windows (no machine
-available), and GitHub Actions execution (not yet pushed at the time of the
-protocol freeze).
+Execution evidence for the later items is collected in `docs/VALIDATION.md`.
+GitHub Actions subsequently ran successfully on the CI-fix commit
+(`42376a9`, run `44548142275`: all jobs success; push-event fuzz matrix
+skipped). The distributed Windows binary still has not been executed as
+`dist/carvex-windows-x86_64.exe`; GitHub's `test (windows-latest)` job ran the
+Rust test suite on Windows.
 
 ### Dist 0.2.0 (rebuilt after A-07 step 2, 2026-11-19)
 
@@ -105,7 +108,7 @@ Windows**.
 | A-09 | PARTIAL | green | Fixed the NTFS sector off-by-one (`field+1`, D-21, unit test `volume_sector_count_includes_the_backup_boot_sector`); FS errors → `FS_DETECTION_FAILED`. No `$ATTRIBUTE_LIST`/multi-extent `$MFT`/`$MFTMirr`/backup boot/FAT #2 yet. |
 | A-10 | DONE | green | Lib crate + thin `main.rs`; pipeline `plan_extents → build_tasks → scan_task → carve_candidates → postfilter → write_outputs`; format registry; `ScanInput<'a>` groups the input parameters for `run_scan`, no more `allow(too_many_arguments)`; `cargo doc -D warnings` passes. |
 | A-11 | PARTIAL | green | **62 tests** (31 unit + 12 cli_contract + 8 fs_detect + 5 properties + 6 scan_integration); `scripts/review_repro.py --assert/--xfail` 10/10; red baseline `docs/baseline/repro_v0.1.0.txt`. `cargo-llvm-cov 0.9.1` measured 2859/4508 lines = **63.42%**; CI/local floor set to 60%, not the earlier aspirational 80%. |
-| A-12 | PARTIAL | green | MSRV 1.85 (`rust-version`, README corrected from "Rust 1.74"); `cargo +1.85 check` in the gate; `.github/workflows/ci.yml` now adds actionlint + coverage jobs; `rustfmt.toml`/`clippy.toml`/`deny.toml`; dist 0.2.0 + `SHA256SUMS`. Local `cargo deny check` and `cargo audit` pass; `actionlint 1.7.12` passes locally. GitHub execution not yet observed at freeze; Windows not run for real; no SBOM/signatures yet; removing binaries from `dist/` is STOP-AND-ASK (kept). |
+| A-12 | PARTIAL | green | MSRV 1.85 (`rust-version`, README corrected from "Rust 1.74"); `cargo +1.85 check` in the gate; `.github/workflows/ci.yml` adds actionlint + coverage and uses a pinned direct actionlint install; `rustfmt.toml`/`clippy.toml`/`deny.toml`; dist 0.2.0 + `SHA256SUMS`. Local `cargo deny check`, `cargo audit` and `actionlint 1.7.12` pass. Real GitHub run `44548142275` on commit `42376a9` succeeded (all jobs; push-event fuzz matrix skipped). Distributed Windows binary not executed; no SBOM/signatures yet; removing binaries from `dist/` is STOP-AND-ASK (kept). |
 | A-13 | PARTIAL | green | Exit 0/1/2/3/4 documented + CLI contract tests; coded warnings; `RAW_SCANS_ALLOCATED` informational (D-20). No `thiserror`/leveled logger/`ProgressSink`/partial report on interrupt yet. |
 | A-14 | DONE | green | Report schema v2: `schema_version`, `argv`, `options`, `tool_info`, `input` (before–after SHA-256), ISO-8601, `case_id`, `examiner`, `warnings[]` object, `volumes[]`, `regions[]`, `lba`, real `cluster`, `partition_index`, `extent_id`, `allocated`, `source`, `fragments`. `docs/report.schema.json` + key-matching test; atomic write; `--manifest` generates `SHA256SUMS`; `--report-schema 1`. `unreadable_regions[]` belongs to A-08 (not present). |
 | A-15 | PARTIAL | green | Caps `--max-memory`/`--max-size`/`--max-truncated-size`; atomic write; `--force`. No rejection of output inside the source image yet, no `--overwrite`/free-space check/`--max-output`/symlink ban. |
@@ -120,20 +123,20 @@ Windows**.
 | B-09 | OPEN | - | Per-file `notes[]` present; no fixture + test per variant (APNG, xref stream, `/Encrypt`…); no format support table. |
 | B-10 | OPEN | - | No custom signatures/`--signatures`; the registry (A-10) is the ready foundation. |
 | B-11 | OPEN | - | No `posix_fadvise`/`--io-threads`. |
-| C-01 | PARTIAL | n/a | `docs/BENCHMARK_PROTOCOL.md` frozen at tag `protocol-v1` (SHA-256 `d38607b86850312ec9906acd0dd732f965ca10cd5e78ff567a7076360b8008b6`); pre-execution builder correction tagged `protocol-v1.1`; `bench/results/baseline-v0.1/` frozen. Lockbox generated and run only after the tag. |
-| C-02 | OPEN | - | No `--seed/--profile` builder; the current dataset is only synthetic D1 with 30 files. |
+| C-01 | DONE (scoped) | n/a | `docs/BENCHMARK_PROTOCOL.md` frozen at tag `protocol-v1` (SHA-256 `d38607b86850312ec9906acd0dd732f965ca10cd5e78ff567a7076360b8008b6`); pre-execution builder correction tagged `protocol-v1.1`; 20-seed lockbox generated and run once into `bench/results/lockbox-v1` with dataset/result `SHA256SUMS` verified. Execution evidence: `docs/VALIDATION.md §6`. Scope: D1-style profile only, D2–D7 remain OPEN. |
+| C-02 | OPEN | - | `bench/lockbox.py` supports `--seeds/--profile` for the 20-seed D1 lockbox; the dev corpus remains synthetic D1 with 30 files. No D2–D7 profiles. |
 | C-03 | PARTIAL | - | Ground truth from a Pillow manifest, independent of CarveX; runner checks SHA-256 before each run; metrics do not use CarveX's validator (ADR-007). `qpdf`/`pdftoppm` missing → PDF "openable" check SKIPPED. |
 | C-04 | PARTIAL | - | Exact + usable file-level, one-to-one metric, FP classification kept/unknown. **F-17 verified by re-running:** Foremost 40/44 JPEG-in-PDF + 4 truncated PDFs; Scalpel 40/54 + 4 + 10 child spans (8 EXIF thumbnails + 2 `FFD8FFD9` fragments) — matches "40 of 44 / 40 of 54". No block-level `byte_recall`/`splice_rate`; classification not automated in the runner. |
 | C-05 | PARTIAL | - | Wilson 95% CI in the REPORT abstract (100/100 → [96.3%; 100%], 30/30 → [88.6%; 100%]) with n/conditions; runner warns `metric_variance`. No McNemar/bootstrap; no CI in every table. |
 | C-06 | PARTIAL | - | Competitor configurations stored in `bench/`; search-space confound documented (README, REPORT §6.4 item 9). No same-search-space baseline; no ablation. |
 | C-07 | PARTIAL | - | Runner records host/versions/argv/seed, relative to repo root; `--smoke`. No `render_docs.py` yet (figures are still hand-written, with `results.json` as source); no `bench/config.toml`/`--full`. |
 | C-08 | PARTIAL | - | CFReDS RM#2 was run (0.1.0) and its real results recorded in `docs/CFREDS.md §5` + binary hashes; DFRWS 2006/2007 not run; 0.2.0 not re-run on CFReDS (documented). |
-| C-09 | OPEN | - | Median time/throughput table present in the results; no 1–16 GiB scale images, no cold cache + IQR ≥10 repetitions. |
+| C-09 | PARTIAL | - | Median time/throughput table present; full 4-image/3-rep 0.2.0 re-run completed in `bench/results/full-0.2.0` with all checksums verified. No 1–16 GiB scale images, no cold cache + IQR ≥10 repetitions. |
 | D-01 | DONE | n/a | Removed absolute paths like `/home/…` (REPORT/CFREDS/README → `$CARVEX`/`$HOME`); fixed "Pillow/ReportLab"; "100%" in the abstract tied to n/CI/conditions; 16 tables numbered `Table 1…16`; SHA-256 of tools (foremost/scalpel/photorec) + explicit note that benchmark binary hashes were not recorded; §6.2 explains the evidenced FP 40/44 and 40/54; README "Rust 1.74" → 1.85; "fairness" conclusion limited; F-16 confound in §6.4; Windows `.exe` noted as untested. |
 | D-02 | DONE | n/a | REPORT §1.4 Related Work (5 branches + comparison table); references [11]–[16] had their DOI/publisher pages opened before insertion. |
-| D-03 | DONE | n/a | `CHANGELOG.md` (0.2.0), `SECURITY.md`, `CONTRIBUTING.md`, `docs/ARCHITECTURE.md`, `docs/DECISIONS.md` (D-01…D-24), `docs/DEPENDENCIES.md`, `docs/REVIEW_RESPONSE.md` (38 IDs), `docs/REPORT.md`. |
+| D-03 | DONE | n/a | `CHANGELOG.md` (0.2.0), `SECURITY.md`, `CONTRIBUTING.md`, `docs/ARCHITECTURE.md`, `docs/DECISIONS.md` (D-01…D-28), `docs/DEPENDENCIES.md`, `docs/REVIEW_RESPONSE.md` (38 IDs), `docs/REPORT.md`, `docs/VALIDATION.md` (execution evidence only). |
 | D-24 | DONE | n/a | All docs, comments and reports are English-only; the technical report is now `docs/REPORT.md`; every reference and table caption updated; no CLI/JSON/CSV/benchmark values changed. |
-| P5-1 | PARTIAL | green | Gate GREEN 2026-11-19; CHANGELOG 0.2.0; dist rebuilt; fuzz runtime complete; coverage measured at 63.42%; full benchmark and lockbox still to run after `protocol-v1` tag. |
+| P5-1 | DONE (scoped) | green | Gate GREEN 2026-11-19; CHANGELOG 0.2.0; dist rebuilt; fuzz runtime complete (18,520,025 executions); coverage 63.42% with 60% floor; GitHub CI green on CI-fix commit `42376a9`; lockbox run once; full 4-image/3-rep benchmark re-run. Evidence: `docs/VALIDATION.md`. Scope items remain open as listed below. |
 | P5-2 | DONE | n/a | `docs/REVIEW_RESPONSE.md` covers 38 IDs (A-01…D-03) with FIXED/MITIGATED/OPEN and cross-references F-01…F-21. |
 
 ## Published regression results (unchanged)
@@ -152,10 +155,13 @@ Windows**.
 
 ## Blockers / open questions
 
-- GitHub Actions execution had not been observed at the moment the protocol was
-  frozen; the SSH remote is configured and the push/tag is part of this pass.
-- Windows binary execution still requires a real Windows runner; no claim is
-  made beyond build + format check.
+- GitHub Actions has now run successfully on the CI-fix commit `42376a9`
+  (`44548142275`); the two earlier failed runs were caused by the invalid
+  actionlint action reference and an older queued pair is superseded.
+  GitHub's fuzz matrix remains conditional and is skipped on push; local fuzz
+  runtime evidence is in `docs/VALIDATION.md §4`.
+- The packaged Windows binary has not been executed; the GitHub Windows job ran
+  the Rust test suite, which is a different artifact.
 - Coverage is 63.42%, below the earlier aspirational 80%. The CI/local floor is
   honestly set to 60%; no claim of 80% coverage is made.
 - Scientific benchmarks C-02, C-09 are incomplete; C-06/C-07 are partial; D2–D7
@@ -165,4 +171,4 @@ Windows**.
 
 ## Decisions
 
-See `docs/DECISIONS.md` (D-01…D-23).
+See `docs/DECISIONS.md` (D-01…D-28).
