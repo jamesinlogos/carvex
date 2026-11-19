@@ -1,0 +1,311 @@
+{
+  "image": "all-deleted_fat32.img",
+  "image_path": "/home/kali/carvex/bench/images/all-deleted_fat32.img",
+  "image_size": 67108864,
+  "image_sha256": "41b920c5c75dbc5a9ba6cfe67987a21c29dba5974b01eaae78a6b013700aa48e",
+  "scenario": "all-deleted",
+  "filesystem": "fat32",
+  "partition_offset": 1048576,
+  "deleted": [
+    {
+      "path": "jpeg/jpeg_01_baseline_640x480.jpg",
+      "name": "jpeg_01_baseline_640x480.jpg",
+      "type": "jpeg",
+      "size": 194042,
+      "sha256": "bcb5d9ba912bcb967740bf8a7f1fa38e7682343258b67278fbc8fab791a9d3d1",
+      "description": "baseline JFIF"
+    },
+    {
+      "path": "jpeg/jpeg_02_large_1280x960.jpg",
+      "name": "jpeg_02_large_1280x960.jpg",
+      "type": "jpeg",
+      "size": 593920,
+      "sha256": "e0a2259979512e5cc121df582bd2cb76b5f12ec64b83615d463504f8602b13df",
+      "description": "large baseline"
+    },
+    {
+      "path": "jpeg/jpeg_03_progressive_800x600.jpg",
+      "name": "jpeg_03_progressive_800x600.jpg",
+      "type": "jpeg",
+      "size": 234049,
+      "sha256": "9b4cd566cb784d430f5a8965d74d40f2ceb5372987fa0300e370e4577f239d2a",
+      "description": "progressive"
+    },
+    {
+      "path": "jpeg/jpeg_04_grayscale_512x512.jpg",
+      "name": "jpeg_04_grayscale_512x512.jpg",
+      "type": "jpeg",
+      "size": 131014,
+      "sha256": "e3a9f1be4e7411e87ea9d0824e028aad6a234128e5c1e2b573ddf4a9878cd95b",
+      "description": "grayscale"
+    },
+    {
+      "path": "jpeg/jpeg_05_low_quality_1024x768.jpg",
+      "name": "jpeg_05_low_quality_1024x768.jpg",
+      "type": "jpeg",
+      "size": 147565,
+      "sha256": "b3865fe911312916866e4edc296861bf421b867a4036611a8c2042bf9a86b094",
+      "description": "low quality"
+    },
+    {
+      "path": "jpeg/jpeg_06_portrait_480x800.jpg",
+      "name": "jpeg_06_portrait_480x800.jpg",
+      "type": "jpeg",
+      "size": 285404,
+      "sha256": "98c7bdbe37f6568a3f411c17791606c064f9f90182a7eedd4ee3dc55f29006b4",
+      "description": "portrait"
+    },
+    {
+      "path": "jpeg/jpeg_07_cmyk_600x600.jpg",
+      "name": "jpeg_07_cmyk_600x600.jpg",
+      "type": "jpeg",
+      "size": 610465,
+      "sha256": "ddc9fbed751fc0014f0880b23e52b8008bc769433b2eef311999b6c82efbd60d",
+      "description": "CMYK JPEG"
+    },
+    {
+      "path": "jpeg/jpeg_08_exif_thumb_900x700.jpg",
+      "name": "jpeg_08_exif_thumb_900x700.jpg",
+      "type": "jpeg",
+      "size": 398144,
+      "sha256": "959c459cac388da746cd3e1d7f7e5171eec1e87987ba0cb575c28cefd80bc232",
+      "description": "EXIF thumbnail"
+    },
+    {
+      "path": "jpeg/jpeg_09_small_320x240.jpg",
+      "name": "jpeg_09_small_320x240.jpg",
+      "type": "jpeg",
+      "size": 40206,
+      "sha256": "d24f763e44636376134af2db9bf934c1d972f135e9cbf66210c8bf47b553f7f6",
+      "description": "small baseline"
+    },
+    {
+      "path": "jpeg/jpeg_10_progressive_1200x800.jpg",
+      "name": "jpeg_10_progressive_1200x800.jpg",
+      "type": "jpeg",
+      "size": 354114,
+      "sha256": "d779d71cb7801fe709c00a5fc801d995b9d00263ba324d7ad1229a17508526c1",
+      "description": "progressive large"
+    },
+    {
+      "path": "png/png_01_rgba_640x480.png",
+      "name": "png_01_rgba_640x480.png",
+      "type": "png",
+      "size": 1008646,
+      "sha256": "5c26e829e6bad87c744f6aebeeaeedfba9d583de54c9e925ca8c3965bb402189",
+      "description": "RGBA"
+    },
+    {
+      "path": "png/png_02_rgb_800x600.png",
+      "name": "png_02_rgb_800x600.png",
+      "type": "png",
+      "size": 1398788,
+      "sha256": "6f75c22241349f25de5baf8d66b3f24259e7f36e8232b0217c555826f9528061",
+      "description": "RGB"
+    },
+    {
+      "path": "png/png_03_grayscale_512x512.png",
+      "name": "png_03_grayscale_512x512.png",
+      "type": "png",
+      "size": 230954,
+      "sha256": "4ee315bdc0b466fb7f025bbe41ef30ee2f43f5a30b29ea64e63cc78e55bdaafb",
+      "description": "grayscale"
+    },
+    {
+      "path": "png/png_04_palette_600x400.png",
+      "name": "png_04_palette_600x400.png",
+      "type": "png",
+      "size": 166534,
+      "sha256": "edd4695abdcab24d03e25a2264d36cfd3c97a00539aa4fcd7fd0dcb365917de6",
+      "description": "indexed/palette"
+    },
+    {
+      "path": "png/png_05_1bit_400x300.png",
+      "name": "png_05_1bit_400x300.png",
+      "type": "png",
+      "size": 15049,
+      "sha256": "b46baa0042dc2730d200af0f465b80aa9c778870b26666e2fa6a196558baf71e",
+      "description": "1-bit"
+    },
+    {
+      "path": "png/png_06_large_1200x800.png",
+      "name": "png_06_large_1200x800.png",
+      "type": "png",
+      "size": 2808822,
+      "sha256": "3835677176b5d4eacccf014dae91b39e6dfee899ad3940603044a19ca71becbf",
+      "description": "large RGB"
+    },
+    {
+      "path": "png/png_07_small_200x150.png",
+      "name": "png_07_small_200x150.png",
+      "type": "png",
+      "size": 96128,
+      "sha256": "d32482448f4da71a7fe1e50cbb93eb6dcefcaac964d87eb7f03a6cba964ef4d3",
+      "description": "small RGBA"
+    },
+    {
+      "path": "png/png_08_interlaced_700x500.png",
+      "name": "png_08_interlaced_700x500.png",
+      "type": "png",
+      "size": 1024923,
+      "sha256": "fe1757702ca1c288f21b6b1ed46399de5c6ccaa7eeffd1ca7cd88b351f8eec75",
+      "description": "interlaced/Adam7"
+    },
+    {
+      "path": "png/png_09_alpha_1024x768.png",
+      "name": "png_09_alpha_1024x768.png",
+      "type": "png",
+      "size": 2605292,
+      "sha256": "7d9ff4675a82aa41dfa04a059f29d18cf1a9aac2967984ddad60a041c4fb979c",
+      "description": "alpha channel"
+    },
+    {
+      "path": "png/png_10_palette_320x240.png",
+      "name": "png_10_palette_320x240.png",
+      "type": "png",
+      "size": 54036,
+      "sha256": "b700113f1036de97f4df6d5e09a349719ba4f5891fb07fd8b2dbb59d0f2adaf0",
+      "description": "palette small"
+    },
+    {
+      "path": "pdf/pdf_01_image_1page.pdf",
+      "name": "pdf_01_image_1page.pdf",
+      "type": "pdf",
+      "size": 158852,
+      "sha256": "dbb9b3b4076628f25074fa336c46b56b284b0cc9ee8b6c1e57ebf57f27581d8e",
+      "description": "image PDF, 1 page"
+    },
+    {
+      "path": "pdf/pdf_02_image_3pages.pdf",
+      "name": "pdf_02_image_3pages.pdf",
+      "type": "pdf",
+      "size": 369999,
+      "sha256": "531a1d8a12eb058a56d4b13b2ff92d6b5c726db097729e42186cab1ac2572fe0",
+      "description": "image PDF, 3 pages"
+    },
+    {
+      "path": "pdf/pdf_03_text_2pages.pdf",
+      "name": "pdf_03_text_2pages.pdf",
+      "type": "pdf",
+      "size": 6211,
+      "sha256": "f87ac79eea80147d1c1ada5c0b0a7b61dcd2b2a4e834f66b06d2a3d6588b4704",
+      "description": "text PDF, xref table"
+    },
+    {
+      "path": "pdf/pdf_04_incremental.pdf",
+      "name": "pdf_04_incremental.pdf",
+      "type": "pdf",
+      "size": 6812,
+      "sha256": "4797dc3da70789752dc9ed3e6646946a8723d9397f3940fc95a2f16385ad6a01",
+      "description": "incremental update"
+    },
+    {
+      "path": "pdf/pdf_05_large_scan.pdf",
+      "name": "pdf_05_large_scan.pdf",
+      "type": "pdf",
+      "size": 623620,
+      "sha256": "834f84436c2f49063034f69f3649603a70936ae8d4fe4c40fc8e3652f59a7bf3",
+      "description": "large image PDF"
+    },
+    {
+      "path": "pdf/pdf_06_text_3pages.pdf",
+      "name": "pdf_06_text_3pages.pdf",
+      "type": "pdf",
+      "size": 15108,
+      "sha256": "28e5c755e05ede850477a7d26fb84171988cf69a4935e1ac61baf8994d8d9f04",
+      "description": "text PDF, 3 pages"
+    },
+    {
+      "path": "pdf/pdf_07_mixed_4pages.pdf",
+      "name": "pdf_07_mixed_4pages.pdf",
+      "type": "pdf",
+      "size": 475023,
+      "sha256": "8771a78902ed5ea4e706765ca36e71d46617dd0cf63e262799bc645a5bf8a772",
+      "description": "image PDF, 4 pages"
+    },
+    {
+      "path": "pdf/pdf_08_small_text.pdf",
+      "name": "pdf_08_small_text.pdf",
+      "type": "pdf",
+      "size": 4116,
+      "sha256": "6674a68bf06e568b109268b6d4a952716c1c6c7ab4c3b45b2466d3956cb1f3dc",
+      "description": "small text PDF"
+    },
+    {
+      "path": "pdf/pdf_09_text_long.pdf",
+      "name": "pdf_09_text_long.pdf",
+      "type": "pdf",
+      "size": 24005,
+      "sha256": "55e1bfb0065637973b6a3cc6bf561c850f129cc1c8156a5205e4e2a8c863b307",
+      "description": "long text PDF"
+    },
+    {
+      "path": "pdf/pdf_10_image_portrait.pdf",
+      "name": "pdf_10_image_portrait.pdf",
+      "type": "pdf",
+      "size": 178149,
+      "sha256": "9fe44f5c50ad2e81069cf5639386f4095cd467970841bdfda23be2a2643f259f",
+      "description": "portrait image PDF"
+    }
+  ],
+  "kept": [],
+  "deleted_count": 30,
+  "kept_count": 0,
+  "deleted_bytes": 14259990,
+  "kept_bytes": 0,
+  "corpus_manifest": "/home/kali/carvex/bench/corpus/manifest.json",
+  "created_at": "2026-11-18T03:15:34.067094+00:00",
+  "fs_info": {
+    "kind": "fat32",
+    "offset": 1048576,
+    "length": 65011712,
+    "bytes_per_sector": 512,
+    "sectors_per_cluster": 1,
+    "cluster_size": 512,
+    "total_clusters": 124990,
+    "free_clusters": 124982,
+    "free_extents": [
+      {
+        "offset": 2066432,
+        "len": 1022464
+      },
+      {
+        "offset": 3089408,
+        "len": 1573888
+      },
+      {
+        "offset": 4663808,
+        "len": 2803200
+      },
+      {
+        "offset": 7467520,
+        "len": 3318784
+      },
+      {
+        "offset": 10786816,
+        "len": 3684864
+      },
+      {
+        "offset": 14472192,
+        "len": 543232
+      },
+      {
+        "offset": 15015936,
+        "len": 51044352
+      }
+    ],
+    "partition_index": 1,
+    "partition_type": "FAT32 LBA",
+    "label": "CARVEXFAT",
+    "details": {
+      "bad_clusters": "0",
+      "data_start_sector": "1986",
+      "fat_count": "2",
+      "fat_size_sectors": "977",
+      "reserved_sectors": "32",
+      "root_cluster": "2",
+      "total_sectors": "126976",
+      "volume_serial": "85597954"
+    }
+  }
+}

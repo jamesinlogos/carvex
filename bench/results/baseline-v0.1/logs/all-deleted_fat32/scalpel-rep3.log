@@ -1,0 +1,22 @@
+$ scalpel -c /home/kali/carvex/bench/scalpel.conf -o /home/kali/carvex/bench/work/run-20261117-223325/all-deleted_fat32/scalpel/rep3/out /home/kali/carvex/bench/images/all-deleted_fat32.img
+cwd: /home/kali/carvex
+
+
+Opening target "/home/kali/carvex/bench/images/all-deleted_fat32.img"
+
+Scalpel version 1.60
+Written by Golden G. Richard III, based on Foremost 0.69.
+Image file pass 1/2.
+/home/kali/carvex/bench/images/all-deleted_fat32.img:  15.6%    10.0 MB    00:00 ETA/home/kali/carvex/bench/images/all-deleted_fat32.img:  31.2%    20.0 MB    00:00 ETA/home/kali/carvex/bench/images/all-deleted_fat32.img:  46.9%    30.0 MB    00:00 ETA/home/kali/carvex/bench/images/all-deleted_fat32.img:  62.5%    40.0 MB    00:00 ETA/home/kali/carvex/bench/images/all-deleted_fat32.img:  78.1%    50.0 MB    00:00 ETA/home/kali/carvex/bench/images/all-deleted_fat32.img:  93.7%    60.0 MB    00:00 ETA/home/kali/carvex/bench/images/all-deleted_fat32.img: 100.0%    64.0 MB    00:00 ETAAllocating work queues...
+Work queues allocation complete. Building carve lists...
+Carve lists built.  Workload:
+jpg with header "\xff\xd8\xff" and footer "\xff\xd9" --> 21 files
+png with header "\x89\x50\x4e\x47\x0d\x0a\x1a\x0a" and footer "\x49\x45\x4e\x44\xae\x42\x60\x82" --> 10 files
+pdf with header "\x25\x50\x44\x46\x2d" and footer "\x25\x25\x45\x4f\x46" --> 10 files
+Carving files from image.
+Image file pass 2/2.
+/home/kali/carvex/bench/images/all-deleted_fat32.img:  15.6%    10.0 MB    00:00 ETA/home/kali/carvex/bench/images/all-deleted_fat32.img:  31.2%    20.0 MB    00:00 ETA/home/kali/carvex/bench/images/all-deleted_fat32.img: 100.0%    64.0 MB    00:00 ETAProcessing of image file complete. Cleaning up...
+Done.
+Scalpel is done, files carved = 41, elapsed = 0 seconds.
+
+returncode=0 timed_out=False elapsed=0.421991s

@@ -1,0 +1,42 @@
+[package]
+name = "carvex"
+version = "0.2.0"
+edition = "2021"
+rust-version = "1.85"
+authors = ["CarveX Project"]
+description = "Header/footer file carver for JPEG, PNG and PDF with FAT32/NTFS awareness"
+license = "MIT"
+readme = "README.md"
+repository = "https://example.invalid/carvex"
+categories = ["command-line-utilities", "filesystem"]
+keywords = ["forensics", "carving", "fat32", "ntfs", "recovery"]
+
+[lib]
+name = "carvex"
+path = "src/lib.rs"
+
+[[bin]]
+name = "carvex"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+crc32fast = "1"
+flate2 = "1"
+jpeg-decoder = "0.3"
+memchr = "2"
+rayon = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+
+[dev-dependencies]
+proptest = "1.11.0"
+tempfile = "3"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+overflow-checks = true

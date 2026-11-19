@@ -1,0 +1,37 @@
+# Rust build artifacts
+/target/
+
+# Benchmark working directories and downloaded/test images
+/bench/work/
+/bench/images/*.img
+/bench/cfreds/
+
+# Large CFReDS archives and extracted images
+*.7z
+*.7z.0*
+*.dd
+*.E01
+*.E02
+*.E03
+*.E04
+
+# Temporary output and logs
+/recovered*/
+/photorec.log
+**/__pycache__/
+*.pyc
+fuzz/target/
+fuzz/artifacts/
+fuzz/coverage/
+
+# Generated validation artifacts (evidence is summarized in docs/VALIDATION.md)
+/bench/results/fuzz/
+/bench/results/coverage/
+/bench/results/full-0.2.0/
+/bench/results/lockbox-v1/
+/bench/results/*.log
+/bench/lockbox/corpora/
+/bench/lockbox/corpus/
+/bench/lockbox/images/
+/bench/lockbox/tmp/
+/bench/lockbox/logs/

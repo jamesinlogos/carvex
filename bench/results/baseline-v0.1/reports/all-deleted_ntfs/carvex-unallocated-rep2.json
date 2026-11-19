@@ -1,0 +1,597 @@
+{
+  "tool": "CarveX 0.1.0",
+  "image": "/home/kali/carvex/bench/images/all-deleted_ntfs.img",
+  "image_size": 67108864,
+  "filesystem": {
+    "kind": "ntfs",
+    "offset": 1048576,
+    "length": 65011200,
+    "bytes_per_sector": 512,
+    "sectors_per_cluster": 8,
+    "cluster_size": 4096,
+    "total_clusters": 15871,
+    "free_clusters": 15224,
+    "free_extents": [
+      {
+        "offset": 1060864,
+        "len": 4096
+      },
+      {
+        "offset": 1175552,
+        "len": 8011776
+      },
+      {
+        "offset": 9605120,
+        "len": 23945216
+      },
+      {
+        "offset": 35651584,
+        "len": 196608
+      },
+      {
+        "offset": 35852288,
+        "len": 2932736
+      },
+      {
+        "offset": 38789120,
+        "len": 27267072
+      }
+    ],
+    "partition_index": 1,
+    "partition_type": "NTFS/exFAT",
+    "label": "CARVEXNTFS",
+    "details": {
+      "bitmap_bytes": "1984",
+      "mft_data_size": "98304",
+      "mft_lcn": "4",
+      "mft_mirror_lcn": "7935",
+      "mft_record_size": "1024",
+      "mft_records": "96",
+      "total_sectors": "126975",
+      "volume_serial": "1A5D6A8179F03BD9"
+    }
+  },
+  "mode": "unallocated",
+  "output_dir": "/home/kali/carvex/bench/work/run-20261117-223325/all-deleted_ntfs/carvex-unallocated/rep2/out",
+  "started_at_unix": 1794972811,
+  "duration_ms": 157,
+  "bytes_scanned": 62357504,
+  "throughput_mib_s": 376.5485115294967,
+  "stats": {
+    "candidates": 41,
+    "carved": 30,
+    "rejected": 0,
+    "below_min_size": 0,
+    "below_min_score": 0,
+    "skipped_complete_only": 0,
+    "duplicate_hashes": 0,
+    "suppressed_nested": 11,
+    "truncated": 0,
+    "repaired": 0,
+    "bytes_written": 14259990,
+    "extents": 6,
+    "bytes_in_extents": 62357504
+  },
+  "files": [
+    {
+      "seq": 1,
+      "type": "jpeg",
+      "offset": 9605120,
+      "size": 234049,
+      "carved_size": 234049,
+      "sha256": "9b4cd566cb784d430f5a8965d74d40f2ceb5372987fa0300e370e4577f239d2a",
+      "status": "complete",
+      "score": 100,
+      "width": 800,
+      "height": 600,
+      "repaired": false,
+      "path": "00001_jpg_0000000000929000.jpg",
+      "notes": [
+        "SOF2 progressive 800x600, 10 scan(s), 1 APP segment(s)"
+      ]
+    },
+    {
+      "seq": 2,
+      "type": "jpeg",
+      "offset": 9842688,
+      "size": 147565,
+      "carved_size": 147565,
+      "sha256": "b3865fe911312916866e4edc296861bf421b867a4036611a8c2042bf9a86b094",
+      "status": "complete",
+      "score": 100,
+      "width": 1024,
+      "height": 768,
+      "repaired": false,
+      "path": "00002_jpg_0000000000963000.jpg",
+      "notes": [
+        "SOF0 baseline 1024x768, 1 scan(s), 1 APP segment(s)"
+      ]
+    },
+    {
+      "seq": 3,
+      "type": "jpeg",
+      "offset": 9994240,
+      "size": 398144,
+      "carved_size": 398144,
+      "sha256": "959c459cac388da746cd3e1d7f7e5171eec1e87987ba0cb575c28cefd80bc232",
+      "status": "complete",
+      "score": 100,
+      "width": 900,
+      "height": 700,
+      "repaired": false,
+      "path": "00003_jpg_0000000000988000.jpg",
+      "notes": [
+        "SOF0 baseline 900x700, 1 scan(s), 2 APP segment(s)"
+      ]
+    },
+    {
+      "seq": 5,
+      "type": "png",
+      "offset": 10395648,
+      "size": 1008646,
+      "carved_size": 1008646,
+      "sha256": "5c26e829e6bad87c744f6aebeeaeedfba9d583de54c9e925ca8c3965bb402189",
+      "status": "complete",
+      "score": 100,
+      "width": 640,
+      "height": 480,
+      "repaired": false,
+      "path": "00005_png_00000000009ea000.png",
+      "notes": [
+        "PNG 640x480, 18 chunk(s), color type 6"
+      ]
+    },
+    {
+      "seq": 6,
+      "type": "png",
+      "offset": 11407360,
+      "size": 166534,
+      "carved_size": 166534,
+      "sha256": "edd4695abdcab24d03e25a2264d36cfd3c97a00539aa4fcd7fd0dcb365917de6",
+      "status": "complete",
+      "score": 100,
+      "width": 600,
+      "height": 400,
+      "repaired": false,
+      "path": "00006_png_0000000000ae1000.png",
+      "notes": [
+        "PNG 600x400, 6 chunk(s), color type 3"
+      ]
+    },
+    {
+      "seq": 7,
+      "type": "png",
+      "offset": 11575296,
+      "size": 96128,
+      "carved_size": 96128,
+      "sha256": "d32482448f4da71a7fe1e50cbb93eb6dcefcaac964d87eb7f03a6cba964ef4d3",
+      "status": "complete",
+      "score": 100,
+      "width": 200,
+      "height": 150,
+      "repaired": false,
+      "path": "00007_png_0000000000b0a000.png",
+      "notes": [
+        "PNG 200x150, 4 chunk(s), color type 6"
+      ]
+    },
+    {
+      "seq": 8,
+      "type": "png",
+      "offset": 11673600,
+      "size": 54036,
+      "carved_size": 54036,
+      "sha256": "b700113f1036de97f4df6d5e09a349719ba4f5891fb07fd8b2dbb59d0f2adaf0",
+      "status": "complete",
+      "score": 100,
+      "width": 320,
+      "height": 240,
+      "repaired": false,
+      "path": "00008_png_0000000000b22000.png",
+      "notes": [
+        "PNG 320x240, 4 chunk(s), color type 3"
+      ]
+    },
+    {
+      "seq": 9,
+      "type": "pdf",
+      "offset": 11730944,
+      "size": 6211,
+      "carved_size": 6211,
+      "sha256": "f87ac79eea80147d1c1ada5c0b0a7b61dcd2b2a4e834f66b06d2a3d6588b4704",
+      "status": "complete",
+      "score": 100,
+      "width": null,
+      "height": null,
+      "repaired": false,
+      "path": "00009_pdf_0000000000b30000.pdf",
+      "notes": [
+        "PDF 1.4, 7 object(s), 1 %%EOF candidate(s), selected revision 1",
+        "startxref=5987 (target validated)"
+      ]
+    },
+    {
+      "seq": 10,
+      "type": "pdf",
+      "offset": 11739136,
+      "size": 623620,
+      "carved_size": 623620,
+      "sha256": "834f84436c2f49063034f69f3649603a70936ae8d4fe4c40fc8e3652f59a7bf3",
+      "status": "complete",
+      "score": 100,
+      "width": null,
+      "height": null,
+      "repaired": false,
+      "path": "00010_pdf_0000000000b32000.pdf",
+      "notes": [
+        "PDF 1.4, 6 object(s), 1 %%EOF candidate(s), selected revision 1",
+        "startxref=623403 (target validated)"
+      ]
+    },
+    {
+      "seq": 12,
+      "type": "pdf",
+      "offset": 12365824,
+      "size": 4116,
+      "carved_size": 4116,
+      "sha256": "6674a68bf06e568b109268b6d4a952716c1c6c7ab4c3b45b2466d3956cb1f3dc",
+      "status": "complete",
+      "score": 100,
+      "width": null,
+      "height": null,
+      "repaired": false,
+      "path": "00012_pdf_0000000000bcb000.pdf",
+      "notes": [
+        "PDF 1.4, 5 object(s), 1 %%EOF candidate(s), selected revision 1",
+        "startxref=3932 (target validated)"
+      ]
+    },
+    {
+      "seq": 13,
+      "type": "jpeg",
+      "offset": 35651584,
+      "size": 194042,
+      "carved_size": 194042,
+      "sha256": "bcb5d9ba912bcb967740bf8a7f1fa38e7682343258b67278fbc8fab791a9d3d1",
+      "status": "complete",
+      "score": 100,
+      "width": 640,
+      "height": 480,
+      "repaired": false,
+      "path": "00013_jpg_0000000002200000.jpg",
+      "notes": [
+        "SOF0 baseline 640x480, 1 scan(s), 1 APP segment(s)"
+      ]
+    },
+    {
+      "seq": 14,
+      "type": "jpeg",
+      "offset": 35852288,
+      "size": 285404,
+      "carved_size": 285404,
+      "sha256": "98c7bdbe37f6568a3f411c17791606c064f9f90182a7eedd4ee3dc55f29006b4",
+      "status": "complete",
+      "score": 100,
+      "width": 480,
+      "height": 800,
+      "repaired": false,
+      "path": "00014_jpg_0000000002231000.jpg",
+      "notes": [
+        "SOF0 baseline 480x800, 1 scan(s), 1 APP segment(s)"
+      ]
+    },
+    {
+      "seq": 15,
+      "type": "jpeg",
+      "offset": 36139008,
+      "size": 40206,
+      "carved_size": 40206,
+      "sha256": "d24f763e44636376134af2db9bf934c1d972f135e9cbf66210c8bf47b553f7f6",
+      "status": "complete",
+      "score": 100,
+      "width": 320,
+      "height": 240,
+      "repaired": false,
+      "path": "00015_jpg_0000000002277000.jpg",
+      "notes": [
+        "SOF0 baseline 320x240, 1 scan(s), 1 APP segment(s)"
+      ]
+    },
+    {
+      "seq": 16,
+      "type": "png",
+      "offset": 36179968,
+      "size": 1398788,
+      "carved_size": 1398788,
+      "sha256": "6f75c22241349f25de5baf8d66b3f24259e7f36e8232b0217c555826f9528061",
+      "status": "complete",
+      "score": 100,
+      "width": 800,
+      "height": 600,
+      "repaired": false,
+      "path": "00016_png_0000000002281000.png",
+      "notes": [
+        "PNG 800x600, 24 chunk(s), color type 2"
+      ]
+    },
+    {
+      "seq": 17,
+      "type": "png",
+      "offset": 37580800,
+      "size": 15049,
+      "carved_size": 15049,
+      "sha256": "b46baa0042dc2730d200af0f465b80aa9c778870b26666e2fa6a196558baf71e",
+      "status": "complete",
+      "score": 100,
+      "width": 400,
+      "height": 300,
+      "repaired": false,
+      "path": "00017_png_00000000023d7000.png",
+      "notes": [
+        "PNG 400x300, 3 chunk(s), color type 0"
+      ]
+    },
+    {
+      "seq": 18,
+      "type": "png",
+      "offset": 37597184,
+      "size": 1024923,
+      "carved_size": 1024923,
+      "sha256": "fe1757702ca1c288f21b6b1ed46399de5c6ccaa7eeffd1ca7cd88b351f8eec75",
+      "status": "complete",
+      "score": 100,
+      "width": 700,
+      "height": 500,
+      "repaired": false,
+      "path": "00018_png_00000000023db000.png",
+      "notes": [
+        "PNG 700x500, 39 chunk(s), color type 2"
+      ]
+    },
+    {
+      "seq": 19,
+      "type": "pdf",
+      "offset": 38625280,
+      "size": 158852,
+      "carved_size": 158852,
+      "sha256": "dbb9b3b4076628f25074fa336c46b56b284b0cc9ee8b6c1e57ebf57f27581d8e",
+      "status": "complete",
+      "score": 100,
+      "width": null,
+      "height": null,
+      "repaired": false,
+      "path": "00019_pdf_00000000024d6000.pdf",
+      "notes": [
+        "PDF 1.4, 6 object(s), 1 %%EOF candidate(s), selected revision 1",
+        "startxref=158635 (target validated)"
+      ]
+    },
+    {
+      "seq": 21,
+      "type": "pdf",
+      "offset": 38789120,
+      "size": 15108,
+      "carved_size": 15108,
+      "sha256": "28e5c755e05ede850477a7d26fb84171988cf69a4935e1ac61baf8994d8d9f04",
+      "status": "complete",
+      "score": 100,
+      "width": null,
+      "height": null,
+      "repaired": false,
+      "path": "00021_pdf_00000000024fe000.pdf",
+      "notes": [
+        "PDF 1.4, 9 object(s), 1 %%EOF candidate(s), selected revision 1",
+        "startxref=14841 (target validated)"
+      ]
+    },
+    {
+      "seq": 22,
+      "type": "pdf",
+      "offset": 38805504,
+      "size": 24005,
+      "carved_size": 24005,
+      "sha256": "55e1bfb0065637973b6a3cc6bf561c850f129cc1c8156a5205e4e2a8c863b307",
+      "status": "complete",
+      "score": 100,
+      "width": null,
+      "height": null,
+      "repaired": false,
+      "path": "00022_pdf_0000000002502000.pdf",
+      "notes": [
+        "PDF 1.4, 11 object(s), 1 %%EOF candidate(s), selected revision 1",
+        "startxref=23698 (target validated)"
+      ]
+    },
+    {
+      "seq": 23,
+      "type": "jpeg",
+      "offset": 52428800,
+      "size": 593920,
+      "carved_size": 593920,
+      "sha256": "e0a2259979512e5cc121df582bd2cb76b5f12ec64b83615d463504f8602b13df",
+      "status": "complete",
+      "score": 100,
+      "width": 1280,
+      "height": 960,
+      "repaired": false,
+      "path": "00023_jpg_0000000003200000.jpg",
+      "notes": [
+        "SOF0 baseline 1280x960, 1 scan(s), 1 APP segment(s)"
+      ]
+    },
+    {
+      "seq": 24,
+      "type": "jpeg",
+      "offset": 53022720,
+      "size": 131014,
+      "carved_size": 131014,
+      "sha256": "e3a9f1be4e7411e87ea9d0824e028aad6a234128e5c1e2b573ddf4a9878cd95b",
+      "status": "complete",
+      "score": 100,
+      "width": 512,
+      "height": 512,
+      "repaired": false,
+      "path": "00024_jpg_0000000003291000.jpg",
+      "notes": [
+        "SOF0 baseline 512x512, 1 scan(s), 1 APP segment(s)"
+      ]
+    },
+    {
+      "seq": 25,
+      "type": "jpeg",
+      "offset": 53153792,
+      "size": 610465,
+      "carved_size": 610465,
+      "sha256": "ddc9fbed751fc0014f0880b23e52b8008bc769433b2eef311999b6c82efbd60d",
+      "status": "complete",
+      "score": 100,
+      "width": 600,
+      "height": 600,
+      "repaired": false,
+      "path": "00025_jpg_00000000032b1000.jpg",
+      "notes": [
+        "SOF0 baseline 600x600, 1 scan(s), 1 APP segment(s)"
+      ]
+    },
+    {
+      "seq": 26,
+      "type": "jpeg",
+      "offset": 53768192,
+      "size": 354114,
+      "carved_size": 354114,
+      "sha256": "d779d71cb7801fe709c00a5fc801d995b9d00263ba324d7ad1229a17508526c1",
+      "status": "complete",
+      "score": 100,
+      "width": 1200,
+      "height": 800,
+      "repaired": false,
+      "path": "00026_jpg_0000000003347000.jpg",
+      "notes": [
+        "SOF2 progressive 1200x800, 10 scan(s), 1 APP segment(s)"
+      ]
+    },
+    {
+      "seq": 27,
+      "type": "png",
+      "offset": 54124544,
+      "size": 230954,
+      "carved_size": 230954,
+      "sha256": "4ee315bdc0b466fb7f025bbe41ef30ee2f43f5a30b29ea64e63cc78e55bdaafb",
+      "status": "complete",
+      "score": 100,
+      "width": 512,
+      "height": 512,
+      "repaired": false,
+      "path": "00027_png_000000000339e000.png",
+      "notes": [
+        "PNG 512x512, 6 chunk(s), color type 0"
+      ]
+    },
+    {
+      "seq": 28,
+      "type": "png",
+      "offset": 54362112,
+      "size": 2808822,
+      "carved_size": 2808822,
+      "sha256": "3835677176b5d4eacccf014dae91b39e6dfee899ad3940603044a19ca71becbf",
+      "status": "complete",
+      "score": 100,
+      "width": 1200,
+      "height": 800,
+      "repaired": false,
+      "path": "00028_png_00000000033d8000.png",
+      "notes": [
+        "PNG 1200x800, 45 chunk(s), color type 2"
+      ]
+    },
+    {
+      "seq": 29,
+      "type": "png",
+      "offset": 57171968,
+      "size": 2605292,
+      "carved_size": 2605292,
+      "sha256": "7d9ff4675a82aa41dfa04a059f29d18cf1a9aac2967984ddad60a041c4fb979c",
+      "status": "complete",
+      "score": 100,
+      "width": 1024,
+      "height": 768,
+      "repaired": false,
+      "path": "00029_png_0000000003686000.png",
+      "notes": [
+        "PNG 1024x768, 42 chunk(s), color type 6"
+      ]
+    },
+    {
+      "seq": 30,
+      "type": "pdf",
+      "offset": 59781120,
+      "size": 369999,
+      "carved_size": 369999,
+      "sha256": "531a1d8a12eb058a56d4b13b2ff92d6b5c726db097729e42186cab1ac2572fe0",
+      "status": "complete",
+      "score": 100,
+      "width": null,
+      "height": null,
+      "repaired": false,
+      "path": "00030_pdf_0000000003903000.pdf",
+      "notes": [
+        "PDF 1.4, 12 object(s), 1 %%EOF candidate(s), selected revision 1",
+        "startxref=369658 (target validated)"
+      ]
+    },
+    {
+      "seq": 34,
+      "type": "pdf",
+      "offset": 60153856,
+      "size": 6812,
+      "carved_size": 6812,
+      "sha256": "4797dc3da70789752dc9ed3e6646946a8723d9397f3940fc95a2f16385ad6a01",
+      "status": "complete",
+      "score": 100,
+      "width": null,
+      "height": null,
+      "repaired": false,
+      "path": "00034_pdf_000000000395e000.pdf",
+      "notes": [
+        "PDF 1.4, 9 object(s), 2 %%EOF candidate(s), selected revision 2",
+        "startxref=6717 (target validated)"
+      ]
+    },
+    {
+      "seq": 35,
+      "type": "pdf",
+      "offset": 60162048,
+      "size": 475023,
+      "carved_size": 475023,
+      "sha256": "8771a78902ed5ea4e706765ca36e71d46617dd0cf63e262799bc645a5bf8a772",
+      "status": "complete",
+      "score": 100,
+      "width": null,
+      "height": null,
+      "repaired": false,
+      "path": "00035_pdf_0000000003960000.pdf",
+      "notes": [
+        "PDF 1.4, 15 object(s), 1 %%EOF candidate(s), selected revision 1",
+        "startxref=474622 (target validated)"
+      ]
+    },
+    {
+      "seq": 40,
+      "type": "pdf",
+      "offset": 60637184,
+      "size": 178149,
+      "carved_size": 178149,
+      "sha256": "9fe44f5c50ad2e81069cf5639386f4095cd467970841bdfda23be2a2643f259f",
+      "status": "complete",
+      "score": 100,
+      "width": null,
+      "height": null,
+      "repaired": false,
+      "path": "00040_pdf_00000000039d4000.pdf",
+      "notes": [
+        "PDF 1.4, 6 object(s), 1 %%EOF candidate(s), selected revision 1",
+        "startxref=177932 (target validated)"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,5 @@
+$ foremost -Q -c /home/kali/carvex/bench/foremost.conf -t jpg,png,pdf -i /home/kali/carvex/bench/images/all-deleted_ntfs.img -o /home/kali/carvex/bench/work/run-20261117-223325/all-deleted_ntfs/foremost/rep2/out
+cwd: /home/kali/carvex
+
+
+returncode=0 timed_out=False elapsed=0.375468s

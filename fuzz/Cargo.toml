@@ -1,0 +1,63 @@
+[package]
+name = "carvex-fuzz"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+carvex = { path = ".." }
+
+[[bin]]
+name = "jpeg"
+path = "fuzz_targets/jpeg.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "png"
+path = "fuzz_targets/png.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "pdf"
+path = "fuzz_targets/pdf.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fat32_boot"
+path = "fuzz_targets/fat32_boot.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ntfs_boot"
+path = "fuzz_targets/ntfs_boot.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ntfs_mft"
+path = "fuzz_targets/ntfs_mft.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "partition_table"
+path = "fuzz_targets/partition_table.rs"
+test = false
+doc = false
+bench = false
+
+[workspace]

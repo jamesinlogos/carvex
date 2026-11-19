@@ -1,0 +1,5 @@
+$ /home/kali/carvex/target/release/carvex scan /home/kali/carvex/bench/images/mixed_ntfs.img -o /home/kali/carvex/bench/work/run-20261117-223325/mixed_ntfs/carvex-raw/rep2/out --mode raw --types jpeg,png,pdf --min-score 50 --quiet --json-report /home/kali/carvex/bench/results/final/reports/mixed_ntfs/carvex-raw-rep2.json --no-fs
+cwd: /home/kali/carvex
+
+
+returncode=0 timed_out=False elapsed=0.119412s

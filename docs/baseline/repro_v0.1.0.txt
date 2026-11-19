@@ -1,0 +1,21 @@
+# CarveX v0.1.0 baseline: scripts/review_repro.py (2026-11-18)
+# Binary: dist/carvex-linux-x86_64
+carvex 0.1.0
+
+FAIL  R1   PDF revision after an early %%EOF: no PDF carved
+FAIL  R2   incremental update across the 1 MiB window: carved 1048512 of 1048684 bytes
+FAIL  R3   embedded PDF is not a boundary: expected only the outer PDF, got 0 PDF(s)
+PASS  R4a  truncated JPEG head is salvaged
+FAIL  R4b  PNG without IEND is salvaged: no PNG salvaged from a missing IEND
+FAIL  R4c  spliced JPEG is not decoded: exit 2: error: unexpected argument '--validate' found
+
+  tip: to pass '--validate' as a value, use '-- --validate'
+
+Usage: carvex-linux-x86_64 scan --output <OUTPUT> --quiet --json-report <JSON_REPORT> --mode <MODE> --no-fs --types <TYPES> <IMAGE>
+
+For more information, try '--help'.
+FAIL  R5   fake-header flood performance: took 15.63s (target <= 1.0s)
+FAIL  R6   zero-tail truncation: 1 output(s) larger than 1 MiB (max 67108864)
+FAIL  R7   corrupt NTFS falls back to raw: expected exit 3 (warnings), got 0
+
+9 scenario(s), 8 failure(s), 0 XPASS

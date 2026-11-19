@@ -1,0 +1,5 @@
+$ /home/kali/carvex/target/release/carvex scan /home/kali/carvex/bench/images/all-deleted_fat32.img -o /home/kali/carvex/bench/work/run-20261117-223325/all-deleted_fat32/carvex-unallocated/rep2/out --mode unallocated --types jpeg,png,pdf --min-score 50 --quiet --json-report /home/kali/carvex/bench/results/final/reports/all-deleted_fat32/carvex-unallocated-rep2.json
+cwd: /home/kali/carvex
+
+
+returncode=0 timed_out=False elapsed=0.117966s

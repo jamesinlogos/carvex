@@ -1,0 +1,5 @@
+# Known-failing review scenarios (one ID per line).
+#
+# Phase 1 is complete: R1-R7 all pass, so this list is intentionally empty.
+# Add an ID here only while its fix is in progress; `--assert` then fails on an
+# unexpected failure and also on an unexpected pass (XPASS), forcing cleanup.

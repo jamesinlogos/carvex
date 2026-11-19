@@ -1,0 +1,31 @@
+CarveX 0.1.0 | image 3.73 GiB | types JPEG,PNG,PDF | mode raw
+[+] JPEG offset=     4272665 size=    16772 score=100 complete  00001_jpg_0000000000413219.jpg
+[+] JPEG offset=     4289462 size=     7849 score=100 complete  00002_jpg_00000000004173b6.jpg
+[+] JPEG offset=     4297336 size=    14509 score=100 complete  00003_jpg_0000000000419278.jpg
+[+] JPEG offset=     4322847 size=   584219 score=100 complete  00004_jpg_000000000041f61f.jpg
+[+] JPEG offset=     4912566 size=   479213 score=100 complete  00005_jpg_00000000004af5b6.jpg
+[+] JPEG offset=     4933475 size=    12536 score=100 complete  00006_jpg_00000000004b4763.jpg
+[+] PNG  offset=     5391804 size=  1214211 score=100 complete  00007_png_00000000005245bc.png
+[+] PNG  offset=     6606916 size=    24368 score=100 complete  00008_png_000000000064d044.png
+[+] PNG  offset=     6631309 size=    50618 score=100 complete  00009_png_0000000000652f8d.png
+[+] JPEG offset=     6681952 size=    26662 score=100 complete  00010_jpg_000000000065f560.jpg
+[+] JPEG offset=     6708639 size=    18411 score=100 complete  00011_jpg_0000000000665d9f.jpg
+[+] JPEG offset=     6727075 size=   214995 score=100 complete  00012_jpg_000000000066a5a3.jpg
+[+] PNG  offset=     6942095 size=   129785 score=100 complete  00013_png_000000000069ed8f.png
+[+] JPEG offset=     7071905 size=   286085 score=100 complete  00014_jpg_00000000006be8a1.jpg
+[+] JPEG offset=     7358015 size=   189945 score=100 complete  00015_jpg_000000000070463f.jpg
+[+] JPEG offset=     7547985 size=   221185 score=100 complete  00016_jpg_0000000000732c51.jpg
+[+] JPEG offset=     7548415 size=     3712 score=100 complete  00017_jpg_0000000000732dff.jpg
+[+] JPEG offset=     7769195 size=   279866 score=100 complete  00018_jpg_0000000000768c6b.jpg
+[+] JPEG offset=     8049086 size=   282101 score=100 complete  00019_jpg_00000000007ad1be.jpg
+[+] JPEG offset=     8331212 size=   283603 score=100 complete  00020_jpg_00000000007f1fcc.jpg
+
+Scanned 3.73 GiB in 3.42 s across 1 extent(s) [raw]
+Throughput: 1117.2 MiB/s | candidates: 429 | carved: 318 | rejected: 73
+Filtered   : min-size=0 min-score=0 complete-only=0 duplicate-hash=0 nested=38
+
+TYPE     FILES  COMPLETE  TRUNCATED  REPAIRED        BYTES
+JPEG       113       113          0         0     30.3 MiB
+PNG        205       205          0         0     57.7 MiB
+Output: /home/kali/cfreds-data/recovered-raw
+JSON report: /home/kali/cfreds-data/cfreds-raw-report.json

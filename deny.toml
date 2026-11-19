@@ -1,0 +1,50 @@
+# cargo-deny configuration (CarveX 0.2.0).
+#
+# Run: cargo deny check
+# The local environment now has cargo-deny installed; the CI workflow declares
+# this check but no GitHub run has been observed.  This file is authoritative
+# for license policy.
+
+[graph]
+all-features = true
+
+[advisories]
+# cargo-deny >= 0.16 schema.
+version = 2
+yanked = "deny"
+ignore = []
+# cargo-deny >= 0.21 only accepts all|workspace|transitive|none here; it has
+# no "warn" level.  Unmaintained advisories are informational, not
+# vulnerabilities, and are not allowed to fail the gate.  cargo audit remains
+# the non-failing source of advisory information.
+unmaintained = "none"
+
+[licenses]
+version = 2
+# Permissive licenses only.  Each entry is chosen because at least one
+# dependency is published under it; no copyleft license is required at
+# runtime.
+allow = [
+    "0BSD",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "MIT",
+    "Unicode-3.0",
+    "Unlicense",
+    "Zlib",
+]
+confidence-threshold = 0.8
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+deny = []
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

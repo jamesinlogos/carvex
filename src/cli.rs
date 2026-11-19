@@ -1,0 +1,578 @@
+use crate::fs::{self, FsInfo, PartitionSel};
+use crate::io::{sha256_source, ImageSource, RawFile};
+use crate::report;
+use crate::scan::{
+    self, AlignMode, ScanContext, ScanMode, ScanOptions, VolumeSummary, Warning, SCHEMA_VERSION,
+};
+use crate::signatures::{FileType, PdfEofMode, ValidationMode};
+use crate::util::{file_identity, human_size, parse_size, Extent};
+use anyhow::{bail, Context, Result};
+use clap::{Parser, Subcommand};
+use serde::Serialize;
+use std::path::PathBuf;
+
+/// `--partition largest|all|<N>` (A-07).
+fn parse_partition_sel(s: &str) -> Result<PartitionSel, String> {
+    s.parse()
+}
+
+#[derive(Parser)]
+#[command(
+    name = "carvex",
+    version,
+    about = "Header/footer file carver for JPEG, PNG and PDF with FAT32/NTFS awareness",
+    long_about = "CarveX recovers deleted JPEG, PNG and PDF files from raw disk images.\n\
+It combines signature carving (header/footer) with structural validation and,\n\
+for FAT32/NTFS, restricts scanning to unallocated clusters reported by the\n\
+filesystem allocation metadata (FAT or $Bitmap).",
+    after_help = "EXAMPLES:\n  \
+carvex info disk.img\n  \
+carvex scan disk.img -o recovered --mode unallocated --repair\n  \
+carvex scan disk.img -o raw-out --mode raw --types jpg,png,pdf --json-report report.json\n  \
+carvex scan disk.img -o out --partition 1 --verbose\n\n\
+Note: always work on a forensic copy; CarveX opens the image read-only."
+)]
+struct Cli {
+    #[command(subcommand)]
+    command: Command,
+}
+
+#[derive(Subcommand)]
+// A boxed ScanArgs would only move the cost around; the enum lives on the
+// stack for one parse.
+#[allow(clippy::large_enum_variant)]
+enum Command {
+    /// Identify the filesystem and print volume/allocation statistics
+    Info(InfoArgs),
+    /// Scan an image and write carved files plus a report
+    Scan(ScanArgs),
+    /// Show built-in signatures and validators
+    Signatures,
+}
+
+#[derive(Parser)]
+struct InfoArgs {
+    /// Disk image or volume image
+    image: PathBuf,
+    /// Select a 1-based MBR slot / GPT partition number
+    #[arg(long, conflicts_with = "offset")]
+    partition: Option<usize>,
+    /// Force the volume boot-sector offset (bytes, suffix K/M/G allowed)
+    #[arg(long, value_parser = parse_size, conflicts_with = "partition")]
+    offset: Option<u64>,
+    /// Print machine-readable JSON
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Parser)]
+struct ScanArgs {
+    /// Disk image or volume image (never modified)
+    image: PathBuf,
+    /// Output directory for carved files (must be empty unless --force)
+    #[arg(short, long)]
+    output: PathBuf,
+    /// Comma-separated types: jpeg,jpg,png,pdf
+    #[arg(
+        short = 't',
+        long = "types",
+        value_delimiter = ',',
+        default_value = "jpeg,png,pdf"
+    )]
+    types: Vec<FileType>,
+    /// Space to scan: auto, unallocated, raw, allocated
+    #[arg(long, value_enum, default_value_t = ScanMode::Auto)]
+    mode: ScanMode,
+    /// Minimum carved file size (bytes, suffix K/M/G allowed)
+    #[arg(long, value_parser = parse_size, default_value = "256")]
+    min_size: u64,
+    /// Maximum bytes to inspect after a header before giving up
+    #[arg(long, value_parser = parse_size, default_value = "64M")]
+    max_size: u64,
+    /// Maximum size of a truncated file written without --repair (0 = unlimited)
+    #[arg(long, value_parser = parse_size, default_value = "16M")]
+    max_truncated_size: u64,
+    /// Hard cap on the total bytes held for carved output before writing
+    #[arg(long, value_parser = parse_size, default_value = "1G")]
+    max_memory: u64,
+    /// Read chunk size for parallel scanning
+    #[arg(long, value_parser = parse_size, default_value = "4M")]
+    chunk_size: u64,
+    /// Worker threads (0 = number of CPUs)
+    #[arg(long, default_value_t = 0)]
+    threads: usize,
+    /// Minimum structural validation score (0-100)
+    #[arg(long, default_value_t = 50)]
+    min_score: u8,
+    /// Append a missing EOI/IEND/%%EOF to truncated files
+    #[arg(long)]
+    repair: bool,
+    /// Only write files whose footer was found
+    #[arg(long)]
+    complete_only: bool,
+    /// PDF %%EOF selection strategy
+    #[arg(long, value_enum, default_value_t = PdfEofMode::Smart)]
+    pdf_eof: PdfEofMode,
+    /// Drop later files with an identical SHA-256
+    #[arg(long)]
+    dedupe_hashes: bool,
+    /// Keep images/PDFs embedded inside a complete carved container
+    #[arg(long)]
+    keep_nested: bool,
+    /// Validate structure only, or also decode the payload
+    #[arg(long, value_enum, default_value_t = ValidationMode::Structure)]
+    validate: ValidationMode,
+    /// Candidate alignment: none (historical), auto, cluster, sector
+    #[arg(long, value_enum, default_value_t = AlignMode::None)]
+    align: AlignMode,
+    /// Allow writing into a non-empty output directory
+    #[arg(long)]
+    force: bool,
+    /// Write SHA256SUMS for the carved files
+    #[arg(long)]
+    manifest: bool,
+    /// Select partitions: 'all' (default), 'largest' (historical) or a 1-based number
+    #[arg(long, value_parser = parse_partition_sel, conflicts_with = "offset")]
+    partition: Option<PartitionSel>,
+    /// Scan image regions outside every supported volume (gaps and
+    /// partitions without a supported filesystem); on by default
+    #[arg(long, conflicts_with = "no_gaps")]
+    include_gaps: bool,
+    /// Restore the historical behaviour: do not scan gaps or unsupported
+    /// partitions (use with `--partition largest`)
+    #[arg(long, conflicts_with = "include_gaps")]
+    no_gaps: bool,
+    /// Force the volume boot-sector offset (bytes, suffix K/M/G allowed)
+    #[arg(long, value_parser = parse_size, conflicts_with = "partition")]
+    offset: Option<u64>,
+    /// Skip filesystem detection (raw scanning only)
+    #[arg(long)]
+    no_fs: bool,
+    /// Hash the complete source image (streaming, can be slow)
+    #[arg(long)]
+    hash_image: bool,
+    /// Case identifier stored in the report
+    #[arg(long)]
+    case_id: Option<String>,
+    /// Examiner name stored in the report
+    #[arg(long)]
+    examiner: Option<String>,
+    /// Write a machine-readable JSON report (schema 1 or 2)
+    #[arg(long)]
+    json_report: Option<PathBuf>,
+    /// Write a CSV report
+    #[arg(long)]
+    csv_report: Option<PathBuf>,
+    /// JSON report schema: 2 (current) or 1 (legacy shape)
+    #[arg(long, default_value_t = SCHEMA_VERSION, value_parser = clap::value_parser!(u8).range(1..=2))]
+    report_schema: u8,
+    /// Suppress progress and summary output
+    #[arg(long, conflicts_with = "verbose")]
+    quiet: bool,
+    /// Print every candidate/rejection decision
+    #[arg(long)]
+    verbose: bool,
+}
+
+/// Run the CLI and return the process exit code.
+///
+/// 0 = success, 1 = runtime error (returned as `Err` by `main`),
+/// 2 = clap usage error, 3 = finished but incomplete (warnings that mean
+/// evidence was skipped, see `Warning::incomplete`).
+pub fn run() -> Result<i32> {
+    let cli = Cli::parse();
+    match cli.command {
+        Command::Info(args) => info(args),
+        Command::Scan(args) => scan(args),
+        Command::Signatures => {
+            crate::signatures::print_signatures();
+            Ok(0)
+        }
+    }
+}
+
+/// Default scan accounting used by `info`: all volumes and gaps are scanned
+/// (A-07 step 2), free space only inside the supported volumes.
+fn default_scan_flags() -> (bool, bool, bool, bool) {
+    // (whole_image_scanned, scans_free, scans_allocated, include_gaps)
+    (false, true, false, true)
+}
+
+fn print_info(
+    args: &InfoArgs,
+    image_len: u64,
+    primary: &FsInfo,
+    volumes: Vec<VolumeSummary>,
+    regions: Vec<crate::fs::Region>,
+) -> Result<i32> {
+    if args.json {
+        #[derive(Serialize)]
+        struct Doc<'a> {
+            schema_version: u8,
+            image: String,
+            image_size: u64,
+            filesystem: &'a FsInfo,
+            volumes: &'a [VolumeSummary],
+            regions: &'a [crate::fs::Region],
+        }
+        let doc = Doc {
+            schema_version: SCHEMA_VERSION,
+            image: args.image.display().to_string(),
+            image_size: image_len,
+            filesystem: primary,
+            volumes: &volumes,
+            regions: &regions,
+        };
+        println!("{}", serde_json::to_string_pretty(&doc)?);
+        return Ok(0);
+    }
+
+    fs::print_info(&args.image, primary);
+    println!();
+    println!(
+        "Unallocated space available for carving: {} ({} clusters)",
+        human_size(primary.free_bytes()),
+        primary.free_clusters
+    );
+    if volumes.len() > 1 || !regions.is_empty() {
+        println!();
+        println!(
+            "Volumes detected : {} (default scan selects all volumes and gaps)",
+            volumes.len()
+        );
+        for v in &volumes {
+            println!(
+                "  [{}] {} at byte {} ({}), default scan: {}",
+                v.index,
+                v.fs,
+                v.offset,
+                human_size(v.length),
+                if v.scanned { "yes" } else { "NO" }
+            );
+        }
+        println!("Regions:");
+        for r in &regions {
+            println!(
+                "  {:<11} offset={:<12} len={:<12} scanned={}",
+                r.kind.to_string(),
+                r.offset,
+                format!("{} ({})", r.len, human_size(r.len)),
+                if r.scanned { "yes" } else { "no" }
+            );
+        }
+    }
+    Ok(0)
+}
+
+fn info(args: InfoArgs) -> Result<i32> {
+    let source = RawFile::open(&args.image)?;
+    let len = source.len();
+
+    // A forced offset or an explicit `--partition` is a single-volume view:
+    // the user opted out of region accounting (same rule as `scan --offset`).
+    if args.offset.is_some() || args.partition.is_some() {
+        let fs = fs::detect_guarded(&source, len, args.offset, args.partition)?;
+        let volumes = vec![VolumeSummary::from_fs(1, &fs, true)];
+        return print_info(&args, len, &fs, volumes, Vec::new());
+    }
+
+    let set = fs::detect_all_guarded(&source, len)?;
+    let largest = fs::select_volumes(&set, PartitionSel::Largest)?;
+    let selected = fs::select_volumes(&set, PartitionSel::All)?;
+    // Keep the largest volume as the `filesystem` summary; `volumes[]` and
+    // `regions[]` describe the new all-volumes-plus-gaps default.
+    let primary = largest
+        .first()
+        .or_else(|| selected.first())
+        .context("no supported FAT32/NTFS filesystem found")?;
+    let volumes: Vec<VolumeSummary> = set
+        .volumes
+        .iter()
+        .enumerate()
+        .map(|(i, v)| {
+            let chosen = selected
+                .iter()
+                .any(|s| s.offset == v.offset && s.length == v.length);
+            VolumeSummary::from_fs(i + 1, v, chosen)
+        })
+        .collect();
+    let (whole, free, alloc, gaps) = default_scan_flags();
+    let regions = set.regions(&selected, whole, free, alloc, gaps);
+    print_info(&args, len, primary, volumes, regions)
+}
+
+fn announce_fs(args: &ScanArgs, f: &FsInfo) {
+    if args.quiet {
+        return;
+    }
+    eprintln!(
+        "Filesystem: {} at offset {}, {} free ({:.1}% in {} extent(s))",
+        f.kind,
+        f.offset,
+        human_size(f.free_bytes()),
+        if f.total_clusters == 0 {
+            0.0
+        } else {
+            f.free_clusters as f64 * 100.0 / f.total_clusters as f64
+        },
+        f.free_extents.len()
+    );
+}
+
+fn scan(args: ScanArgs) -> Result<i32> {
+    let source = RawFile::open(&args.image)?;
+    let len = source.len();
+
+    // Selected volumes actually scanned, plus raw ranges added by
+    // `--include-gaps`; the full detection result feeds `volumes[]`,
+    // `regions[]` and the "not scanned" warnings (A-07).
+    let mut volumes: Vec<FsInfo> = Vec::new();
+    let mut extra: Vec<Extent> = Vec::new();
+    let mut volume_rows: Vec<VolumeSummary> = Vec::new();
+    let mut regions: Vec<crate::fs::Region> = Vec::new();
+    let mut warnings: Vec<Warning> = Vec::new();
+
+    let needs_fs = matches!(args.mode, ScanMode::Unallocated | ScanMode::Allocated);
+    // A-07 step 2: gaps are included by default; `--no-gaps` restores the
+    // historical step-1 behaviour. `--include-gaps` remains accepted for
+    // scripts written against the old CLI.
+    let include_gaps = args.include_gaps || !args.no_gaps;
+
+    if args.no_fs {
+        if needs_fs {
+            bail!("--no-fs is incompatible with --mode unallocated/allocated");
+        }
+        // No detection: the user opted out of filesystem and region accounting.
+    } else if let Some(off) = args.offset {
+        // Forced boot-sector offset: a single volume, no partition table
+        // interpretation, therefore no region accounting (user opt-out).
+        let f = fs::detect_guarded(&source, len, Some(off), None)
+            .context("filesystem detection failed")?;
+        announce_fs(&args, &f);
+        volume_rows.push(VolumeSummary::from_fs(1, &f, true));
+        volumes.push(f);
+    } else {
+        let selection = args.partition.unwrap_or(PartitionSel::All);
+        let explicit = args.partition.is_some();
+        match fs::detect_all_guarded(&source, len) {
+            Err(e) => {
+                if explicit || needs_fs {
+                    return Err(e).context("filesystem detection failed");
+                }
+                warnings.push(Warning::new(
+                    "FS_DETECTION_FAILED",
+                    format!("filesystem detection failed; used raw scan: {e:#}"),
+                ));
+            }
+            Ok(set) => match fs::select_volumes(&set, selection) {
+                Err(e) => {
+                    if explicit || needs_fs {
+                        return Err(e).context("filesystem detection failed");
+                    }
+                    warnings.push(Warning::new(
+                        "FS_DETECTION_FAILED",
+                        format!("filesystem detection failed; used raw scan: {e:#}"),
+                    ));
+                    // The fallback reads the whole image, so every region of
+                    // the failed detection is still scanned.
+                    volume_rows = set
+                        .volumes
+                        .iter()
+                        .enumerate()
+                        .map(|(i, v)| VolumeSummary::from_fs(i + 1, v, true))
+                        .collect();
+                    regions = set.regions(&[], true, false, false, include_gaps);
+                }
+                Ok(selected) => {
+                    volumes = selected;
+                    for f in &volumes {
+                        announce_fs(&args, f);
+                    }
+                    if include_gaps {
+                        extra = set.unscanned_extents();
+                    }
+                    let whole_image = args.mode == ScanMode::Raw;
+                    let scans_free = matches!(args.mode, ScanMode::Auto | ScanMode::Unallocated);
+                    let scans_alloc = args.mode == ScanMode::Allocated;
+                    volume_rows = set
+                        .volumes
+                        .iter()
+                        .enumerate()
+                        .map(|(i, v)| {
+                            let chosen = volumes
+                                .iter()
+                                .any(|s| s.offset == v.offset && s.length == v.length);
+                            VolumeSummary::from_fs(i + 1, v, whole_image || chosen)
+                        })
+                        .collect();
+                    regions =
+                        set.regions(&volumes, whole_image, scans_free, scans_alloc, include_gaps);
+
+                    // A-07: say out loud what this run does not read.
+                    if !whole_image {
+                        for v in &set.volumes {
+                            let chosen = volumes
+                                .iter()
+                                .any(|s| s.offset == v.offset && s.length == v.length);
+                            if !chosen {
+                                warnings.push(Warning::new(
+                                    "VOLUME_NOT_SCANNED",
+                                    format!(
+                                        "{} at byte {} ({}) was not scanned; \
+                                         use --partition all to scan every volume",
+                                        v.partition_index
+                                            .map(|i| format!("partition {i}"))
+                                            .unwrap_or_else(|| "volume".into()),
+                                        v.offset,
+                                        human_size(v.length)
+                                    ),
+                                ));
+                            }
+                        }
+                        if !include_gaps {
+                            for p in &set.unsupported {
+                                let detail = set
+                                    .errors
+                                    .iter()
+                                    .find(|e| e.starts_with(&format!("partition {}:", p.index)));
+                                warnings.push(Warning::new(
+                                    "VOLUME_UNSUPPORTED",
+                                    format!(
+                                        "partition {} (type {}, byte {}) was not scanned: \
+                                         no supported FAT32/NTFS filesystem{}; \
+                                         use --include-gaps to scan it raw",
+                                        p.index,
+                                        p.type_name,
+                                        p.byte_offset(512),
+                                        detail.map(|d| format!(" ({d})")).unwrap_or_default()
+                                    ),
+                                ));
+                            }
+                            if !set.gaps.is_empty() {
+                                let total: u64 = set.gaps.iter().map(|g| g.len).sum();
+                                warnings.push(Warning::new(
+                                    "GAP_NOT_SCANNED",
+                                    format!(
+                                        "{} image region(s) outside every partition \
+                                         ({} in total) were not scanned; use --include-gaps",
+                                        set.gaps.len(),
+                                        human_size(total)
+                                    ),
+                                ));
+                            }
+                        }
+                    }
+                }
+            },
+        }
+    }
+
+    if args.mode == ScanMode::Raw && !volumes.is_empty() {
+        warnings.push(Warning::new(
+            "RAW_SCANS_ALLOCATED",
+            "raw mode also scans allocated clusters",
+        ));
+    }
+
+    let (image_mtime, _) = match file_identity(&args.image) {
+        Ok((_, mtime)) => (mtime, ()),
+        Err(_) => (None, ()),
+    };
+    let image_sha256 = if args.hash_image {
+        if !args.quiet {
+            eprintln!("Hashing source image (SHA-256)…");
+        }
+        Some(sha256_source(&source)?)
+    } else {
+        None
+    };
+
+    let opts = ScanOptions {
+        types: args.types.clone(),
+        mode: args.mode,
+        min_size: args.min_size,
+        max_size: args.max_size,
+        max_truncated_size: if args.max_truncated_size == 0 {
+            u64::MAX
+        } else {
+            args.max_truncated_size
+        },
+        max_memory: args.max_memory,
+        chunk_size: args.chunk_size,
+        threads: args.threads,
+        min_score: args.min_score,
+        repair: args.repair,
+        complete_only: args.complete_only,
+        pdf_eof: args.pdf_eof,
+        dedupe_hashes: args.dedupe_hashes,
+        suppress_nested: !args.keep_nested,
+        validate: args.validate,
+        align: args.align,
+        force: args.force,
+        quiet: args.quiet,
+        verbose: args.verbose,
+        manifest: args.manifest,
+        partition: args.partition.unwrap_or(PartitionSel::All).to_string(),
+        include_gaps,
+    };
+    let ctx = ScanContext {
+        argv: std::env::args().collect(),
+        case_id: args.case_id.clone(),
+        examiner: args.examiner.clone(),
+        image_sha256,
+        image_mtime,
+    };
+
+    if !args.quiet {
+        eprintln!(
+            "CarveX {} | image {} | types {} | mode {}{}",
+            env!("CARGO_PKG_VERSION"),
+            human_size(len),
+            args.types
+                .iter()
+                .map(|t| t.label())
+                .collect::<Vec<_>>()
+                .join(","),
+            args.mode.as_str(),
+            if args.repair { " | repair" } else { "" }
+        );
+    }
+
+    let input = scan::ScanInput {
+        source: &source,
+        image: &args.image,
+        image_len: len,
+        volumes: &volumes,
+        extra_extents: &extra,
+        out_dir: &args.output,
+    };
+    let mut report = scan::run_scan(&input, &opts, &ctx)?;
+    // A-07: every detected volume and region, with whether this run read it.
+    report.volumes = volume_rows;
+    report.regions = regions;
+    report.warnings.extend(warnings);
+    if !args.quiet {
+        scan::print_summary(&report);
+    }
+    for warning in &report.warnings {
+        eprintln!("warning[{}]: {}", warning.code, warning.message);
+    }
+    if let Some(path) = &args.json_report {
+        report::write_json(&report, path, args.report_schema)?;
+        if !args.quiet {
+            println!("JSON report: {}", path.display());
+        }
+    }
+    if let Some(path) = &args.csv_report {
+        report::write_csv(&report, path)?;
+        if !args.quiet {
+            println!("CSV report : {}", path.display());
+        }
+    }
+    // Exit 3 = finished but incomplete: evidence was left unscanned (A-07).
+    Ok(if report.warnings.iter().any(|w| w.incomplete()) {
+        3
+    } else {
+        0
+    })
+}

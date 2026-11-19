@@ -1,0 +1,25 @@
+=== A-07 green: CarveX v0.2.0 (target/release/carvex) ===
+date: 2026-11-19T08:59:10Z
+image: target/a07/s1.img (same S1 image as A-07_v0.1.0.txt)
+
+--- command (default) ---
+carvex scan target/a07/s1.img -o out --quiet --json-report report.json
+--- stderr ---
+warning[VOLUME_NOT_SCANNED]: partition 2 at byte 66060288 (62.0 MiB) was not scanned; use --partition all to scan every volume
+warning[GAP_NOT_SCANNED]: 1 image region(s) outside every partition (1.00 MiB in total) were not scanned; use --include-gaps
+--- exit code: 3 ---
+--- carved files: 30 ---
+--- report ---
+warnings: ['VOLUME_NOT_SCANNED', 'GAP_NOT_SCANNED']
+volumes: [('FAT32', 1, True), ('NTFS', 2, False)]
+regions: [('free', 1048576, 65011712, True), ('allocated', 1048576, 65011712, False), ('free', 66060288, 65011200, False), ('allocated', 66060288, 65011200, False), ('gap', 0, 1048576, False)]
+files: 30
+
+--- command (--partition all) ---
+warning[GAP_NOT_SCANNED]: 1 image region(s) outside every partition (1.00 MiB in total) were not scanned; use --include-gaps
+--- exit code: 3 ---
+--- carved files: 60 (part1: 30, part2: 30) ---
+
+--- command (--partition all --include-gaps) ---
+--- exit code: 0 ---
+--- carved files: 60 ---

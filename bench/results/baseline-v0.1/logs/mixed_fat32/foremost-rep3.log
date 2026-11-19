@@ -1,0 +1,5 @@
+$ foremost -Q -c /home/kali/carvex/bench/foremost.conf -t jpg,png,pdf -i /home/kali/carvex/bench/images/mixed_fat32.img -o /home/kali/carvex/bench/work/run-20261117-223325/mixed_fat32/foremost/rep3/out
+cwd: /home/kali/carvex
+
+
+returncode=0 timed_out=False elapsed=0.321463s

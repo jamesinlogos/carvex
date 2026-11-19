@@ -1,0 +1,260 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/carvex/report-v2.schema.json",
+  "title": "CarveX scan report",
+  "description": "Schema 2 (CarveX 0.2.0). Schema 1 is the legacy shape produced by --report-schema 1: it omits schema_version, tool_info, input, argv, options, case_id, examiner, started_at, warnings, volumes and regions, and removes the validation/allocated-source fields from files.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "tool",
+    "tool_info",
+    "image",
+    "input",
+    "image_size",
+    "filesystem",
+    "mode",
+    "output_dir",
+    "argv",
+    "options",
+    "case_id",
+    "examiner",
+    "started_at",
+    "started_at_unix",
+    "duration_ms",
+    "bytes_scanned",
+    "throughput_mib_s",
+    "stats",
+    "volumes",
+    "regions",
+    "warnings",
+    "files"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": 2 },
+    "tool": { "type": "string" },
+    "tool_info": {
+      "type": "object",
+      "required": ["name", "version", "commit"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "version": { "type": "string" },
+        "commit": { "type": "string" }
+      }
+    },
+    "image": { "type": "string" },
+    "input": {
+      "type": "object",
+      "required": ["path", "size", "sha256", "modified_unix", "size_after", "modified_unix_after", "unchanged"],
+      "additionalProperties": false,
+      "properties": {
+        "path": { "type": "string" },
+        "size": { "type": "integer", "minimum": 0 },
+        "sha256": { "type": ["string", "null"] },
+        "modified_unix": { "type": ["integer", "null"] },
+        "size_after": { "type": "integer", "minimum": 0 },
+        "modified_unix_after": { "type": ["integer", "null"] },
+        "unchanged": { "type": "boolean" }
+      }
+    },
+    "image_size": { "type": "integer", "minimum": 0 },
+    "filesystem": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/filesystem" }
+      ]
+    },
+    "mode": { "enum": ["auto", "unallocated", "raw", "allocated"] },
+    "output_dir": { "type": "string" },
+    "argv": { "type": "array", "items": { "type": "string" } },
+    "options": { "$ref": "#/$defs/options" },
+    "case_id": { "type": ["string", "null"] },
+    "examiner": { "type": ["string", "null"] },
+    "started_at": { "type": "string" },
+    "started_at_unix": { "type": "integer", "minimum": 0 },
+    "duration_ms": { "type": "integer", "minimum": 0 },
+    "bytes_scanned": { "type": "integer", "minimum": 0 },
+    "throughput_mib_s": { "type": "number", "minimum": 0 },
+    "stats": { "$ref": "#/$defs/stats" },
+    "volumes": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/volume" },
+      "description": "Every detected FAT32/NTFS volume with a scanned flag (A-07)."
+    },
+    "regions": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/region" },
+      "description": "Top-level image regions with a scanned flag (A-07)."
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["code", "message"],
+        "additionalProperties": false,
+        "properties": {
+          "code": { "type": "string" },
+          "message": { "type": "string" }
+        }
+      }
+    },
+    "files": { "type": "array", "items": { "$ref": "#/$defs/file" } }
+  },
+  "$defs": {
+    "extent": {
+      "type": "object",
+      "required": ["offset", "len"],
+      "additionalProperties": false,
+      "properties": {
+        "offset": { "type": "integer", "minimum": 0 },
+        "len": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "filesystem": {
+      "type": "object",
+      "required": [
+        "kind", "offset", "length", "bytes_per_sector", "sectors_per_cluster",
+        "cluster_size", "data_start", "total_clusters", "free_clusters",
+        "free_extents", "partition_index", "partition_type", "label", "details"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "enum": ["fat32", "ntfs"] },
+        "offset": { "type": "integer", "minimum": 0 },
+        "length": { "type": "integer", "minimum": 0 },
+        "bytes_per_sector": { "type": "integer", "minimum": 1 },
+        "sectors_per_cluster": { "type": "integer", "minimum": 1 },
+        "cluster_size": { "type": "integer", "minimum": 1 },
+        "data_start": { "type": "integer", "minimum": 0 },
+        "total_clusters": { "type": "integer", "minimum": 0 },
+        "free_clusters": { "type": "integer", "minimum": 0 },
+        "free_extents": { "type": "array", "items": { "$ref": "#/$defs/extent" } },
+        "partition_index": { "type": ["integer", "null"], "minimum": 1 },
+        "partition_type": { "type": ["string", "null"] },
+        "label": { "type": ["string", "null"] },
+        "details": { "type": "object", "additionalProperties": { "type": "string" } }
+      }
+    },
+    "options": {
+      "type": "object",
+      "required": [
+        "types", "mode", "min_size", "max_size", "max_truncated_size",
+        "max_memory", "chunk_size", "threads", "min_score", "repair",
+        "complete_only", "pdf_eof", "dedupe_hashes", "suppress_nested",
+        "validate", "align", "partition", "include_gaps"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "types": { "type": "array", "items": { "type": "string" } },
+        "mode": { "enum": ["auto", "unallocated", "raw", "allocated"] },
+        "min_size": { "type": "integer", "minimum": 0 },
+        "max_size": { "type": "integer", "minimum": 0 },
+        "max_truncated_size": { "type": "integer", "minimum": 0 },
+        "max_memory": { "type": "integer", "minimum": 0 },
+        "chunk_size": { "type": "integer", "minimum": 0 },
+        "threads": { "type": "integer", "minimum": 0 },
+        "min_score": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "repair": { "type": "boolean" },
+        "complete_only": { "type": "boolean" },
+        "pdf_eof": { "enum": ["first", "last", "smart"] },
+        "dedupe_hashes": { "type": "boolean" },
+        "suppress_nested": { "type": "boolean" },
+        "validate": { "enum": ["structure", "decode"] },
+        "align": { "enum": ["none", "auto", "cluster", "sector"] },
+        "partition": { "type": "string", "description": "'largest', 'all' or a 1-based partition number" },
+        "include_gaps": { "type": "boolean" }
+      }
+    },
+    "volume": {
+      "type": "object",
+      "required": [
+        "index", "fs", "offset", "length", "cluster_size", "free_bytes",
+        "partition_index", "scanned"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "index": { "type": "integer", "minimum": 1 },
+        "fs": { "type": "string" },
+        "offset": { "type": "integer", "minimum": 0 },
+        "length": { "type": "integer", "minimum": 0 },
+        "cluster_size": { "type": "integer", "minimum": 1 },
+        "free_bytes": { "type": "integer", "minimum": 0 },
+        "partition_index": { "type": ["integer", "null"], "minimum": 1 },
+        "scanned": { "type": "boolean" }
+      }
+    },
+    "region": {
+      "type": "object",
+      "required": ["kind", "offset", "len", "scanned", "partition_index"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "enum": ["free", "allocated", "gap", "unsupported"] },
+        "offset": { "type": "integer", "minimum": 0 },
+        "len": { "type": "integer", "minimum": 0 },
+        "scanned": { "type": "boolean" },
+        "partition_index": { "type": ["integer", "null"], "minimum": 1 }
+      }
+    },
+    "stats": {
+      "type": "object",
+      "required": [
+        "candidates", "carved", "rejected", "below_min_size", "below_min_score",
+        "skipped_complete_only", "too_large_truncated", "duplicate_hashes",
+        "suppressed_nested", "truncated", "repaired", "bytes_written",
+        "extents", "bytes_in_extents"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "candidates": { "type": "integer", "minimum": 0 },
+        "carved": { "type": "integer", "minimum": 0 },
+        "rejected": { "type": "integer", "minimum": 0 },
+        "below_min_size": { "type": "integer", "minimum": 0 },
+        "below_min_score": { "type": "integer", "minimum": 0 },
+        "skipped_complete_only": { "type": "integer", "minimum": 0 },
+        "too_large_truncated": { "type": "integer", "minimum": 0 },
+        "duplicate_hashes": { "type": "integer", "minimum": 0 },
+        "suppressed_nested": { "type": "integer", "minimum": 0 },
+        "truncated": { "type": "integer", "minimum": 0 },
+        "repaired": { "type": "integer", "minimum": 0 },
+        "bytes_written": { "type": "integer", "minimum": 0 },
+        "extents": { "type": "integer", "minimum": 0 },
+        "bytes_in_extents": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "file": {
+      "type": "object",
+      "required": [
+        "seq", "type", "offset", "size", "carved_size", "sha256", "status",
+        "score", "width", "height", "repaired", "path", "notes", "validation",
+        "validated_bytes", "lba", "cluster", "partition_index", "extent_id",
+        "allocated", "source", "fragments"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "seq": { "type": "integer", "minimum": 1 },
+        "type": { "enum": ["jpeg", "png", "pdf"] },
+        "offset": { "type": "integer", "minimum": 0 },
+        "size": { "type": "integer", "minimum": 0 },
+        "carved_size": { "type": "integer", "minimum": 0 },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "status": { "enum": ["complete", "truncated", "repaired"] },
+        "score": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "width": { "type": ["integer", "null"] },
+        "height": { "type": ["integer", "null"] },
+        "repaired": { "type": "boolean" },
+        "path": { "type": "string" },
+        "notes": { "type": "array", "items": { "type": "string" } },
+        "validation": { "enum": ["structure", "decoded", "partial", "unverified"] },
+        "validated_bytes": { "type": "integer", "minimum": 0 },
+        "lba": { "type": "integer", "minimum": 0 },
+        "cluster": { "type": ["integer", "null"], "minimum": 0 },
+        "partition_index": { "type": ["integer", "null"], "minimum": 1 },
+        "extent_id": { "type": "integer", "minimum": 0 },
+        "allocated": { "type": ["boolean", "null"] },
+        "source": { "type": "string" },
+        "fragments": { "type": "array", "items": { "$ref": "#/$defs/extent" } }
+      }
+    }
+  }
+}

@@ -1,0 +1,17 @@
+=== A-07 red baseline: CarveX v0.1.0 (dist/carvex-linux-x86_64) ===
+date: 2026-11-19T08:58:48Z
+image: target/a07/s1.img (S1 multipart: 1 MiB gap + FAT32 part1 + NTFS part2, 131072000 B)
+
+--- command ---
+carvex scan target/a07/s1.img -o out --quiet --json-report report.json
+--- stderr ---
+--- exit code: 0 ---
+--- carved files: 30 ---
+00001_jpg_00000000001f8800.jpg
+00002_jpg_0000000000227e00.jpg
+00003_jpg_00000000002b8e00.jpg
+--- report: regions/volumes/warnings keys ---
+keys: ['bytes_scanned', 'duration_ms', 'files', 'filesystem', 'image', 'image_size', 'mode', 'output_dir', 'started_at_unix', 'stats', 'throughput_mib_s', 'tool']
+warnings: None
+has volumes[]: False  has regions[]: False
+files: 30
