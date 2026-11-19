@@ -252,7 +252,9 @@ def main():
         ("pdf_05_large_scan.pdf", lambda p: make_pdf_with_image(p, [(1400, 1000)], args.seed + 205), "large image PDF"),
         ("pdf_06_text_3pages.pdf", lambda p: open(p, "wb").write(text_pdf(3, args.seed + 206, padding=20)), "text PDF, 3 pages"),
         ("pdf_07_mixed_4pages.pdf", lambda p: make_pdf_with_image(p, [(500, 400), (600, 450), (450, 600), (550, 550)], args.seed + 207), "image PDF, 4 pages"),
-        ("pdf_08_small_text.pdf", lambda p: open(p, "wb").write(text_pdf(1, args.seed + 208, padding=6)), "small text PDF"),
+        # padding=10 keeps this sample above the 4096-byte NTFS non-residency
+        # guard for every lockbox seed (1001-1020); padding=6 failed for 19 of them.
+        ("pdf_08_small_text.pdf", lambda p: open(p, "wb").write(text_pdf(1, args.seed + 208, padding=10)), "small text PDF"),
         ("pdf_09_text_long.pdf", lambda p: open(p, "wb").write(text_pdf(4, args.seed + 209, padding=30)), "long text PDF"),
         ("pdf_10_image_portrait.pdf", lambda p: make_pdf_with_image(p, [(520, 760)], args.seed + 210), "portrait image PDF"),
     ]

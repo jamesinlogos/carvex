@@ -60,6 +60,19 @@ scripts/coverage.sh 60                                OK (2859/4508 lines = 63.4
 scripts/fuzz.sh 60                                   7 targets x 60 s, 18,520,025 runs, no crashes/artifacts
 ```
 
+### Pre-execution protocol correction (protocol-v1.1)
+
+`protocol-v1` was committed/tagged/pushed before any lockbox artifact was
+created (`cbee72d26634be041e48f9256198c1ff344df82f`). The first lockbox
+generation attempt then showed that 19 of the fixed seeds 1001–1020 failed the
+existing D1 builder's own 4096-byte NTFS non-residency guard for
+`pdf_08_small_text.pdf`; seed 1011 was the only pass. No lockbox result was
+viewed before fixing this. With user approval, that one builder padding value
+was changed from `padding=6` to `padding=10` (minimum value that passes all 20
+seeds), committed as a new annotated tag `protocol-v1.1`, and pushed before the
+lockbox dataset was regenerated. Carving, scoring, runner commands, configs,
+published figures and `docs/BENCHMARK_PROTOCOL.md` were **not** changed.
+
 `SKIPPED` items: running the Windows binary on real Windows (no machine
 available), and GitHub Actions execution (not yet pushed at the time of the
 protocol freeze).
@@ -107,7 +120,7 @@ Windows**.
 | B-09 | OPEN | - | Per-file `notes[]` present; no fixture + test per variant (APNG, xref stream, `/Encrypt`…); no format support table. |
 | B-10 | OPEN | - | No custom signatures/`--signatures`; the registry (A-10) is the ready foundation. |
 | B-11 | OPEN | - | No `posix_fadvise`/`--io-threads`. |
-| C-01 | PARTIAL | n/a | `docs/BENCHMARK_PROTOCOL.md` frozen at tag `protocol-v1` (SHA-256 `d38607b86850312ec9906acd0dd732f965ca10cd5e78ff567a7076360b8008b6`); `bench/results/baseline-v0.1/` frozen. Lockbox generated and run only after the tag. |
+| C-01 | PARTIAL | n/a | `docs/BENCHMARK_PROTOCOL.md` frozen at tag `protocol-v1` (SHA-256 `d38607b86850312ec9906acd0dd732f965ca10cd5e78ff567a7076360b8008b6`); pre-execution builder correction tagged `protocol-v1.1`; `bench/results/baseline-v0.1/` frozen. Lockbox generated and run only after the tag. |
 | C-02 | OPEN | - | No `--seed/--profile` builder; the current dataset is only synthetic D1 with 30 files. |
 | C-03 | PARTIAL | - | Ground truth from a Pillow manifest, independent of CarveX; runner checks SHA-256 before each run; metrics do not use CarveX's validator (ADR-007). `qpdf`/`pdftoppm` missing → PDF "openable" check SKIPPED. |
 | C-04 | PARTIAL | - | Exact + usable file-level, one-to-one metric, FP classification kept/unknown. **F-17 verified by re-running:** Foremost 40/44 JPEG-in-PDF + 4 truncated PDFs; Scalpel 40/54 + 4 + 10 child spans (8 EXIF thumbnails + 2 `FFD8FFD9` fragments) — matches "40 of 44 / 40 of 54". No block-level `byte_recall`/`splice_rate`; classification not automated in the runner. |
