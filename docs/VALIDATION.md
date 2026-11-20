@@ -35,20 +35,22 @@ actionlint install.
 
 Command: `scripts/gate.sh`
 
-Result: **GATE GREEN**. It ran format check, clippy, 70 tests
-(34 unit + 12 CLI contract + 5 evidence formats + 8 filesystem detection +
-5 property + 6 scan integration), rustdoc with `-D warnings`, `actionlint`,
-`cargo deny check`, `cargo audit`, MSRV 1.85 check, release build,
-`scripts/review_repro.py` (10/10 PASS, 0 XPASS) and the benchmark smoke test
-(TP=3/FP=0 unallocated, TP=3/FP=1 raw). `cargo audit` reported 0
-vulnerabilities in 91 crates against 1550 advisories; `cargo deny check`
-reported advisories, bans, licenses and sources all OK.
+Result: **GATE GREEN**. It ran format check, clippy, 73 tests
+(34 unit + 13 CLI contract + 5 evidence formats + 8 filesystem detection +
+5 property + 6 scan integration + 2 fragment recovery), rustdoc with
+`-D warnings`, `actionlint`, `cargo deny check`, `cargo audit`, MSRV 1.85
+check, release build, `scripts/review_repro.py` (10/10 PASS, 0 XPASS) and the
+benchmark smoke test (TP=3/FP=0 unallocated, TP=3/FP=1 raw). `cargo audit`
+reported 0 vulnerabilities in 91 crates against 1550 advisories; `cargo deny
+check` reported advisories, bans, licenses and sources all OK.
 
-The gate was re-run after the B-04 source additions. The five
-`tests/evidence_formats.rs` fixture tests verify byte-for-byte reads for split
-raw, compressed and uncompressed E01, fixed and dynamic VHD, flat and sparse
-VMDK, and stdin report identity. Smoke output remained metric-identical to the
-frozen 0.2.0 behavior.
+The gate was re-run after the B-04 source additions and again after B-06. The
+five `tests/evidence_formats.rs` fixture tests verify byte-for-byte reads for
+split raw, compressed and uncompressed E01, fixed and dynamic VHD, flat and
+sparse VMDK, and stdin report identity. The two
+`tests/fragment_recovery.rs` tests verify exact S12-style JPEG, PNG and PDF
+recovery from interleaved fragments and rejection of invalid B-06 limits.
+Smoke output remained metric-identical to the frozen 0.2.0 behavior.
 
 ## 3. GitHub Actions
 
@@ -70,8 +72,9 @@ the final API check and are superseded by the successful run above. Local
 fuzz runtime evidence is recorded in §4 because it is the actual executed fuzz
 evidence.
 
-These GitHub runs predate the B-04 source additions. The post-B-04 evidence in
-§2 is the local gate only; no post-B-04 GitHub run is claimed.
+These GitHub runs predate the B-04 source additions and B-06. The post-B-04
+and post-B-06 evidence in §2 is the local gate only; no post-B-04 or post-B-06
+GitHub run is claimed.
 
 ## 4. Fuzz runtime
 
@@ -96,13 +99,14 @@ empty. Full logs are in `bench/results/fuzz/*.log`.
 
 Command: `scripts/coverage.sh 60` (cargo-llvm-cov `0.9.1`).
 
-Result: **COVERAGE COMPLETE: minimum 60% lines**. After the B-04 source
-additions and post-review fixes the lcov report contains 3802/5633 covered
-lines = **67.50%**. The pre-B-04 0.2.0 measurement was 2859/4508 lines =
-63.42%. Both are below the
-earlier aspirational 80% target, so the CI and local floor is honestly set to
-60%; no 80% coverage is claimed. Artifacts: `bench/results/coverage/lcov.info`
-and `bench/results/coverage/coverage.log`.
+Result: **COVERAGE COMPLETE: minimum 60% lines**. After the B-06 additions the
+lcov report contains 4111/6001 covered lines = **68.51%**. The post-B-04
+measurement was 3802/5633 lines = 67.50%, and the pre-B-04 0.2.0 measurement
+was 2859/4508 lines = 63.42%; those figures are historical. All measurements
+are below the earlier aspirational 80% target, so the CI and local floor is
+honestly set to 60%; no 80% coverage is claimed. Artifacts:
+`bench/results/coverage/lcov.info` and
+`bench/results/coverage/coverage.log`.
 
 ## 6. Lockbox-v1 (single use)
 
@@ -172,6 +176,9 @@ evidence only; published figures remain those of 0.1.0.
 ## 8. What is still not claimed
 
 - D2–D7 datasets remain OPEN; lockbox-v1 uses the D1-style synthetic profile.
+- No D1 fragmented-profile recall or `splice_rate` was measured for B-06; the
+  S12 fixtures are correctness tests only, and the published figures do not
+  include B-06.
 - Same-search-space baselines, validator/alignment/FS-aware ablations,
   block-level byte recall/splice rate and McNemar/bootstrap statistics remain
   OPEN.

@@ -60,7 +60,9 @@ CarveX was built to address these three problems for three common formats — JP
   compressed streamOptimized VMDK (classic E01, split raw, fixed/dynamic VHD and
   flat/sparse VMDK are supported read-only; see §6.4 item 10).
 - FAT12/FAT16, exFAT, ext4, APFS, HFS+.
-- Reassembling fragmented files based on the deleted file's runlist.
+- Reassembling fragmented files based on the deleted file's runlist. The
+  opt-in BGC stage in §3.6 joins only two cluster-aligned fragments and does not
+  use metadata.
 - Decoding encrypted JPEG/PDF content.
 - Graphical user interface.
 
@@ -321,7 +323,36 @@ Scores are used to filter junk candidates. The default threshold is 50.
 | xref or `/XRef` present | +10 |
 | Truncated PDF with objects | 60 (+5 if xref present) |
 
-### 3.6. Filtering and deduplication
+### 3.6. Bounded bifragment gap carving (B-06)
+
+Bifragment Gap Carving (BGC) is available as an opt-in stage enabled by
+`--fragment-recovery`. It is not part of the default scan and was not used for
+the published benchmark. The stage works only inside a detected FAT32/NTFS
+volume, where cluster boundaries supply the fragment geometry. A header
+candidate is treated as the first fragment; a later cluster-aligned offset is
+treated as the start of the second fragment, which ends at a format footer.
+Candidate joins are limited by `--max-gap` (clusters),
+`--max-frag-candidates` (joins evaluated) and `--frag-time-limit`
+(milliseconds), and are tried in order of increasing gap. Reads are confined to
+scanned extents.
+
+A join is accepted only when the stitched byte sequence passes the same deep
+validator used by `--validate decode`. This prevents a structural splice from
+being reported as verified without content validation. Each accepted record has
+`source="bgc"`, exactly two `fragments[]` entries, a `checks` count and a
+`confidence` score. These JSON fields are optional and omitted when B-06 is
+disabled; the CSV columns are unchanged. Bounded warnings are
+`FRAGMENT_RECOVERY_SKIPPED`, `FRAGMENT_FOOTER_SCAN_FAILED`,
+`FRAGMENT_CANDIDATE_LIMIT` and `FRAGMENT_TIME_LIMIT`.
+
+The S12 acceptance case is an interleaved `[A1][B1][A2][B2]` FAT32 layout.
+Generated fixtures for JPEG, PNG and PDF recover both source files
+byte-exactly, including the PDF trailing line ending. This is a controlled
+correctness test, not a recall measurement: no fragmented-profile recall,
+splice rate or confidence interval has been measured, and no fragment count
+above two or metadata/runlist-assisted reassembly is implemented.
+
+### 3.7. Filtering and deduplication
 
 After carving:
 
@@ -334,7 +365,7 @@ After carving:
 
 Nested suppression applies only when the parent file has `status = complete` and a `carved_size` larger than the child. The parent ends at the parsed footer rather than extending to the end of the cluster, so it does not swallow a physically subsequent file.
 
-### 3.7. Repairing truncated files
+### 3.8. Repairing truncated files
 
 With `--repair`:
 
@@ -344,7 +375,7 @@ With `--repair`:
 
 The file is marked `repaired`; the hash is recomputed after appending. Use this option only when the goal is to open the file, not when byte-exact evidence is required.
 
-### 3.8. CLI and reporting
+### 3.9. CLI and reporting
 
 - Three commands: `info`, `scan`, `signatures`.
 - `--json-report` outputs all metadata and the file list.
@@ -673,7 +704,7 @@ On the test corpus, CarveX unallocated achieved a perfect 100/100 exact, 0 FP. T
 
 ### 7.2. Future work
 
-1. **Fragmented file reassembly:** read the deleted file's runlist from the MFT (NTFS) or directory entries (FAT32) when metadata remains, combined with content carving.
+1. **Metadata-assisted fragmented file reassembly:** extend the two-fragment BGC stage by reading the deleted file's runlist from the MFT (NTFS) or directory entries (FAT32) when metadata remains, and measure recall/splice rate on fragmented profiles.
 2. **Additional formats:** HEIC, TIFF, DOCX, ZIP, MP4; prioritize formats with a clear structure.
 3. **Support exFAT, FAT12/16, ext4.**
 4. **Broader container support:** add EWF2/Ex01, encrypted E01, L01,

@@ -163,7 +163,11 @@
         "validate": { "enum": ["structure", "decode"] },
         "align": { "enum": ["none", "auto", "cluster", "sector"] },
         "partition": { "type": "string", "description": "'largest', 'all' or a 1-based partition number" },
-        "include_gaps": { "type": "boolean" }
+        "include_gaps": { "type": "boolean" },
+        "fragment_recovery": { "type": "boolean", "description": "B-06 was enabled (omitted otherwise)" },
+        "max_gap": { "type": "integer", "minimum": 1, "description": "B-06 maximum gap in clusters" },
+        "max_frag_candidates": { "type": "integer", "minimum": 1, "description": "B-06 candidate-join bound" },
+        "frag_time_limit_ms": { "type": "integer", "minimum": 1, "description": "B-06 wall-clock budget in milliseconds" }
       }
     },
     "volume": {
@@ -253,7 +257,9 @@
         "extent_id": { "type": "integer", "minimum": 0 },
         "allocated": { "type": ["boolean", "null"] },
         "source": { "type": "string" },
-        "fragments": { "type": "array", "items": { "$ref": "#/$defs/extent" } }
+        "fragments": { "type": "array", "items": { "$ref": "#/$defs/extent" } },
+        "checks": { "type": "integer", "minimum": 0, "description": "Deep-validation checks made for a B-06 stitch" },
+        "confidence": { "type": "integer", "minimum": 0, "maximum": 100, "description": "Structural score of an accepted B-06 stitch" }
       }
     }
   }

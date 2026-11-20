@@ -383,3 +383,22 @@ decision, and the consequences.
   detected before parsing; the dynamic VHD reader ignores the per-sector
   presence bitmap inside an allocated block. Frozen results, figures, protocol
   text and dist binaries are unchanged.
+
+## D-30. B-06 stays opt-in and deep-validates every stitch
+
+- **Context:** B-06 required bounded bifragment gap carving, while the frozen
+  0.1.0 benchmark results, published figures and default raw-image path had to
+  remain unchanged.
+- **Decision:** add `--fragment-recovery` (off by default) plus `--max-gap`,
+  `--max-frag-candidates` and `--frag-time-limit`. A stitch is attempted only
+  between two cluster-aligned fragments inside a detected volume. Head and tail
+  boundaries are enumerated under the stated bounds, ordered by increasing gap,
+  and a join is accepted only when `validate_deep` returns `Decoded`. Stitched
+  records use `source="bgc"` and add optional `fragments[]`, `checks` and
+  `confidence`; those JSON fields are omitted when the stage is disabled.
+- **Consequences:** S12-style interleaved JPEG, PNG and PDF fixtures recover both
+  source files byte-exactly and no stitched file is reported as deep-validated
+  without the validator. The implementation is limited to two fragments and has
+  no D1 recall/splice-rate measurement, so B-06 is MITIGATED rather than FIXED.
+  The default scan, frozen results, protocol text and dist binaries are
+  unchanged.

@@ -25,9 +25,9 @@
 ```text
 cargo fmt --all -- --check                          OK
 cargo clippy --all-targets --all-features -- -D warnings   OK
-cargo test --all-features --locked                  70 test pass
-    (34 unit + 12 cli_contract + 5 evidence_formats + 8 fs_detect
-     + 5 properties + 6 scan_integration)
+cargo test --all-features --locked                  73 test pass
+    (34 unit + 13 cli_contract + 5 evidence_formats + 8 fs_detect
+     + 5 properties + 6 scan_integration + 2 fragment_recovery)
 RUSTDOCFLAGS="-D warnings" cargo doc --no-deps       OK
 actionlint .github/workflows/*.yml                   OK (actionlint 1.7.12)
 cargo deny check                                     OK (advisories/bans/licenses/sources ok)
@@ -42,9 +42,10 @@ All of this was run by `scripts/gate.sh` in a single command; final result:
 **GATE GREEN**. The gate was re-run after the final A-10 refactor
 (`ScanInput<'a>` in the pipeline), after A-07 step 2 (changing the default to
 all volumes + gaps), after installing `cargo-audit`/`cargo-deny` and making the
-documentation English-only, and again after the B-04 evidence sources. It
-remained green with 70 tests, 10/10 repro and both supply-chain checks passing;
-the benchmark smoke metrics stayed identical to the frozen 0.2.0 behavior.
+documentation English-only, after the B-04 evidence sources, and again after
+the B-06 fragment-recovery stage. It remained green with 73 tests, 10/10 repro
+and both supply-chain checks passing; the benchmark smoke metrics stayed
+identical to the frozen 0.2.0 behavior.
 
 `cargo deny check` also emitted four informational
 `license-not-encountered` warnings for allow-list entries that no current
@@ -58,7 +59,7 @@ Additional validation completed after that gate run:
 
 ```text
 actionlint 1.7.12 .github/workflows/ci.yml            OK
-scripts/coverage.sh 60                                OK (3802/5633 lines = 67.50%)
+scripts/coverage.sh 60                                OK (4111/6001 lines = 68.51%)
 scripts/fuzz.sh 60                                   7 targets x 60 s, 18,520,025 runs, no crashes/artifacts
 ```
 
@@ -109,7 +110,7 @@ Windows**.
 | A-08 | PARTIAL | green | `trait ImageSource {len, read_at}` + unchanged `RawFile` default; `seek(End)` fallback when metadata len = 0. B-04 adds split raw, E01, VHD, VMDK and stdin sources under `src/image/`. No `BlockDevice`/`--sector-size`/`--on-read-error`/`unreadable_regions[]` yet; real device/Windows not tested. |
 | A-09 | PARTIAL | green | Fixed the NTFS sector off-by-one (`field+1`, D-21, unit test `volume_sector_count_includes_the_backup_boot_sector`); FS errors → `FS_DETECTION_FAILED`. No `$ATTRIBUTE_LIST`/multi-extent `$MFT`/`$MFTMirr`/backup boot/FAT #2 yet. |
 | A-10 | DONE | green | Lib crate + thin `main.rs`; pipeline `plan_extents → build_tasks → scan_task → carve_candidates → postfilter → write_outputs`; format registry; `ScanInput<'a>` groups the input parameters for `run_scan`, no more `allow(too_many_arguments)`; `cargo doc -D warnings` passes. |
-| A-11 | PARTIAL | green | **70 tests** (34 unit + 12 cli_contract + 5 evidence_formats + 8 fs_detect + 5 properties + 6 scan_integration); `scripts/review_repro.py --assert/--xfail` 10/10; red baseline `docs/baseline/repro_v0.1.0.txt`. Post-B-04 `cargo-llvm-cov 0.9.1` measured 3802/5633 lines = **67.50%**; CI/local floor set to 60%, not the earlier aspirational 80%. |
+| A-11 | PARTIAL | green | **73 tests** (34 unit + 13 cli_contract + 5 evidence_formats + 8 fs_detect + 5 properties + 6 scan_integration + 2 fragment_recovery); `scripts/review_repro.py --assert/--xfail` 10/10; red baseline `docs/baseline/repro_v0.1.0.txt`. Post-B-06 `cargo-llvm-cov 0.9.1` measured 4111/6001 lines = **68.51%**; CI/local floor set to 60%, not the earlier aspirational 80%. |
 | A-12 | PARTIAL | green | MSRV 1.85 (`rust-version`, README corrected from "Rust 1.74"); `cargo +1.85 check` in the gate; `.github/workflows/ci.yml` adds actionlint + coverage and uses a pinned direct actionlint install; `rustfmt.toml`/`clippy.toml`/`deny.toml`; dist 0.2.0 + `SHA256SUMS`. Local `cargo deny check`, `cargo audit` and `actionlint 1.7.12` pass. Real GitHub run `44548142275` on commit `42376a9` succeeded (all jobs; push-event fuzz matrix skipped), but it predates B-04. Distributed Windows binary not executed; no SBOM/signatures yet; removing binaries from `dist/` is STOP-AND-ASK (kept). |
 | A-13 | PARTIAL | green | Exit 0/1/2/3/4 documented + CLI contract tests; coded warnings; `RAW_SCANS_ALLOCATED` informational (D-20). No `thiserror`/leveled logger/`ProgressSink`/partial report on interrupt yet. |
 | A-14 | DONE | green | Report schema v2: `schema_version`, `argv`, `options`, `tool_info`, `input` (before–after SHA-256), ISO-8601, `case_id`, `examiner`, `warnings[]` object, `volumes[]`, `regions[]`, `lba`, real `cluster`, `partition_index`, `extent_id`, `allocated`, `source`, `fragments`. `docs/report.schema.json` + key-matching test; atomic write; `--manifest` generates `SHA256SUMS`; `--report-schema 1`. `unreadable_regions[]` belongs to A-08 (not present). |
@@ -119,7 +120,7 @@ Windows**.
 | B-03 | OPEN | - | No exFAT/FAT12/FAT16 support. |
 | B-04 | MITIGATED | green | `src/image/` supplies read-only split raw, classic E01 (compressed/uncompressed), fixed/dynamic VHD, flat/sparse VMDK and stdin sources; `open_image()`/`--input-format` select them. Five `evidence_formats` fixture tests verify byte-for-byte reads and stdin report identity (D-29). The raw default, frozen benchmark, figures, lockbox results and dist binaries are unchanged. Recognized EWF2/Ex01, L01/Lx01, LVF, differencing VHD, ESX/COWD and compressed streamOptimized VMDK variants are rejected explicitly; encrypted E01 has no decryption and is not guaranteed to be detected before parsing. |
 | B-05 | DONE | green | `--align none\|auto\|cluster\|sector`; default `none` keeps the old behavior; test `alignment_restricts_candidate_starts_without_changing_results_on_aligned_data`; golden TP unchanged. No per-file `aligned` flag recorded, no measurement of candidate reduction (D5). |
-| B-06 | OPEN | - | No fragmented-file reassembly (BGC). |
+| B-06 | MITIGATED | green | Opt-in `--fragment-recovery` adds bounded two-fragment gap carving at cluster boundaries (`--max-gap`, `--max-frag-candidates`, `--frag-time-limit`). Accepted stitches pass the deep validator and record `source="bgc"`, `fragments[]`, `checks` and `confidence`; S12-style JPEG/PNG/PDF fixture recovers both files byte-exactly. Default raw/benchmark path untouched | No D1 recall/splice-rate measurement, no n-fragment path, no metadata hybrid, and no claim that published figures include B-06. |
 | B-07 | PARTIAL | green | JPEG/PNG prefix salvage; `status=truncated` + `validated_bytes`; no `--salvage` flag yet; `repaired` does not yet require the validator to reopen the file. |
 | B-08 | PARTIAL | green | `--manifest`, `--hash-image`, `--case-id`/`--examiner`, full exit codes. No carve-phase progress/`--resume`/`--dry-run`/`verify`/`check`/`extract`/`--json-lines`/completions/man. |
 | B-09 | OPEN | - | Per-file `notes[]` present; no fixture + test per variant (APNG, xref stream, `/Encrypt`…); no format support table. |
@@ -136,9 +137,9 @@ Windows**.
 | C-09 | PARTIAL | - | Median time/throughput table present; full 4-image/3-rep 0.2.0 re-run completed in `bench/results/full-0.2.0` with all checksums verified. No 1–16 GiB scale images, no cold cache + IQR ≥10 repetitions. |
 | D-01 | DONE | n/a | Removed absolute paths like `/home/…` (REPORT/CFREDS/README → `$CARVEX`/`$HOME`); fixed "Pillow/ReportLab"; "100%" in the abstract tied to n/CI/conditions; 16 tables numbered `Table 1…16`; SHA-256 of tools (foremost/scalpel/photorec) + explicit note that benchmark binary hashes were not recorded; §6.2 explains the evidenced FP 40/44 and 40/54; README "Rust 1.74" → 1.85; "fairness" conclusion limited; F-16 confound in §6.4; Windows `.exe` noted as untested. |
 | D-02 | DONE | n/a | REPORT §1.4 Related Work (5 branches + comparison table); references [11]–[16] had their DOI/publisher pages opened before insertion. |
-| D-03 | DONE | n/a | `CHANGELOG.md` (0.2.0), `SECURITY.md`, `CONTRIBUTING.md`, `docs/ARCHITECTURE.md`, `docs/DECISIONS.md` (D-01…D-29), `docs/DEPENDENCIES.md`, `docs/REVIEW_RESPONSE.md` (38 IDs), `docs/REPORT.md`, `docs/VALIDATION.md` (execution evidence only). |
+| D-03 | DONE | n/a | `CHANGELOG.md` (0.2.0), `SECURITY.md`, `CONTRIBUTING.md`, `docs/ARCHITECTURE.md`, `docs/DECISIONS.md` (D-01…D-30), `docs/DEPENDENCIES.md`, `docs/REVIEW_RESPONSE.md` (38 IDs), `docs/REPORT.md`, `docs/VALIDATION.md` (execution evidence only). |
 | D-24 | DONE | n/a | All docs, comments and reports are English-only; the technical report is now `docs/REPORT.md`; every reference and table caption updated; no CLI/JSON/CSV/benchmark values changed. |
-| P5-1 | DONE (scoped) | green | Post-B-04 gate GREEN 2026-11-19 (70 tests); CHANGELOG 0.2.0 + Unreleased B-04 entry; dist rebuilt for 0.2.0; fuzz runtime complete (18,520,025 executions); post-B-04 coverage 67.50% with 60% floor; GitHub CI green on pre-B-04 CI-fix commit `42376a9`; lockbox run once; full 4-image/3-rep benchmark re-run. Evidence: `docs/VALIDATION.md`. Scope items remain open as listed below. |
+| P5-1 | DONE (scoped) | green | Post-B-04 gate GREEN 2026-11-19 (70 tests); post-B-06 gate also GREEN (73 tests, coverage 4111/6001 = 68.51%); CHANGELOG 0.2.0 + Unreleased B-04/B-06 entries; dist rebuilt for 0.2.0; fuzz runtime complete (18,520,025 executions); post-B-04 coverage 67.50% with 60% floor; GitHub CI green on pre-B-04/B-06 CI-fix commit `42376a9`; lockbox run once; full 4-image/3-rep benchmark re-run. Evidence: `docs/VALIDATION.md`. Scope items remain open as listed below. |
 | P5-2 | DONE | n/a | `docs/REVIEW_RESPONSE.md` covers 38 IDs (A-01…D-03) with FIXED/MITIGATED/OPEN and cross-references F-01…F-21. |
 
 ## Published regression results (unchanged)
@@ -157,15 +158,15 @@ Windows**.
 
 ## Blockers / open questions
 
-- GitHub Actions has now run successfully on the pre-B-04 CI-fix commit
+- GitHub Actions has now run successfully on the pre-B-04/B-06 CI-fix commit
   `42376a9` (`44548142275`); the two earlier failed runs were caused by the
   invalid actionlint action reference and an older queued pair is superseded.
-  No post-B-04 GitHub run is claimed. GitHub's fuzz matrix remains conditional
-  and is skipped on push; local fuzz runtime evidence is in
+  No post-B-04 or post-B-06 GitHub run is claimed. GitHub's fuzz matrix remains
+  conditional and is skipped on push; local fuzz runtime evidence is in
   `docs/VALIDATION.md §4`.
 - The packaged Windows binary has not been executed; the GitHub Windows job ran
   the Rust test suite, which is a different artifact.
-- Post-B-04 coverage is 67.50%, below the earlier aspirational 80%. The
+- Post-B-06 coverage is 68.51%, below the earlier aspirational 80%. The
   CI/local floor is honestly set to 60%; no claim of 80% coverage is made.
 - Scientific benchmarks C-02, C-09 are incomplete; C-06/C-07 are partial; D2–D7
   remain OPEN/PARTIAL. All README conclusions apply only to D1 and are scoped.
@@ -174,4 +175,4 @@ Windows**.
 
 ## Decisions
 
-See `docs/DECISIONS.md` (D-01…D-29).
+See `docs/DECISIONS.md` (D-01…D-30).

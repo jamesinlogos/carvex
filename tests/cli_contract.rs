@@ -321,28 +321,98 @@ fn emitted_report_matches_the_published_schema() {
         k.sort();
         k
     };
+    // B-06 fields are optional so default reports keep their historical JSON
+    // shape.  Validate required fields and reject unknown keys for those defs.
+    let assert_schema_keys = |def_path: &str, value: &serde_json::Value, optional: bool| {
+        let actual = keys(value);
+        let props = schema_props(&format!("{def_path}/properties"));
+        if !optional {
+            assert_eq!(actual, props);
+            return;
+        }
+        let def = schema.pointer(def_path).unwrap();
+        let required: Vec<_> = def
+            .pointer("/required")
+            .and_then(|v| v.as_array())
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap().to_string())
+            .collect();
+        for key in &required {
+            assert!(actual.contains(key), "missing required key {key}");
+        }
+        for key in &actual {
+            assert!(props.contains(key), "unknown key {key}");
+        }
+    };
 
-    assert_eq!(keys(&report), schema_props("/properties"));
+    assert_schema_keys("", &report, false);
+    assert_schema_keys("/properties/tool_info", &report["tool_info"], false);
+    assert_schema_keys("/properties/input", &report["input"], false);
+    assert_schema_keys("/$defs/options", &report["options"], true);
+    assert_schema_keys("/$defs/stats", &report["stats"], false);
+    assert_schema_keys("/$defs/file", &report["files"][0], true);
+}
+
+#[test]
+fn fragment_recovery_is_opt_in_and_reported_only_when_enabled() {
+    let dir = tempfile::tempdir().unwrap();
+    let image = image_file(dir.path());
+    let report_path = dir.path().join("bgc-report.json");
+    let out = run(&[
+        "scan",
+        image.to_str().unwrap(),
+        "-o",
+        dir.path().join("bgc-out").to_str().unwrap(),
+        "--mode",
+        "raw",
+        "--no-fs",
+        "--quiet",
+        "--min-size",
+        "1",
+        "--fragment-recovery",
+        "--max-gap",
+        "4",
+        "--max-frag-candidates",
+        "32",
+        "--frag-time-limit",
+        "250",
+        "--json-report",
+        report_path.to_str().unwrap(),
+    ]);
+    assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr(&out));
+    let report: serde_json::Value =
+        serde_json::from_slice(&fs::read(&report_path).unwrap()).unwrap();
+    assert_eq!(report["options"]["fragment_recovery"], true);
+    assert_eq!(report["options"]["max_gap"], 4);
+    assert_eq!(report["options"]["max_frag_candidates"], 32);
+    assert_eq!(report["options"]["frag_time_limit_ms"], 250);
+    assert!(report["warnings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|w| w["code"] == "FRAGMENT_RECOVERY_SKIPPED"));
+    for file in report["files"].as_array().unwrap() {
+        assert!(file.get("checks").is_none());
+        assert!(file.get("confidence").is_none());
+        assert_eq!(file["source"], "carve");
+    }
+
+    let rejected = run(&[
+        "scan",
+        image.to_str().unwrap(),
+        "-o",
+        dir.path().join("bad-out").to_str().unwrap(),
+        "--max-gap",
+        "4",
+    ]);
     assert_eq!(
-        keys(&report["tool_info"]),
-        schema_props("/properties/tool_info/properties")
+        rejected.status.code(),
+        Some(1),
+        "stderr: {}",
+        stderr(&rejected)
     );
-    assert_eq!(
-        keys(&report["input"]),
-        schema_props("/properties/input/properties")
-    );
-    assert_eq!(
-        keys(&report["options"]),
-        schema_props("/$defs/options/properties")
-    );
-    assert_eq!(
-        keys(&report["stats"]),
-        schema_props("/$defs/stats/properties")
-    );
-    assert_eq!(
-        keys(&report["files"][0]),
-        schema_props("/$defs/file/properties")
-    );
+    assert!(stderr(&rejected).contains("--fragment-recovery"));
 }
 
 /// A-07 step 2: a default scan reads both volumes and the gap, so nothing is

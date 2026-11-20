@@ -16,19 +16,28 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Five fixture-based tests in `tests/evidence_formats.rs` verify byte-for-byte
   reads, stable source identity for disk-backed containers (no false
   `IMAGE_MODIFIED`), and stdin report identity.
+- B-06 bounded bifragment gap carving behind the opt-in
+  `--fragment-recovery` flag, with `--max-gap`, `--max-frag-candidates` and
+  `--frag-time-limit`. Accepted stitches pass the deep validator and add
+  `source="bgc"`, optional `fragments[]`, `checks` and `confidence` to the
+  JSON report; the default report shape and CSV columns are unchanged.
+- Two `tests/fragment_recovery.rs` tests cover the S12-style interleaved
+  `[A1][B1][A2][B2]` scenario for JPEG, PNG and PDF, plus rejection of
+  invalid B-06 limits.
 
 ### Changed
 
 - Auto-detection selects a container from magic bytes and segment naming;
   explicit `--input-format raw` remains available. Ordinary raw images still
   use the unchanged `RawFile` path, so frozen benchmark behavior is preserved.
-- Updated test count to 70. Re-measured line coverage after B-04 is
-  3802/5633 lines = 67.50%; the honest CI/local floor remains 60%.
+- Updated test count to 73. Re-measured line coverage after B-06 is
+  4111/6001 lines = 68.51%; the honest CI/local floor remains 60%.
 
 ### Notes
 
 - The frozen benchmark, lockbox results, published figures, protocol text and
-  distribution binaries are not modified or rebuilt by this work.
+  distribution binaries are not modified or rebuilt by this work. B-06 is
+  opt-in and its controlled S12 fixture is not a benchmark recall claim.
 - E01 segment discovery supports the usual two-digit base-36 suffixes (up to
   `.EZZ`, 1295 segments); sets with longer suffixes are rejected explicitly
   rather than partially discovered.

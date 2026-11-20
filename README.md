@@ -134,6 +134,10 @@ Main options:
 | `--keep-nested` | off | Keep images/PDFs located entirely within an already carved container |
 | `--validate MODE` | `structure` | `structure` (structure validation only) or `decode` (also decode the payload) |
 | `--align MODE` | `none` | Align candidates: `none`, `auto`, `cluster`, `sector` |
+| `--fragment-recovery` | off | Opt in to bounded two-fragment gap carving (B-06; needs a detected volume) |
+| `--max-gap N` | `16` | Maximum gap between joined fragments, in clusters (requires `--fragment-recovery`) |
+| `--max-frag-candidates N` | `1024` | Maximum joins evaluated by B-06 (requires `--fragment-recovery`) |
+| `--frag-time-limit MS` | `5000` | Wall-clock budget for B-06 (requires `--fragment-recovery`) |
 | `--partition SEL` | `all` | `all` (default: all volumes, written to `part1/`, `part2/`, …), `largest` (0.1.0 behavior), or a 1-based partition number |
 | `--include-gaps` | on | Still accepted (not needed since it is the default); use it to state intent explicitly in scripts |
 | `--no-gaps` | off | Disable scanning of gaps/unsupported partitions; use with `--partition largest` to restore the old behavior |
@@ -164,6 +168,20 @@ E01 segment discovery handles the usual two-digit base-36 suffixes (up to
 `.EZZ`, 1295 segments). The dynamic VHD reader uses the block allocation table
 but not the per-sector presence bitmap. Ordinary raw images keep the unchanged
 `RawFile` path, so the frozen benchmark behavior is unaffected.
+
+### Bounded fragment recovery (B-06)
+
+`--fragment-recovery` enables an opt-in two-fragment gap-carving stage. Inside a
+detected FAT32/NTFS volume it joins a header fragment to a later
+cluster-aligned tail fragment, bounded by `--max-gap`, `--max-frag-candidates`
+and `--frag-time-limit`. Joins are tried in increasing-gap order and accepted
+only when the deep validator decodes the stitched result. Successful records use
+`source="bgc"` and report `fragments[]`, `checks` and `confidence`; these JSON
+fields are omitted when the stage is disabled, and the CSV layout is unchanged.
+Limits without `--fragment-recovery` are a runtime error. The stage is not a
+runlist/metadata reassembler, supports at most two fragments, has no
+fragmented-profile recall measurement, and is excluded from the published
+benchmark figures.
 
 ### Multi-volume scanning, warnings, and exit codes
 
@@ -399,8 +417,8 @@ not supported, so those still require conversion with another forensic tool.
 
 1. **FAT32 and NTFS only.** FAT12/FAT16, exFAT, ext4, APFS, and HFS+ are not supported; when encountering them, use `--mode raw`.
 2. **No reliance on directory entries.** CarveX does not read original filenames, sizes, or paths from the MFT/directory; output names are only a sequence number + offset.
-3. **Fragmented files.** The carver relies on header/footer and extent bounds. If a file is fragmented across non-contiguous clusters, especially when parts lie in different free extents, the file may be truncated, structurally wrong, or skipped. Reconstructing the runlist of deleted files is future work.
-4. **No payload decoding.** JPEG is only checked for marker structure, without decoding entropy; PNG checks CRC but does not inflate IDAT; PDF is only structurally checked, not rendered.
+3. **Fragmented files.** By default the carver relies on header/footer and extent bounds; a fragmented file may be truncated, structurally wrong, or skipped. `--fragment-recovery` can join two cluster-aligned fragments inside a volume, but n-fragment and runlist/metadata-assisted reassembly remain future work.
+4. **Limited payload decoding.** By default, JPEG is checked for marker structure, PNG for chunk CRCs, and PDF structurally rather than by rendering. `--validate decode` and B-06 stitches invoke the deep validator; PDF rendering is not implemented.
 5. **Complex PDFs.** Encrypted PDFs, PDFs with severe structural errors, or fake `%%EOF` inside a stream can cause the parser to choose the wrong boundary. Try `--pdf-eof first/last` or `--keep-nested`.
 6. **Noise in free space.** Unallocated space may contain multiple old versions of the same file. The benchmark uses freshly created images, so this phenomenon is not fully simulated.
 7. **Performance** depends on cache, disk, and CPU count. The figures in the report are from a 4-CPU machine, 64 MiB images, and a warm cache.
@@ -459,8 +477,9 @@ carvex/
 cargo test
 ```
 
-The current suite has 70 tests (34 unit + 12 `cli_contract` +
-5 `evidence_formats` + 8 `fs_detect` + 5 `properties` + 6 `scan_integration`).
+The current suite has 73 tests (34 unit + 13 `cli_contract` +
+5 `evidence_formats` + 8 `fs_detect` + 5 `properties` +
+6 `scan_integration` + 2 `fragment_recovery`).
 Run the full release gate with `bash scripts/gate.sh`. The suite covers, among other things:
 
 - JPEG baseline, progressive, EXIF thumbnail, truncated data, fake headers;
@@ -468,6 +487,7 @@ Run the full release gate with `bash scripts/gate.sh`. The suite covers, among o
 - PDF with valid xref, fake `%%EOF` in a stream, incremental revision, truncated PDF, PDF with no objects;
 - Extent merge/complement utilities and size parsing;
 - Byte-for-byte round-trips for split raw, E01, VHD, VMDK and stdin sources.
+- Exact S12-style interleaved JPEG, PNG and PDF recovery with B-06 enabled.
 
 ## License
 

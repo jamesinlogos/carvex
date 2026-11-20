@@ -68,10 +68,14 @@ pub fn scan_options(types: Vec<FileType>, mode: ScanMode) -> ScanOptions {
         manifest: false,
         partition: "largest".to_string(),
         include_gaps: false,
+        fragment_recovery: false,
+        max_gap: carvex::scan::DEFAULT_MAX_GAP_CLUSTERS,
+        max_frag_candidates: carvex::scan::DEFAULT_MAX_FRAG_CANDIDATES,
+        frag_time_limit: std::time::Duration::from_millis(carvex::scan::DEFAULT_FRAG_TIME_LIMIT_MS),
     }
 }
 
-fn chunk(kind: &[u8; 4], data: &[u8]) -> Vec<u8> {
+pub fn chunk(kind: &[u8; 4], data: &[u8]) -> Vec<u8> {
     let mut out = Vec::new();
     let len = u32::try_from(data.len()).unwrap();
     out.extend_from_slice(&len.to_be_bytes());
@@ -163,6 +167,78 @@ pub fn pdf_min() -> Vec<u8> {
     out
 }
 
+/// Insert a comment segment so the SOS header ends exactly at `cluster`.
+/// Splitting there leaves all entropy bytes in the tail fragment while the
+/// head still carries a complete marker prefix.
+pub fn jpeg_with_cluster_split(cluster: usize) -> Vec<u8> {
+    let mut sos_end = None;
+    let mut pos = 0usize;
+    while pos + 4 <= JPEG_1X1.len() {
+        if JPEG_1X1.get(pos) == Some(&0xFF) && JPEG_1X1.get(pos + 1) == Some(&0xDA) {
+            let len_bytes = JPEG_1X1.get(pos + 2..pos + 4).unwrap();
+            let len = u16::from_be_bytes(len_bytes.try_into().unwrap()) as usize;
+            sos_end = Some(pos + 2 + len);
+            break;
+        }
+        pos += 1;
+    }
+    let sos_end = sos_end.expect("JPEG fixture has an SOS segment");
+    let payload_len = cluster
+        .checked_sub(sos_end)
+        .and_then(|v| v.checked_sub(4))
+        .expect("cluster is large enough for the JPEG fixture");
+    let mut out = vec![0xFF, 0xD8, 0xFF, 0xFE];
+    out.extend_from_slice(&((payload_len + 2) as u16).to_be_bytes());
+    out.extend(std::iter::repeat_n(b'J', payload_len));
+    out.extend_from_slice(&JPEG_1X1[2..]);
+    assert!(out.len() > cluster);
+    out
+}
+
+/// Insert a tEXt chunk so the IEND boundary crosses a cluster boundary after
+/// the IDAT payload starts.  Both PNG fragments carry valid chunk bytes; only
+/// their concatenation has valid CRCs and a complete zlib stream.
+pub fn png_with_cluster_split(cluster: usize) -> Vec<u8> {
+    let base = png_1x1();
+    let payload_len = cluster
+        .checked_sub(33)
+        .and_then(|v| v.checked_sub(12))
+        .and_then(|v| v.checked_sub(8))
+        .and_then(|v| v.checked_sub(4))
+        .expect("cluster is large enough for the PNG fixture");
+    let mut text_chunk = b"Comment\0".to_vec();
+    text_chunk.extend(std::iter::repeat_n(b'P', payload_len - 8));
+    let mut out = vec![];
+    out.extend_from_slice(&base[..33]); // signature + IHDR
+    out.extend_from_slice(&chunk(b"tEXt", &text_chunk));
+    out.extend_from_slice(&base[33..]); // IDAT + IEND
+    assert!(out.len() > cluster + 16);
+    out
+}
+
+/// Build a PDF whose object table starts after `cluster` bytes.  The xref
+/// offsets are recalculated so the stitched file is byte-identical to the
+/// original document.
+pub fn pdf_with_cluster_split(cluster: usize) -> Vec<u8> {
+    let header = b"%PDF-1.4\n";
+    let comment_len = cluster + 16 - header.len();
+    let mut out = header.to_vec();
+    out.push(b'%');
+    out.extend(std::iter::repeat_n(b'D', comment_len - 2));
+    out.push(b'\n');
+    let o1 = out.len();
+    out.extend_from_slice(b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n");
+    let o2 = out.len();
+    out.extend_from_slice(b"2 0 obj\n<< /Type /Pages /Kids [1 0 R] /Count 0 >>\nendobj\n");
+    let xref = out.len();
+    out.extend_from_slice(b"xref\n0 3\n0000000000 65535 f \n");
+    out.extend_from_slice(format!("{o1:010} 00000 n \n{o2:010} 00000 n \n").as_bytes());
+    out.extend_from_slice(b"trailer\n<< /Size 3 /Root 1 0 R >>\n");
+    out.extend_from_slice(format!("startxref\n{xref}\n%%EOF\n").as_bytes());
+    assert!(out.len() > cluster + 32);
+    out
+}
+
 /// Raw image containing a JPEG, a PNG and a PDF separated by NUL padding.
 pub fn mixed_raw_image() -> Vec<u8> {
     let mut image = vec![0u8; 4096];
@@ -182,8 +258,12 @@ pub fn fat32_volume() -> Vec<u8> {
 
 /// FAT32 volume of `total_sectors` 512-byte sectors.
 pub fn fat32_volume_sectors(total_sectors: u32) -> Vec<u8> {
+    fat32_volume_sectors_spc(total_sectors, 1)
+}
+
+/// FAT32 volume with a caller-selected sectors-per-cluster value.
+pub fn fat32_volume_sectors_spc(total_sectors: u32, spc: u8) -> Vec<u8> {
     let bps: u16 = 512;
-    let spc: u8 = 1;
     let reserved: u16 = 1;
     let fats: u8 = 1;
     let fat_sectors: u32 = (u64::from(total_sectors) * 4 + 1024).div_ceil(512) as u32;
@@ -243,10 +323,36 @@ pub fn mbr_image(parts: &[(u64, u8, &[u8])]) -> Vec<u8> {
 /// Byte offset of cluster 3 (the first free cluster) inside a FAT32 volume
 /// built by [`fat32_volume_sectors`].
 fn fat32_first_free_offset(total_sectors: u32) -> usize {
+    fat32_first_free_offset_spc(total_sectors, 1)
+}
+
+fn fat32_first_free_offset_spc(total_sectors: u32, spc: u8) -> usize {
     let fat_sectors = (u64::from(total_sectors) * 4 + 1024).div_ceil(512) as u32;
     // Data start = (reserved 1 + 1 FAT * fat_sectors) sectors; cluster 2 is
     // allocated in the fixture, so the first free cluster is 3.
-    (2 + fat_sectors) as usize * 512
+    let data_start = (1 + fat_sectors) as usize * 512;
+    data_start + usize::from(spc) * 512
+}
+
+/// S12-style FAT32 image: `[A1][B1][A2][B2]` at 4 KiB cluster boundaries.
+/// Each pair uses the same cluster split point, so only BGC can recover A and
+/// B exactly; a header/footer splice mixes the two files.
+pub fn fat32_interleaved(a: &[u8], b: &[u8], cluster: usize) -> Vec<u8> {
+    const TOTAL_SECTORS: u32 = 2048;
+    const SPC: u8 = 8;
+    assert_eq!(cluster, usize::from(SPC) * 512);
+    let mut image = fat32_volume_sectors_spc(TOTAL_SECTORS, SPC);
+    let first = fat32_first_free_offset_spc(TOTAL_SECTORS, SPC);
+    for (fragment_index, payload) in [a, b, a, b].into_iter().enumerate() {
+        let split = if fragment_index < 2 {
+            &payload[..cluster]
+        } else {
+            &payload[cluster..]
+        };
+        let offset = first + fragment_index * cluster;
+        image[offset..offset + split.len()].copy_from_slice(split);
+    }
+    image
 }
 
 /// MBR image with a 1 MiB leading gap and two FAT32 partitions: a larger one

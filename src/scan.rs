@@ -11,7 +11,7 @@ use anyhow::{bail, Context, Result};
 use clap::ValueEnum;
 use rayon::prelude::*;
 use serde::Serialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::{IsTerminal, Write};
 use std::path::Path;
@@ -21,6 +21,13 @@ use std::time::{Duration, Instant};
 
 /// Report schema version emitted by this build.
 pub const SCHEMA_VERSION: u8 = 2;
+
+/// Default bound for B-06 gap carving, in volume clusters.
+pub const DEFAULT_MAX_GAP_CLUSTERS: u64 = 16;
+/// Default bound on candidate joins evaluated by B-06.
+pub const DEFAULT_MAX_FRAG_CANDIDATES: usize = 1024;
+/// Default wall-clock budget for B-06 (milliseconds).
+pub const DEFAULT_FRAG_TIME_LIMIT_MS: u64 = 5_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -83,6 +90,14 @@ pub struct ScanOptions {
     pub partition: String,
     /// Whether `--include-gaps` added the out-of-partition regions.
     pub include_gaps: bool,
+    /// Opt in to bounded bifragment gap carving (B-06).
+    pub fragment_recovery: bool,
+    /// Largest permitted gap between two joined fragments, in clusters.
+    pub max_gap: u64,
+    /// Maximum number of candidate joins evaluated during a scan.
+    pub max_frag_candidates: usize,
+    /// Wall-clock budget for the fragment-recovery stage.
+    pub frag_time_limit: Duration,
 }
 
 impl ScanOptions {
@@ -107,6 +122,16 @@ impl ScanOptions {
             align: self.align,
             partition: self.partition.clone(),
             include_gaps: self.include_gaps,
+            // B-06 fields are omitted entirely when the stage is disabled so
+            // the default report remains byte-for-byte compatible.
+            fragment_recovery: self.fragment_recovery.then_some(true),
+            max_gap: self.fragment_recovery.then_some(self.max_gap),
+            max_frag_candidates: self
+                .fragment_recovery
+                .then_some(self.max_frag_candidates as u64),
+            frag_time_limit_ms: self
+                .fragment_recovery
+                .then_some(self.frag_time_limit.as_millis() as u64),
         }
     }
 }
@@ -159,6 +184,14 @@ pub struct ReportOptions {
     pub align: AlignMode,
     pub partition: String,
     pub include_gaps: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fragment_recovery: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_gap: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_frag_candidates: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub frag_time_limit_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -254,6 +287,12 @@ pub struct CarvedFile {
     pub allocated: Option<bool>,
     pub source: String,
     pub fragments: Vec<Fragment>,
+    /// Number of deep-validation checks made for a B-06 stitch.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub checks: Option<u64>,
+    /// Confidence in a B-06 stitch (the structural score of the accepted join).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub confidence: Option<u8>,
 }
 
 #[derive(Debug, Default, Clone, Serialize)]
@@ -346,6 +385,10 @@ struct CarvedData {
     repaired: bool,
     validation: Validation,
     validation_notes: Vec<String>,
+    /// Set only for B-06 stitched output.
+    fragments: Vec<Fragment>,
+    checks: Option<u64>,
+    confidence: Option<u8>,
 }
 
 enum CarveOutcome {
@@ -409,6 +452,17 @@ pub fn run_scan(
     if opts.max_memory < 16 * 1024 * 1024 {
         bail!("--max-memory must be at least 16 MiB");
     }
+    if opts.fragment_recovery {
+        if opts.max_gap == 0 {
+            bail!("--max-gap must be at least 1 cluster");
+        }
+        if opts.max_frag_candidates == 0 {
+            bail!("--max-frag-candidates must be at least 1");
+        }
+        if opts.frag_time_limit.is_zero() {
+            bail!("--frag-time-limit must be at least 1 millisecond");
+        }
+    }
     let started = unix_timestamp();
     let t0 = Instant::now();
 
@@ -468,7 +522,19 @@ pub fn run_scan(
         eprint!("\r{:100}\r", "");
     }
 
-    let kept = postfilter(outcomes, opts, &mut stats);
+    let mut kept = postfilter(outcomes, opts, &mut stats);
+    let mut warnings = Vec::new();
+    if opts.fragment_recovery {
+        kept = recover_fragments(
+            source,
+            &candidates,
+            kept,
+            &extents,
+            volumes,
+            opts,
+            &mut warnings,
+        );
+    }
     if opts.verbose {
         for (idx, file) in kept.iter().enumerate() {
             eprintln!(
@@ -537,7 +603,6 @@ pub fn run_scan(
         modified_unix_after: mtime_after,
         unchanged,
     };
-    let mut warnings = Vec::new();
     if !input.unchanged {
         warnings.push(Warning::new(
             "IMAGE_MODIFIED",
@@ -884,6 +949,9 @@ fn carve_one(source: &dyn ImageSource, cand: &Candidate, opts: &ScanOptions) -> 
                     repaired,
                     validation,
                     validation_notes,
+                    fragments: Vec::new(),
+                    checks: None,
+                    confidence: None,
                 });
             }
             Need::More => {
@@ -916,6 +984,406 @@ fn trim_zero_tail(data: &[u8]) -> usize {
     }
     // Keep a short floor so an all-zero candidate does not become empty.
     end.max(16.min(data.len()))
+}
+
+// ---------------------------------------------------------------------------
+// B-06: bounded bifragment gap carving
+//
+// A stitch is attempted only between two volume-cluster-aligned fragments.
+// The head comes from a normal header candidate; the tail starts at a later
+// cluster boundary and ends at a format footer.  Every structurally complete
+// join must pass the deep validator before it is accepted, so a stitched file
+// can never be reported as verified on structural evidence alone.
+
+#[derive(Debug, Clone, Copy)]
+struct FragmentJoin {
+    /// Exclusive end of the head fragment (a cluster boundary).
+    cut: u64,
+    /// Start of the tail fragment (a cluster boundary).
+    tail_start: u64,
+    /// Exclusive end of the footer bytes.
+    footer_end: u64,
+    /// Number of clusters skipped between the two fragments.
+    gap_clusters: u64,
+}
+
+struct JoinAttempt {
+    data: Option<CarvedData>,
+    deep_checked: bool,
+}
+
+fn footer_needle(kind: FileType) -> &'static [u8] {
+    match kind {
+        FileType::Jpeg => &[0xFF, 0xD9],
+        FileType::Png => &[
+            0x00, 0x00, 0x00, 0x00, b'I', b'E', b'N', b'D', 0xAE, 0x42, 0x60, 0x82,
+        ],
+        FileType::Pdf => b"%%EOF",
+    }
+}
+
+fn find_footers(
+    source: &dyn ImageSource,
+    extents: &[Extent],
+    kinds: &[FileType],
+    opts: &ScanOptions,
+) -> Result<HashMap<FileType, Vec<u64>>> {
+    let mut found: HashMap<FileType, Vec<u64>> = kinds.iter().map(|&k| (k, Vec::new())).collect();
+    let tasks = build_tasks(extents, 1024 * 1024);
+    for task in &tasks {
+        let mut buf = vec![0u8; task.read_len as usize];
+        read_exact_at(source, &mut buf, task.start)
+            .with_context(|| format!("cannot read fragment scan chunk at {}", task.start))?;
+        let searchable = buf.get(..task.scan_len as usize).unwrap_or(&buf);
+        for &kind in kinds {
+            let needle = footer_needle(kind);
+            let Some(hits) = found.get_mut(&kind) else {
+                continue;
+            };
+            for rel in memchr::memmem::find_iter(searchable, needle) {
+                let mut footer_len = needle.len();
+                // PDF %%EOF is followed by an optional line ending that is
+                // part of the original file.  Include it so a stitch can be
+                // byte-identical rather than one byte short.
+                if kind == FileType::Pdf {
+                    let after = rel + footer_len;
+                    if buf.get(after) == Some(&b'\r') && buf.get(after + 1) == Some(&b'\n') {
+                        footer_len += 2;
+                    } else if buf.get(after).is_some_and(|b| *b == b'\n' || *b == b'\r') {
+                        footer_len += 1;
+                    }
+                }
+                let end = task.start + rel as u64 + footer_len as u64;
+                if end <= task.start + task.scan_len && hits.last() != Some(&end) {
+                    hits.push(end);
+                }
+            }
+        }
+    }
+    let cap = opts.max_frag_candidates.saturating_mul(4).min(8192);
+    for hits in found.values_mut() {
+        hits.sort_unstable();
+        hits.dedup();
+        hits.truncate(cap);
+    }
+    Ok(found)
+}
+
+fn cluster_base(fs: &FsInfo) -> u64 {
+    fs.data_start.max(fs.offset)
+}
+
+fn is_cluster_boundary(offset: u64, fs: &FsInfo) -> bool {
+    fs.cluster_size != 0
+        && offset
+            .checked_sub(cluster_base(fs))
+            .is_some_and(|rel| rel % fs.cluster_size == 0)
+}
+
+fn next_cluster_boundary(offset: u64, fs: &FsInfo) -> Option<u64> {
+    if fs.cluster_size == 0 {
+        return None;
+    }
+    let base = cluster_base(fs);
+    let floor = offset.checked_sub(offset.checked_sub(base)? % fs.cluster_size)?;
+    if floor == offset {
+        offset.checked_add(fs.cluster_size)
+    } else {
+        floor.checked_add(fs.cluster_size)
+    }
+}
+
+fn range_covered(extents: &[Extent], start: u64, end: u64) -> bool {
+    extents
+        .iter()
+        .any(|e| start >= e.offset && end <= e.end() && start < end)
+}
+
+fn candidate_joins(
+    cand: &Candidate,
+    fs: &FsInfo,
+    footers: &[u64],
+    extents: &[Extent],
+    opts: &ScanOptions,
+) -> Vec<FragmentJoin> {
+    let mut joins = Vec::new();
+    if fs.cluster_size == 0 || !is_cluster_boundary(cand.offset, fs) {
+        return joins;
+    }
+    let available = cand.extent_end.saturating_sub(cand.offset);
+    let head_span = opts.max_size.min(available);
+    let Some(mut cut) = next_cluster_boundary(cand.offset.saturating_add(1), fs) else {
+        return joins;
+    };
+    let mut cuts = Vec::new();
+    while cut <= cand.extent_end && cut - cand.offset <= head_span {
+        cuts.push(cut);
+        if cuts.len() >= opts.max_frag_candidates {
+            break;
+        }
+        let Some(next) = cut.checked_add(fs.cluster_size) else {
+            break;
+        };
+        cut = next;
+    }
+
+    'search: for cut in cuts {
+        if !range_covered(extents, cand.offset, cut) {
+            continue;
+        }
+        for gap in 1..=opts.max_gap {
+            let Some(gap_bytes) = fs.cluster_size.checked_mul(gap) else {
+                break;
+            };
+            let Some(tail_start) = cut.checked_add(gap_bytes) else {
+                break;
+            };
+            for &footer_end in footers {
+                if footer_end <= tail_start {
+                    continue;
+                }
+                let tail_len = footer_end - tail_start;
+                if tail_len == 0 || tail_len > opts.max_size {
+                    continue;
+                }
+                if !range_covered(extents, tail_start, footer_end) {
+                    continue;
+                }
+                joins.push(FragmentJoin {
+                    cut,
+                    tail_start,
+                    footer_end,
+                    gap_clusters: gap,
+                });
+                if joins.len() >= opts.max_frag_candidates {
+                    break 'search;
+                }
+            }
+        }
+    }
+
+    // The guide requires increasing-distance ordering: a smaller skipped gap
+    // is tried before a larger one, then the nearest tail and cut offsets.
+    joins.sort_by_key(|j| (j.gap_clusters, j.cut, j.tail_start, j.footer_end));
+    joins.truncate(opts.max_frag_candidates);
+    joins
+}
+
+fn try_fragment_join(
+    source: &dyn ImageSource,
+    cand: &Candidate,
+    join: &FragmentJoin,
+    opts: &ScanOptions,
+) -> Result<JoinAttempt> {
+    let head_len = join.cut.saturating_sub(cand.offset);
+    let tail_len = join.footer_end.saturating_sub(join.tail_start);
+    if head_len == 0 || tail_len == 0 {
+        return Ok(JoinAttempt {
+            data: None,
+            deep_checked: false,
+        });
+    }
+    let total = match head_len.checked_add(tail_len) {
+        Some(v) if v <= opts.max_size => v,
+        _ => {
+            return Ok(JoinAttempt {
+                data: None,
+                deep_checked: false,
+            })
+        }
+    };
+    let capacity = usize::try_from(total).unwrap_or(usize::MAX);
+    let mut bytes = Vec::with_capacity(capacity);
+    let mut head = vec![0u8; head_len as usize];
+    read_exact_at(source, &mut head, cand.offset)
+        .with_context(|| format!("cannot read B-06 head at {}", cand.offset))?;
+    let mut tail = vec![0u8; tail_len as usize];
+    read_exact_at(source, &mut tail, join.tail_start)
+        .with_context(|| format!("cannot read B-06 tail at {}", join.tail_start))?;
+    bytes.extend_from_slice(&head);
+    bytes.extend_from_slice(&tail);
+
+    let Need::Analyzed(mut analysis) = analyze(cand.kind, &bytes, true, opts.pdf_eof) else {
+        return Ok(JoinAttempt {
+            data: None,
+            deep_checked: false,
+        });
+    };
+    if !analysis.complete || analysis.end == 0 || analysis.end > bytes.len() {
+        return Ok(JoinAttempt {
+            data: None,
+            deep_checked: false,
+        });
+    }
+    if analysis.score < opts.min_score {
+        return Ok(JoinAttempt {
+            data: None,
+            deep_checked: false,
+        });
+    }
+    bytes.truncate(analysis.end);
+    let used_tail = match analysis.end.checked_sub(head_len as usize) {
+        Some(v) if v > 0 && v as u64 <= tail_len => v as u64,
+        _ => {
+            return Ok(JoinAttempt {
+                data: None,
+                deep_checked: false,
+            })
+        }
+    };
+
+    let (validation, validation_notes) = validate_deep(cand.kind, &bytes, &analysis);
+    if validation != Validation::Decoded {
+        return Ok(JoinAttempt {
+            data: None,
+            deep_checked: true,
+        });
+    }
+
+    analysis.notes.push(format!(
+        "B-06 deep-validated 2 fragments with a {} cluster gap",
+        join.gap_clusters
+    ));
+    let confidence = analysis.score;
+    let sha256 = sha256_hex(&bytes);
+    Ok(JoinAttempt {
+        data: Some(CarvedData {
+            candidate: cand.clone(),
+            bytes,
+            analysis,
+            sha256,
+            repaired: false,
+            validation,
+            validation_notes,
+            fragments: vec![
+                Fragment {
+                    offset: cand.offset,
+                    len: head_len,
+                },
+                Fragment {
+                    offset: join.tail_start,
+                    len: used_tail,
+                },
+            ],
+            checks: None,
+            confidence: Some(confidence),
+        }),
+        deep_checked: true,
+    })
+}
+
+fn recover_fragments(
+    source: &dyn ImageSource,
+    candidates: &[Candidate],
+    mut kept: Vec<CarvedData>,
+    extents: &[Extent],
+    volumes: &[FsInfo],
+    opts: &ScanOptions,
+    warnings: &mut Vec<Warning>,
+) -> Vec<CarvedData> {
+    let started = Instant::now();
+    if volumes.is_empty() {
+        warnings.push(Warning::new(
+            "FRAGMENT_RECOVERY_SKIPPED",
+            "B-06 needs a detected volume with cluster boundaries; no stitching attempted",
+        ));
+        return kept;
+    }
+
+    let footers = match find_footers(source, extents, &opts.types, opts) {
+        Ok(v) => v,
+        Err(e) => {
+            warnings.push(Warning::new(
+                "FRAGMENT_FOOTER_SCAN_FAILED",
+                format!("fragment footer scan failed: {e}"),
+            ));
+            return kept;
+        }
+    };
+
+    let mut successes = Vec::new();
+    let mut successful_keys: HashSet<(u64, FileType)> = HashSet::new();
+    let mut seen_hashes: HashSet<String> = if opts.dedupe_hashes {
+        kept.iter().map(|f| f.sha256.clone()).collect()
+    } else {
+        HashSet::new()
+    };
+    let mut attempts = 0usize;
+    let mut candidate_limit = false;
+    let mut time_limit = false;
+
+    for cand in candidates {
+        if attempts >= opts.max_frag_candidates {
+            candidate_limit = true;
+            break;
+        }
+        if started.elapsed() >= opts.frag_time_limit {
+            time_limit = true;
+            break;
+        }
+        let Some(fs) = volume_at(volumes, cand.offset) else {
+            continue;
+        };
+        let Some(footer_hits) = footers.get(&cand.kind) else {
+            continue;
+        };
+        let joins = candidate_joins(cand, fs, footer_hits, extents, opts);
+        let mut checks = 0u64;
+
+        for join in joins {
+            if attempts >= opts.max_frag_candidates {
+                candidate_limit = true;
+                break;
+            }
+            if started.elapsed() >= opts.frag_time_limit {
+                time_limit = true;
+                break;
+            }
+            attempts += 1;
+            let attempt = match try_fragment_join(source, cand, &join, opts) {
+                Ok(v) => v,
+                Err(e) => {
+                    if opts.verbose {
+                        eprintln!("[-] B-06 join at {} failed: {e}", cand.offset);
+                    }
+                    continue;
+                }
+            };
+            if attempt.deep_checked {
+                checks += 1;
+            }
+            let Some(mut data) = attempt.data else {
+                continue;
+            };
+            if !seen_hashes.insert(data.sha256.clone()) {
+                continue;
+            }
+            data.checks = Some(checks);
+            let key = (cand.offset, cand.kind);
+            successful_keys.insert(key);
+            successes.push(data);
+            // Guide: stop at the first verified stitch for a head fragment.
+            break;
+        }
+    }
+
+    if candidate_limit {
+        warnings.push(Warning::new(
+            "FRAGMENT_CANDIDATE_LIMIT",
+            "B-06 stopped after reaching --max-frag-candidates",
+        ));
+    }
+    if time_limit {
+        warnings.push(Warning::new(
+            "FRAGMENT_TIME_LIMIT",
+            "B-06 stopped after reaching --frag-time-limit",
+        ));
+    }
+
+    kept.retain(|f| !successful_keys.contains(&(f.candidate.offset, f.candidate.kind)));
+    kept.extend(successes);
+    kept.sort_by_key(|f| (f.candidate.offset, f.candidate.kind as u8));
+    kept
 }
 
 fn postfilter(
@@ -1118,8 +1586,14 @@ fn write_outputs(
             partition_index,
             extent_id: data.candidate.extent_id,
             allocated,
-            source: "carve".into(),
-            fragments: Vec::new(),
+            source: if data.fragments.len() > 1 {
+                "bgc".into()
+            } else {
+                "carve".into()
+            },
+            fragments: data.fragments.clone(),
+            checks: data.checks,
+            confidence: data.confidence,
         };
         if !opts.quiet && (opts.verbose || idx < 20) {
             eprintln!(

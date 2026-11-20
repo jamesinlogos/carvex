@@ -2,7 +2,9 @@ use crate::fs::{self, FsInfo, PartitionSel};
 use crate::io::{open_image, sha256_source, InputFormat, OpenedImage};
 use crate::report;
 use crate::scan::{
-    self, AlignMode, ScanContext, ScanMode, ScanOptions, VolumeSummary, Warning, SCHEMA_VERSION,
+    self, AlignMode, ScanContext, ScanMode, ScanOptions, VolumeSummary, Warning,
+    DEFAULT_FRAG_TIME_LIMIT_MS, DEFAULT_MAX_FRAG_CANDIDATES, DEFAULT_MAX_GAP_CLUSTERS,
+    SCHEMA_VERSION,
 };
 use crate::signatures::{FileType, PdfEofMode, ValidationMode};
 use crate::util::{human_size, parse_size, Extent};
@@ -148,6 +150,30 @@ struct ScanArgs {
     /// partitions (use with `--partition largest`)
     #[arg(long, conflicts_with = "include_gaps")]
     no_gaps: bool,
+    /// Opt in to bounded bifragment gap carving (B-06)
+    #[arg(long)]
+    fragment_recovery: bool,
+    /// Maximum gap between joined fragments, in clusters (B-06)
+    #[arg(
+        long,
+        value_parser = clap::value_parser!(u64).range(1..=1_000_000),
+        default_value_t = DEFAULT_MAX_GAP_CLUSTERS
+    )]
+    max_gap: u64,
+    /// Maximum candidate joins evaluated by B-06
+    #[arg(
+        long,
+        value_parser = clap::value_parser!(u64).range(1..=1_000_000),
+        default_value_t = DEFAULT_MAX_FRAG_CANDIDATES as u64
+    )]
+    max_frag_candidates: u64,
+    /// Wall-clock budget for B-06, in milliseconds
+    #[arg(
+        long,
+        value_parser = clap::value_parser!(u64).range(1..=600_000),
+        default_value_t = DEFAULT_FRAG_TIME_LIMIT_MS
+    )]
+    frag_time_limit: u64,
     /// Force the volume boot-sector offset (bytes, suffix K/M/G allowed)
     #[arg(long, value_parser = parse_size, conflicts_with = "partition")]
     offset: Option<u64>,
@@ -327,6 +353,13 @@ fn announce_fs(args: &ScanArgs, f: &FsInfo) {
 }
 
 fn scan(args: ScanArgs) -> Result<i32> {
+    if !args.fragment_recovery
+        && (args.max_gap != DEFAULT_MAX_GAP_CLUSTERS
+            || args.max_frag_candidates != DEFAULT_MAX_FRAG_CANDIDATES as u64
+            || args.frag_time_limit != DEFAULT_FRAG_TIME_LIMIT_MS)
+    {
+        bail!("B-06 limits require --fragment-recovery");
+    }
     let image: OpenedImage = open_image(&args.image, args.input_format)?;
     let len = image.len;
     let source = image.source.as_ref();
@@ -522,6 +555,10 @@ fn scan(args: ScanArgs) -> Result<i32> {
         manifest: args.manifest,
         partition: args.partition.unwrap_or(PartitionSel::All).to_string(),
         include_gaps,
+        fragment_recovery: args.fragment_recovery,
+        max_gap: args.max_gap,
+        max_frag_candidates: args.max_frag_candidates as usize,
+        frag_time_limit: std::time::Duration::from_millis(args.frag_time_limit),
     };
     let ctx = ScanContext {
         argv: std::env::args().collect(),
