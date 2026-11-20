@@ -8,6 +8,7 @@
 
 pub mod cli;
 pub mod fs;
+pub mod image;
 pub mod io;
 pub mod report;
 pub mod scan;

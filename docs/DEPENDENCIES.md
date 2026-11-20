@@ -18,13 +18,13 @@ versions below are taken from `Cargo.lock` at release time; builds/gates use
 | `serde` | 1.0.229 | Serialize report | MIT OR Apache-2.0 |
 | `serde_json` | 1.0.154 | JSON report | MIT OR Apache-2.0 |
 | `sha2` | 0.10.9 | File/image SHA-256, streaming | MIT OR Apache-2.0 |
+| `tempfile` | 3.27.0 | Temporary spool for stdin images; temporary directories in integration tests | MIT OR Apache-2.0 |
 
 ## Dev dependencies
 
 | Crate | Version | Purpose | License |
 |---|---:|---|---|
 | `proptest` | 1.12.0 | Property tests for extent arithmetic and parsers | MIT OR Apache-2.0 |
-| `tempfile` | 3.27.0 | Temporary directories for integration tests, no writes to the source image | MIT OR Apache-2.0 |
 
 ## Fuzz (separate `fuzz/` workspace)
 
@@ -52,8 +52,8 @@ versions below are taken from `Cargo.lock` at release time; builds/gates use
 - `deny.toml` configures `cargo-deny`: license allow-list, bans wildcard
   versions, bans arbitrary git dependencies, denies yanked versions, warns on
   advisories.
-- `.github/workflows/ci.yml` declares `cargo-deny` and `cargo-audit`; no GitHub
-  Actions run has been observed in this workspace.
+- `.github/workflows/ci.yml` declares `cargo-deny` and `cargo-audit`. A GitHub
+  Actions run succeeded on the pre-B-04 CI-fix commit; see `docs/VALIDATION.md §3`.
 - **Local status:** `cargo-audit-audit 0.23.0` scanned 91 locked crates against
   1550 advisories with 0 vulnerabilities. `cargo-deny 0.21.0` reported
   `advisories ok, bans ok, licenses ok, sources ok` with four informational

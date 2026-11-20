@@ -4,6 +4,35 @@ All notable changes to CarveX are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- B-04 read-only evidence sources behind `ImageSource`: concatenated raw
+  segments, classic EWF-E01 (compressed and Adler-32 chunks), fixed/dynamic
+  VHD, flat/sparse VMDK extents, and stdin via a temporary spool.
+- `--input-format auto|raw|split|e01|vhd|vmdk|stdin` for `info` and `scan`;
+  `IMAGE` may be `-` to read stdin.
+- Five fixture-based tests in `tests/evidence_formats.rs` verify byte-for-byte
+  reads, stable source identity for disk-backed containers (no false
+  `IMAGE_MODIFIED`), and stdin report identity.
+
+### Changed
+
+- Auto-detection selects a container from magic bytes and segment naming;
+  explicit `--input-format raw` remains available. Ordinary raw images still
+  use the unchanged `RawFile` path, so frozen benchmark behavior is preserved.
+- Updated test count to 70. Re-measured line coverage after B-04 is
+  3802/5633 lines = 67.50%; the honest CI/local floor remains 60%.
+
+### Notes
+
+- The frozen benchmark, lockbox results, published figures, protocol text and
+  distribution binaries are not modified or rebuilt by this work.
+- E01 segment discovery supports the usual two-digit base-36 suffixes (up to
+  `.EZZ`, 1295 segments); sets with longer suffixes are rejected explicitly
+  rather than partially discovered.
+
 ## [0.2.0] — 2026-11-19
 
 Reliability, forensic-reporting and test release. Carving behaviour for

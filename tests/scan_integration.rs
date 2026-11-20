@@ -7,7 +7,6 @@ use carvex::io::ImageSource;
 use carvex::scan::{run_scan, AlignMode, ScanContext, ScanInput, ScanMode, ScanOptions};
 use carvex::signatures::{FileType, Status, Validation, ValidationMode};
 use common::{fat32_volume, mixed_raw_image, pdf_min, png_1x1, scan_options, MemSource, JPEG_1X1};
-use std::path::Path;
 use tempfile::TempDir;
 
 fn run(
@@ -25,7 +24,8 @@ fn run(
     let volumes: &[fs::FsInfo] = fs_info.map(std::slice::from_ref).unwrap_or(&[]);
     let input = ScanInput {
         source: &src,
-        image: Path::new(name),
+        image: name,
+        image_identity: None,
         image_len: src.len(),
         volumes,
         extra_extents: &[],

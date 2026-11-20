@@ -10,7 +10,7 @@ are in `guide.md`.
              ┌──────────────┐
  argv ─────► │ cli.rs       │  parse args, orchestrate, exit code
              └──────┬───────┘
-                    │ ImageSource (io.rs)          ← source image: read-only
+                    │ ImageSource + open_image()   ← source image: read-only
         ┌───────────┼───────────────────┐
         ▼           ▼                   ▼
    fs::detect*   scan::run_scan      report::write_*
@@ -18,6 +18,11 @@ are in `guide.md`.
     FAT32/NTFS,   validate → filter → CSV, atomic write)
     free extent)  write files → report)
 ```
+
+The source layer is selected once by `open_image()` in `src/image/mod.rs`; the
+default raw path opens the same `RawFile` as before B-04. The additional
+containers are read-only `ImageSource` implementations, so detection and carving
+are unchanged.
 
 A `carvex scan` run consists of: (1) detecting filesystem/partition
 (`fs::detect_all` → `VolumeSet`), (2) selecting volumes by `--partition` (default
@@ -35,6 +40,7 @@ according to the degree of completeness of the evidence.
 | `src/main.rs` | Thin `main()`: calls `cli::run()`, maps `Err` → exit 1, prints error messages. |
 | `src/cli.rs` | clap arguments (`info`, `scan`, `signatures`), maps selection → `ScanOptions`, generates coded warnings, decides the exit code. |
 | `src/io.rs` | `trait ImageSource { len, read_at }`; `RawFile` (pread by offset, no pointer sharing between threads); `sha256_source` for `--hash-image`. |
+| `src/image/*` | Read-only B-04 sources: concatenated raw segments, classic EWF-E01, fixed/dynamic VHD, flat/sparse VMDK and a stdin spool; `open_image()`/``InputFormat`` selection and `SourceIdentity` for change detection. |
 | `src/util.rs` | `Extent` (offset+len) + addition/subtraction/merge/complement with overflow checking; `parse_size`, `human_size`, `file_identity`. |
 | `src/fs/mod.rs` | MBR/GPT/superfloppy detection; `Partition`, `VolumeSet`, `PartitionSel`, `Region`/`RegionKind`; `detect` (historical, 1 volume) and `detect_all` (complete); `select_volumes`, `gap_regions`, `regions()`. |
 | `src/fs/fat32.rs`, `src/fs/ntfs.rs` | Read BPB/FAT table; boot sector + `$MFT` + `$Bitmap` (fixup, runlist); returns `FsInfo` with `free_extents`. |
@@ -101,5 +107,9 @@ according to the degree of completeness of the evidence.
 - **Adding a filesystem:** write `probe()` in `src/fs/<fs>.rs` returning `FsInfo`
   (requires `free_extents` + `length` so `regions[]` tiles the image completely),
   register it in `fs::probe`.
-- **New data source (E01, block device):** implement `ImageSource` — the pipeline
-  is unchanged (A-08/B-04, not present in 0.2.0).
+- **New data source:** implement `ImageSource`; the filesystem and scan pipeline
+  are unchanged. `src/image/` holds the B-04 read-only sources (split raw,
+  classic E01, fixed/dynamic VHD, flat/sparse VMDK and a stdin spool), selected
+  by `open_image()` and `--input-format`. The default raw path still opens a
+  single `RawFile` directly, preserving 0.2.0 benchmark behavior. Block devices
+  and unreadable-region reporting (A-08) remain unimplemented.

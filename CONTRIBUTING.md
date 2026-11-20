@@ -39,7 +39,7 @@ cargo test
 
 ## Hard rules
 
-- **No `unsafe`.** The crate root denies `unsafe_code`.
+- **No `unsafe`.** The crate root forbids `unsafe_code` (`#![forbid(unsafe_code)]`).
 - **No panic/`unwrap`/`expect`/unchecked indexing on image data.** The
   `src/fs/*` and `src/signatures/*` modules enable
   `#![deny(clippy::indexing_slicing, clippy::unwrap_used, clippy::expect_used)]`;
@@ -59,7 +59,8 @@ cargo test
 ## Testing
 
 - Unit (`#[cfg(test)]` inside modules), integration (`tests/*.rs`), CLI
-  contract (`tests/cli_contract.rs` — exit codes, schema), FS detection
+  contract (`tests/cli_contract.rs` — exit codes, schema), evidence formats
+  (`tests/evidence_formats.rs` — split raw, E01, VHD, VMDK, stdin), FS detection
   (`tests/fs_detect.rs`), property (`tests/properties.rs`).
 - Self-generated image fixtures in `tests/common/mod.rs`; do not commit large
   disk images.

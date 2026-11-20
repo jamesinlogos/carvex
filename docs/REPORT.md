@@ -15,7 +15,7 @@
 
 ## Abstract
 
-CarveX is a command-line tool for recovering deleted files from FAT32 and NTFS disk images. Rather than merely searching for headers and footers, CarveX validates the internal structure of each JPEG, PNG, and PDF candidate, scores its structural quality, and writes only files that pass the threshold. Its core differentiator is the ability to read filesystem allocation metadata — the FAT32 table or NTFS's `$Bitmap` — to restrict scanning to unallocated clusters.
+CarveX is a command-line tool for recovering deleted files from FAT32 and NTFS disk images. Rather than merely searching for headers and footers, CarveX validates the internal structure of each JPEG, PNG, and PDF candidate, scores its structural quality, and writes only files that pass the threshold. Its core differentiator is the ability to read filesystem allocation metadata — the FAT32 table or NTFS's `$Bitmap` — to restrict scanning to unallocated clusters. The published benchmark uses a single raw image. An additive read-only source layer can also open split raw, E01, VHD, VMDK and stdin inputs without changing that raw path, the benchmark, or its figures.
 
 On a benchmark suite of 4 64 MiB images (FAT32/NTFS, an all-files-deleted scenario and a mixed deleted/kept-files scenario), CarveX in `unallocated` mode correctly recovers **100/100** deleted files with **0 false positives**, achieving precision, recall, and F1 of **100%** under both the exact and usable measures. This is **100 data points on 30 unique files** (30 files × 4 contexts), not n = 100 independent samples: by the 95% Wilson confidence interval, 100/100 gives [96.3%; 100%] and 30/30 gives [88.6%; 100%] — "100%" holds only under the controlled conditions (contiguous files, no fragmentation, no overwriting, clean free space, 512 B FAT32 clusters, 64 MiB images), not as a guarantee for real-world images (see §6.4). In whole-image `raw` scan mode, the tool still achieves 100% recall but produces 20 false positives — exactly equal to the 20 files still kept in the two mixed images — demonstrating the quantitative value of filesystem awareness. The comparison tools Foremost 1.5.7, Scalpel 1.60, and PhotoRec 7.2 achieve usable F1 of 73.44%, 69.17%, and 87.85%, respectively; CarveX achieves 100% under the same conditions.
 
@@ -56,7 +56,9 @@ CarveX was built to address these three problems for three common formats — JP
 
 **Out of scope:**
 
-- E01/AFF and other compressed image formats (must be converted first).
+- EWF2/Ex01, encrypted E01, L01/Lx01, AFF, differencing VHD, ESX/COWD and
+  compressed streamOptimized VMDK (classic E01, split raw, fixed/dynamic VHD and
+  flat/sparse VMDK are supported read-only; see §6.4 item 10).
 - FAT12/FAT16, exFAT, ext4, APFS, HFS+.
 - Reassembling fragmented files based on the deleted file's runlist.
 - Decoding encrypted JPEG/PDF content.
@@ -224,6 +226,8 @@ Modules:
 |---|---|
 | `src/main.rs` | Entry point, error handling, and exit code |
 | `src/cli.rs` | clap definitions, option validation, invokes `info`/`scan` |
+| `src/io.rs` | `ImageSource` trait and the default read-only `RawFile` |
+| `src/image/*` | Read-only split raw, E01, VHD, VMDK and stdin sources; `open_image()` selection |
 | `src/fs/mod.rs` | Filesystem detection, MBR/GPT, `FsInfo`, print information |
 | `src/fs/fat32.rs` | Parse BPB, FAT, create free extents |
 | `src/fs/ntfs.rs` | Parse boot sector, MFT, runlist, `$Bitmap` |
@@ -649,6 +653,7 @@ Reporting both avoids misjudging tools that append padding bytes. However, usabl
 7. **Complex fragmented MFT.** The current NTFS parser reads `$MFT` through a single unnamed `$DATA` attribute; images with an attribute list or multiple `$MFT` extents may not be fully supported. Oversized FAT tables (> 512 MiB) are also rejected to avoid unbounded memory allocation.
 8. **No real-world Windows testing.**
 9. **Search-space confound (F-16).** CarveX `unallocated` scans only free space, while Foremost/Scalpel/PhotoRec scan the whole image; part of the recall/FP difference on mixed images is *definitional* of the mode, not just a matter of carving-algorithm quality. The full pair of modes (baseline on the same unallocated blob, CarveX on the whole image with and without the validator) has not been run to separate these two factors — the figures in §5 must be read under the stated conditions only and must not be generalized.
+10. **Evidence-source scope (B-04).** The additional readers were verified with synthetic fixtures, not with acquired case images. They cover concatenated raw segments, classic EWF-E01 with compressed or Adler-32 uncompressed chunks, fixed and dynamic VHD, flat and sparse VMDK extents, and stdin via a temporary spool. Recognized EWF2/Ex01, L01/Lx01, differencing VHD, ESX/COWD and compressed streamOptimized VMDK variants are rejected explicitly by magic, cookie or descriptor inspection. Encrypted E01 is not supported: there is no decryption, and no claim is made that every encrypted variant is detected before parsing. E01 segment discovery handles the usual two-digit base-36 suffixes (up to `.EZZ`, 1295 segments). The dynamic VHD reader consults the block allocation table but does not interpret the per-sector presence bitmap inside an allocated block, so a partially written block may expose stale bytes. No interoperability test with `ewfacquire`/`ewfexport` was possible because those tools were unavailable. These sources are outside the published benchmark; ordinary raw images retain the original `RawFile` behavior.
 
 ---
 
@@ -671,7 +676,10 @@ On the test corpus, CarveX unallocated achieved a perfect 100/100 exact, 0 FP. T
 1. **Fragmented file reassembly:** read the deleted file's runlist from the MFT (NTFS) or directory entries (FAT32) when metadata remains, combined with content carving.
 2. **Additional formats:** HEIC, TIFF, DOCX, ZIP, MP4; prioritize formats with a clear structure.
 3. **Support exFAT, FAT12/16, ext4.**
-4. **Read E01 via a library** or integrate conversion.
+4. **Broader container support:** add EWF2/Ex01, encrypted E01, L01,
+   differencing VHD, ESX/COWD and compressed streamOptimized VMDK behind the
+   same `ImageSource` interface, with real acquisition-tool interoperability
+   tests.
 5. **Deeper validation:** decode JPEG to detect entropy errors; decompress IDAT; fully parse PDF xref streams.
 6. **Speedups:** direct I/O, `io_uring`, or memory-mapping for large images.
 7. **Evaluate on CFReDS and real-world images**, adding independent ground truth.
@@ -742,4 +750,11 @@ carvex scan disk.img -o out --partition 2 --repair
 
 # Keep embedded content
 carvex scan disk.img -o out --keep-nested
+
+# Evidence sources (auto-detection normally suffices; explicit formats shown)
+carvex scan disk.001 -o split-out --input-format split
+carvex scan disk.E01 -o e01-out --input-format e01
+carvex scan disk.vhd -o vhd-out --input-format vhd
+carvex scan disk.vmdk -o vmdk-out --input-format vmdk
+cat disk.img | carvex scan - -o stdin-out --input-format stdin
 ```

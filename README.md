@@ -103,7 +103,7 @@ The Windows binary has not been tested on a real Windows machine during developm
 ### `carvex info`
 
 ```text
-carvex info IMAGE [--partition N | --offset BYTES] [--json]
+carvex info IMAGE [--input-format FMT] [--partition N | --offset BYTES] [--json]
 ```
 
 Displays the filesystem type, partition offset, cluster geometry, number of free clusters, free extents, and BPB/boot sector information. For images with a partition table, `info` also lists all volumes and image regions (`volumes[]`, `regions[]` in `--json`); `--partition N` views only a specific partition.
@@ -119,6 +119,7 @@ Main options:
 | Option | Default | Meaning |
 |---|---|---|
 | `-o, --output DIR` | required | Output directory; must be empty unless `--force` is given |
+| `--input-format FMT` | `auto` | Image container: `auto`, `raw`, `split`, `e01`, `vhd`, `vmdk`, `stdin`; use `-` as `IMAGE` for stdin |
 | `-t, --types LIST` | `jpeg,png,pdf` | File types to search for; accepts the alias `jpg` |
 | `--mode MODE` | `auto` | `auto`, `unallocated`, `raw`, `allocated` |
 | `--min-size SIZE` | `256` | Minimum size of a written file; supports `K/M/G` suffixes |
@@ -145,6 +146,24 @@ Main options:
 | `--report-schema N` | `2` | `2` (current) or `1` (legacy 0.1.0 format) |
 | `--csv-report FILE` | — | Write a CSV report |
 | `--quiet` / `--verbose` | — | Decrease / increase log level |
+
+### Evidence image sources
+
+`IMAGE` may be a raw image, concatenated raw segments (`.001`, `.002`, …), a
+classic EWF-E01 segment set (`.E01`, `.E02`, …), a fixed or dynamic VHD, a VMDK
+descriptor with flat or sparse extents, or `-` for stdin. Auto-detection uses
+magic bytes and segment naming; pass `--input-format raw|split|e01|vhd|vmdk` to
+force a container. Stdin is spooled to a temporary file because the scanner
+needs random access; the spool is removed when the command exits.
+
+Recognized EWF2/Ex01, Lx01, LVF/L01, differencing VHD, ESX/COWD and compressed
+streamOptimized VMDK variants are rejected with an explicit error rather than
+returning partial data. Encrypted E01 is not supported; there is no decryption,
+and no claim is made that every encrypted variant is detected before parsing.
+E01 segment discovery handles the usual two-digit base-36 suffixes (up to
+`.EZZ`, 1295 segments). The dynamic VHD reader uses the block allocation table
+but not the per-sector presence bitmap. Ordinary raw images keep the unchanged
+`RawFile` path, so the frozen benchmark behavior is unaffected.
 
 ### Multi-volume scanning, warnings, and exit codes
 
@@ -342,8 +361,9 @@ python3 bench/make_corpus.py
 # 2. Create FAT32/NTFS images (root required for loop-mount)
 sudo python3 bench/make_images.py --carvex target/release/carvex --force
 
-# 3. Run 5 configurations × 4 images × 3 repetitions
-python3 bench/run_benchmark.py --reps 3 --out bench/results/final
+# 3. Run 5 configurations × 4 images × 3 repetitions into a fresh directory
+#    bench/results/final is frozen; do not overwrite it.
+python3 bench/run_benchmark.py --reps 3 --out bench/results/new-run
 ```
 
 Required tools: `foremost`, `scalpel`, `photorec` (the `testdisk` package), `parted`, `mkfs.vfat`, `mkntfs`, `7z` (optional for CFReDS).
@@ -362,7 +382,9 @@ The download, hash verification, extraction, and CarveX run procedure is describ
 ./scripts/fetch_cfreds.sh
 ```
 
-Note: CarveX only reads raw/DD images; it does not read the E01 format directly. For E01 images, convert to raw with another forensic tool first.
+The CFReDS trial used a raw/DD image. CarveX now also reads classic E01
+segments directly (`--input-format e01`); EWF2/Ex01, encrypted E01 and L01 are
+not supported, so those still require conversion with another forensic tool.
 
 **Trial run results on RM#2** (2026-11-17, CarveX 0.1.0):
 
@@ -383,6 +405,7 @@ Note: CarveX only reads raw/DD images; it does not read the E01 format directly.
 6. **Noise in free space.** Unallocated space may contain multiple old versions of the same file. The benchmark uses freshly created images, so this phenomenon is not fully simulated.
 7. **Performance** depends on cache, disk, and CPU count. The figures in the report are from a 4-CPU machine, 64 MiB images, and a warm cache.
 8. **No real-world Windows testing.** The PE binary was built and format-checked but has not been run on Windows in the development environment.
+9. **Fixture-level container coverage.** The B-04 readers were verified with generated images, not `ewfacquire`/`ewfexport` output. The dynamic VHD reader uses the block allocation table but does not interpret the per-sector presence bitmap inside an allocated block.
 
 ## Project structure
 
@@ -392,6 +415,8 @@ carvex/
 ├── src/
 │   ├── main.rs              # entry point
 │   ├── cli.rs               # CLI definitions
+│   ├── io.rs                # ImageSource + RawFile
+│   ├── image/               # split raw, E01, VHD, VMDK, stdin sources
 │   ├── scan.rs              # scanning engine, carving, filtering, reporting
 │   ├── report.rs            # JSON/CSV output
 │   ├── util.rs              # image reading, extents, hashing, size parsing
@@ -404,6 +429,12 @@ carvex/
 │       ├── jpeg.rs
 │       ├── png.rs
 │       └── pdf.rs
+├── tests/
+│   ├── cli_contract.rs
+│   ├── evidence_formats.rs  # B-04 container fixtures
+│   ├── fs_detect.rs
+│   ├── properties.rs
+│   └── scan_integration.rs
 ├── bench/
 │   ├── make_corpus.py
 │   ├── make_images.py
@@ -415,7 +446,8 @@ carvex/
 │       └── cfreds/          # JSON/CSV reports + CFReDS RM#2 logs
 ├── dist/                    # Linux/Windows binaries + SHA256SUMS
 ├── docs/
-│   ├── REPORT.md            # technical report
+│   ├── REPORT.md            # sole technical report
+│   ├── VALIDATION.md        # executed evidence
 │   └── CFREDS.md            # testing guide for CFReDS
 └── scripts/
     └── fetch_cfreds.sh
@@ -427,14 +459,15 @@ carvex/
 cargo test
 ```
 
-The current suite has 62 tests (31 unit + 12 `cli_contract` + 8 `fs_detect` +
-5 `properties` + 6 `scan_integration`). Run the full release gate with
-`bash scripts/gate.sh`. The suite covers, among other things:
+The current suite has 70 tests (34 unit + 12 `cli_contract` +
+5 `evidence_formats` + 8 `fs_detect` + 5 `properties` + 6 `scan_integration`).
+Run the full release gate with `bash scripts/gate.sh`. The suite covers, among other things:
 
 - JPEG baseline, progressive, EXIF thumbnail, truncated data, fake headers;
 - Valid PNG, bad CRC, truncated chunk, indexed PNG missing PLTE, first chunk not IHDR;
 - PDF with valid xref, fake `%%EOF` in a stream, incremental revision, truncated PDF, PDF with no objects;
-- Extent merge/complement utilities and size parsing.
+- Extent merge/complement utilities and size parsing;
+- Byte-for-byte round-trips for split raw, E01, VHD, VMDK and stdin sources.
 
 ## License
 

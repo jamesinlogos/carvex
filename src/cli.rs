@@ -1,11 +1,11 @@
 use crate::fs::{self, FsInfo, PartitionSel};
-use crate::io::{sha256_source, ImageSource, RawFile};
+use crate::io::{open_image, sha256_source, InputFormat, OpenedImage};
 use crate::report;
 use crate::scan::{
     self, AlignMode, ScanContext, ScanMode, ScanOptions, VolumeSummary, Warning, SCHEMA_VERSION,
 };
 use crate::signatures::{FileType, PdfEofMode, ValidationMode};
-use crate::util::{file_identity, human_size, parse_size, Extent};
+use crate::util::{human_size, parse_size, Extent};
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use serde::Serialize;
@@ -52,8 +52,11 @@ enum Command {
 
 #[derive(Parser)]
 struct InfoArgs {
-    /// Disk image or volume image
+    /// Disk image or volume image (`-` reads stdin)
     image: PathBuf,
+    /// Image container: auto, raw, split, e01, vhd, vmdk or stdin
+    #[arg(long, value_enum, default_value_t = InputFormat::Auto)]
+    input_format: InputFormat,
     /// Select a 1-based MBR slot / GPT partition number
     #[arg(long, conflicts_with = "offset")]
     partition: Option<usize>,
@@ -67,8 +70,11 @@ struct InfoArgs {
 
 #[derive(Parser)]
 struct ScanArgs {
-    /// Disk image or volume image (never modified)
+    /// Disk image or volume image (`-` reads stdin; never modified)
     image: PathBuf,
+    /// Image container: auto, raw, split, e01, vhd, vmdk or stdin
+    #[arg(long, value_enum, default_value_t = InputFormat::Auto)]
+    input_format: InputFormat,
     /// Output directory for carved files (must be empty unless --force)
     #[arg(short, long)]
     output: PathBuf,
@@ -265,18 +271,19 @@ fn print_info(
 }
 
 fn info(args: InfoArgs) -> Result<i32> {
-    let source = RawFile::open(&args.image)?;
-    let len = source.len();
+    let image = open_image(&args.image, args.input_format)?;
+    let len = image.len;
+    let source = image.source.as_ref();
 
     // A forced offset or an explicit `--partition` is a single-volume view:
     // the user opted out of region accounting (same rule as `scan --offset`).
     if args.offset.is_some() || args.partition.is_some() {
-        let fs = fs::detect_guarded(&source, len, args.offset, args.partition)?;
+        let fs = fs::detect_guarded(source, len, args.offset, args.partition)?;
         let volumes = vec![VolumeSummary::from_fs(1, &fs, true)];
         return print_info(&args, len, &fs, volumes, Vec::new());
     }
 
-    let set = fs::detect_all_guarded(&source, len)?;
+    let set = fs::detect_all_guarded(source, len)?;
     let largest = fs::select_volumes(&set, PartitionSel::Largest)?;
     let selected = fs::select_volumes(&set, PartitionSel::All)?;
     // Keep the largest volume as the `filesystem` summary; `volumes[]` and
@@ -320,8 +327,9 @@ fn announce_fs(args: &ScanArgs, f: &FsInfo) {
 }
 
 fn scan(args: ScanArgs) -> Result<i32> {
-    let source = RawFile::open(&args.image)?;
-    let len = source.len();
+    let image: OpenedImage = open_image(&args.image, args.input_format)?;
+    let len = image.len;
+    let source = image.source.as_ref();
 
     // Selected volumes actually scanned, plus raw ranges added by
     // `--include-gaps`; the full detection result feeds `volumes[]`,
@@ -346,7 +354,7 @@ fn scan(args: ScanArgs) -> Result<i32> {
     } else if let Some(off) = args.offset {
         // Forced boot-sector offset: a single volume, no partition table
         // interpretation, therefore no region accounting (user opt-out).
-        let f = fs::detect_guarded(&source, len, Some(off), None)
+        let f = fs::detect_guarded(source, len, Some(off), None)
             .context("filesystem detection failed")?;
         announce_fs(&args, &f);
         volume_rows.push(VolumeSummary::from_fs(1, &f, true));
@@ -354,7 +362,7 @@ fn scan(args: ScanArgs) -> Result<i32> {
     } else {
         let selection = args.partition.unwrap_or(PartitionSel::All);
         let explicit = args.partition.is_some();
-        match fs::detect_all_guarded(&source, len) {
+        match fs::detect_all_guarded(source, len) {
             Err(e) => {
                 if explicit || needs_fs {
                     return Err(e).context("filesystem detection failed");
@@ -474,15 +482,15 @@ fn scan(args: ScanArgs) -> Result<i32> {
         ));
     }
 
-    let (image_mtime, _) = match file_identity(&args.image) {
-        Ok((_, mtime)) => (mtime, ()),
-        Err(_) => (None, ()),
-    };
+    let image_mtime = image
+        .identity
+        .as_ref()
+        .and_then(|identity| identity.initial_mtime());
     let image_sha256 = if args.hash_image {
         if !args.quiet {
             eprintln!("Hashing source image (SHA-256)…");
         }
-        Some(sha256_source(&source)?)
+        Some(sha256_source(source)?)
     } else {
         None
     };
@@ -539,8 +547,9 @@ fn scan(args: ScanArgs) -> Result<i32> {
     }
 
     let input = scan::ScanInput {
-        source: &source,
-        image: &args.image,
+        source,
+        image: &image.display,
+        image_identity: image.identity.as_ref(),
         image_len: len,
         volumes: &volumes,
         extra_extents: &extra,

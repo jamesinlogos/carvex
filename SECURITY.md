@@ -37,7 +37,7 @@ whether you have already disclosed it publicly.
 
 ## Security-related design commitments
 
-- **No `unsafe`** in the CarveX source (`#![deny(unsafe_code)]` at the crate root).
+- **No `unsafe`** in the CarveX source (`#![forbid(unsafe_code)]` at the crate root).
 - **The source image is opened read-only**; all write paths are confined to the
   output directory.
 - **No panics on image data:** the `src/fs/*` and `src/signatures/*` modules

@@ -361,8 +361,10 @@ enum CarveOutcome {
 pub struct ScanInput<'a> {
     /// Read-only access to the image bytes.
     pub source: &'a dyn ImageSource,
-    /// Path used for reporting and display.
-    pub image: &'a Path,
+    /// Name used for reporting and display (`-` for stdin).
+    pub image: &'a str,
+    /// Snapshot of all backing files, when the source has them on disk.
+    pub image_identity: Option<&'a crate::io::SourceIdentity>,
     /// Total image size in bytes.
     pub image_len: u64,
     /// Selected filesystem volumes to scan (empty when not filesystem-aware).
@@ -386,6 +388,7 @@ pub fn run_scan(
     let ScanInput {
         source,
         image,
+        image_identity,
         image_len,
         volumes,
         extra_extents,
@@ -513,15 +516,26 @@ pub fn run_scan(
         0.0
     };
 
-    let (size_after, mtime_after) = crate::util::file_identity(image).unwrap_or((image_len, None));
+    let (size_after, mtime_after, unchanged) = match image_identity {
+        Some(identity) => {
+            let (size, mtime, readable) = identity.current();
+            (
+                size,
+                mtime,
+                readable && size == identity.initial_size() && mtime == identity.initial_mtime(),
+            )
+        }
+        // Stdin has no backing path; the spool is controlled by this process.
+        None => (image_len, ctx.image_mtime, true),
+    };
     let input = InputInfo {
-        path: image.display().to_string(),
+        path: image.to_string(),
         size: image_len,
         sha256: ctx.image_sha256.clone(),
         modified_unix: ctx.image_mtime,
         size_after,
         modified_unix_after: mtime_after,
-        unchanged: size_after == image_len && mtime_after == ctx.image_mtime,
+        unchanged,
     };
     let mut warnings = Vec::new();
     if !input.unchanged {
@@ -539,7 +553,7 @@ pub fn run_scan(
             version: env!("CARGO_PKG_VERSION").into(),
             commit: option_env!("CARVEX_GIT_COMMIT").unwrap_or("unknown").into(),
         },
-        image: image.display().to_string(),
+        image: image.to_string(),
         input,
         image_size: image_len,
         filesystem: volumes.first().cloned(),

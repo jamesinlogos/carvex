@@ -170,6 +170,9 @@ decision, and the consequences.
 
 ## D-17. Fuzz/coverage/CI: record SKIPPED instead of claiming
 
+> Historical status. Local fuzz, coverage and supply-chain runs and a GitHub
+> Actions run were later executed; see D-25/D-26/D-28 and `docs/VALIDATION.md`.
+
 - **Context:** the environment initially had no nightly/cargo-fuzz,
   cargo-llvm-cov, actionlint, cargo-deny or cargo-audit, and has no GitHub
   runner. `cargo-audit` and `cargo-deny` were later installed locally.
@@ -181,6 +184,9 @@ decision, and the consequences.
   and DEPENDENCIES; no GitHub Actions run is claimed.
 
 ## D-18. Do not create a lockbox before a frozen protocol exists
+
+> Historical status. The repository was later tagged `protocol-v1` and
+> `protocol-v1.1`, and the lockbox was executed once at D-26/D-28.
 
 - **Context:** C-10 requires tagging the protocol before running the lockbox once.
   The repo is not a git repo so it cannot be tagged; the lockbox dataset (seed
@@ -357,3 +363,23 @@ decision, and the consequences.
   successful; all 20 full-run rows are metric-identical to 0.1.0. Frozen result
   directories are untouched; D2–D7, same-search-space baselines, ablations,
   block metrics and advanced statistics remain OPEN.
+
+## D-29. Add B-04 evidence sources without changing the raw path
+
+- **Context:** B-04 required E01, split raw, VHD, VMDK and stdin support, while
+  the frozen benchmark/lockbox evidence and the published raw-image behavior
+  had to remain untouched.
+- **Decision:** keep `RawFile` as the default for ordinary raw images and add
+  new read-only `ImageSource` implementations under `src/image/`. `open_image()`
+  selects a container by magic bytes and segment naming, and
+  `--input-format` forces an explicit choice. Stdin is spooled to a temporary
+  file because the scanner requires random access. Unsupported container
+  variants fail explicitly instead of returning partial data.
+- **Consequences:** five fixture tests verify byte-for-byte reads, stable source
+  identity for disk-backed containers, and stdin report identity; the full gate
+  and benchmark smoke stay green. Recognized EWF2/Ex01, L01/Lx01, LVF,
+  differencing VHD, ESX/COWD and compressed streamOptimized VMDK variants fail
+  explicitly. Encrypted E01 is not supported and is not guaranteed to be
+  detected before parsing; the dynamic VHD reader ignores the per-sector
+  presence bitmap inside an allocated block. Frozen results, figures, protocol
+  text and dist binaries are unchanged.

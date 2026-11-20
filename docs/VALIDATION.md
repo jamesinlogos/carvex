@@ -35,14 +35,20 @@ actionlint install.
 
 Command: `scripts/gate.sh`
 
-Result: **GATE GREEN**. It ran format check, clippy, 62 tests
-(31 unit + 12 CLI contract + 8 filesystem detection + 5 property + 6 scan
-integration), rustdoc with `-D warnings`, `actionlint`, `cargo deny check`,
-`cargo audit`, MSRV 1.85 check, release build, `scripts/review_repro.py`
-(10/10 PASS, 0 XPASS) and the benchmark smoke test (TP=3/FP=0 unallocated,
-TP=3/FP=1 raw). `cargo audit` reported 0 vulnerabilities in 91 crates against
-1550 advisories; `cargo deny check` reported advisories, bans, licenses and
-sources all OK.
+Result: **GATE GREEN**. It ran format check, clippy, 70 tests
+(34 unit + 12 CLI contract + 5 evidence formats + 8 filesystem detection +
+5 property + 6 scan integration), rustdoc with `-D warnings`, `actionlint`,
+`cargo deny check`, `cargo audit`, MSRV 1.85 check, release build,
+`scripts/review_repro.py` (10/10 PASS, 0 XPASS) and the benchmark smoke test
+(TP=3/FP=0 unallocated, TP=3/FP=1 raw). `cargo audit` reported 0
+vulnerabilities in 91 crates against 1550 advisories; `cargo deny check`
+reported advisories, bans, licenses and sources all OK.
+
+The gate was re-run after the B-04 source additions. The five
+`tests/evidence_formats.rs` fixture tests verify byte-for-byte reads for split
+raw, compressed and uncompressed E01, fixed and dynamic VHD, flat and sparse
+VMDK, and stdin report identity. Smoke output remained metric-identical to the
+frozen 0.2.0 behavior.
 
 ## 3. GitHub Actions
 
@@ -63,6 +69,9 @@ this was a push event. Two older queued runs on `32d1714` were still queued at
 the final API check and are superseded by the successful run above. Local
 fuzz runtime evidence is recorded in §4 because it is the actual executed fuzz
 evidence.
+
+These GitHub runs predate the B-04 source additions. The post-B-04 evidence in
+§2 is the local gate only; no post-B-04 GitHub run is claimed.
 
 ## 4. Fuzz runtime
 
@@ -87,11 +96,13 @@ empty. Full logs are in `bench/results/fuzz/*.log`.
 
 Command: `scripts/coverage.sh 60` (cargo-llvm-cov `0.9.1`).
 
-Result: **COVERAGE COMPLETE: minimum 60% lines**. The lcov report contains
-2859/4508 covered lines = **63.42%**. This is below the earlier aspirational
-80% target, so the CI and local floor is honestly set to 60%; no 80% coverage
-is claimed. Artifacts: `bench/results/coverage/lcov.info` and
-`bench/results/coverage/coverage.log`.
+Result: **COVERAGE COMPLETE: minimum 60% lines**. After the B-04 source
+additions and post-review fixes the lcov report contains 3802/5633 covered
+lines = **67.50%**. The pre-B-04 0.2.0 measurement was 2859/4508 lines =
+63.42%. Both are below the
+earlier aspirational 80% target, so the CI and local floor is honestly set to
+60%; no 80% coverage is claimed. Artifacts: `bench/results/coverage/lcov.info`
+and `bench/results/coverage/coverage.log`.
 
 ## 6. Lockbox-v1 (single use)
 

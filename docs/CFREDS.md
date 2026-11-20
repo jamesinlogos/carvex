@@ -52,8 +52,10 @@ RM#2 is checking:
 - behavior on a quick-formatted image, where FAT metadata is erased but content
   remains.
 
-The NTFS PC image can also be scanned but is much larger. E01 images are **not**
-read directly by CarveX; they must be converted to raw/DD first.
+The NTFS PC image can also be scanned but is much larger. This trial used a
+raw/DD image. Classic E01 segments are now supported with `--input-format e01`;
+EWF2/Ex01, encrypted E01 and logical evidence files are not supported and still
+require conversion to raw/DD with another forensic tool.
 
 ### 1.2. Files to download
 
@@ -402,8 +404,10 @@ statistics, not as TP or recall.
    extensions and contain Office content, not the three formats CarveX supports.
    Do not use the number of carved files on RM#2 to draw conclusions about
    CarveX's accuracy.
-7. **No E01 support.** If only E01 is available, use `ewfexport`/FTK Imager to
-   convert to raw first.
+7. **Limited container support.** Classic E01 reads were verified with
+   generated fixtures, not `ewfacquire`/`ewfexport` output. Convert EWF2/Ex01,
+   encrypted E01 and L01 images to raw first; no such conversion tool was
+   available in the validation environment.
 8. **Most output is embedded media.** At least 178/318 files lie in `word/media/`
    or `ppt/media/` of DOCX/PPTX; 42 files also share SHA-256 values with other
    files. These are real images but not standalone files, so 318 cannot be counted
