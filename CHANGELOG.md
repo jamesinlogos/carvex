@@ -24,14 +24,37 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Two `tests/fragment_recovery.rs` tests cover the S12-style interleaved
   `[A1][B1][A2][B2]` scenario for JPEG, PNG and PDF, plus rejection of
   invalid B-06 limits.
+- `--max-decode-bytes` (default `256M`) sets the expected PNG decoded-size
+  bound for `--validate decode`; the effective value is recorded in report
+  schema v2 (`options.max_decode_bytes`). Schema 1 is unchanged.
 
 ### Changed
 
 - Auto-detection selects a container from magic bytes and segment naming;
   explicit `--input-format raw` remains available. Ordinary raw images still
   use the unchanged `RawFile` path, so frozen benchmark behavior is preserved.
-- Updated test count to 73. Re-measured line coverage after B-06 is
-  4111/6001 lines = 68.51%; the honest CI/local floor remains 60%.
+- Updated test count to 80. Re-measured line coverage after R-01/R-02 is
+  4456/6391 lines = 69.72%; the honest CI/local floor remains 60%.
+
+### Fixed
+
+- R-01: `--max-memory` is now enforced as a hard scan-time budget before
+  carve-buffer allocation/growth and before retaining carved or B-06 stitched
+  results, instead of only as a post-hoc sum of kept output. Carving uses
+  budget-aware batching, and retained outputs stay charged until they are
+  filtered out (kept outputs remain charged until the scan completes).
+- Added `--max-candidates` and `--time-budget` to bound dense-header and
+  long-running scans; `--max-memory` CLI/report/schema semantics were updated
+  accordingly. Three `tests/memory_budget.rs` checks cover early budget and
+  candidate enforcement.
+- R-02: PNG decode validation now checks the expected filtered-scanline size
+  at IHDR against the validator budget before inflating anything. Inflation
+  streams IDAT chunks through a fixed 64 KiB buffer, checks filter bytes as
+  rows arrive, handles Adam7 without a row-offset vector, and never retains
+  the full compressed or decoded image. A PNG above the bound is downgraded to
+  `validation=partial` rather than inflated. Four `tests/png_decode_budget.rs`
+  tests cover extreme dimensions, an explicit budget, a 50,335,744-byte
+  expansion under a peak-RSS assertion, and an invalid filter byte.
 
 ### Notes
 

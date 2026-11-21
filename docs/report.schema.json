@@ -140,9 +140,10 @@
       "type": "object",
       "required": [
         "types", "mode", "min_size", "max_size", "max_truncated_size",
-        "max_memory", "chunk_size", "threads", "min_score", "repair",
+        "max_memory", "max_decode_bytes", "chunk_size", "threads", "min_score", "repair",
         "complete_only", "pdf_eof", "dedupe_hashes", "suppress_nested",
-        "validate", "align", "partition", "include_gaps"
+        "validate", "align", "partition", "include_gaps",
+        "max_candidates", "time_budget_ms"
       ],
       "additionalProperties": false,
       "properties": {
@@ -152,6 +153,7 @@
         "max_size": { "type": "integer", "minimum": 0 },
         "max_truncated_size": { "type": "integer", "minimum": 0 },
         "max_memory": { "type": "integer", "minimum": 0 },
+        "max_decode_bytes": { "type": "integer", "minimum": 0, "description": "Maximum expected PNG decoded size for decode validation (0 = default bound)" },
         "chunk_size": { "type": "integer", "minimum": 0 },
         "threads": { "type": "integer", "minimum": 0 },
         "min_score": { "type": "integer", "minimum": 0, "maximum": 100 },
@@ -164,6 +166,8 @@
         "align": { "enum": ["none", "auto", "cluster", "sector"] },
         "partition": { "type": "string", "description": "'largest', 'all' or a 1-based partition number" },
         "include_gaps": { "type": "boolean" },
+        "max_candidates": { "type": "integer", "minimum": 0, "description": "Candidate bound (0 = default limit)" },
+        "time_budget_ms": { "type": "integer", "minimum": 0, "description": "Overall scan time budget in milliseconds (0 = unlimited)" },
         "fragment_recovery": { "type": "boolean", "description": "B-06 was enabled (omitted otherwise)" },
         "max_gap": { "type": "integer", "minimum": 1, "description": "B-06 maximum gap in clusters" },
         "max_frag_candidates": { "type": "integer", "minimum": 1, "description": "B-06 candidate-join bound" },

@@ -55,7 +55,7 @@ versions below are taken from `Cargo.lock` at release time; builds/gates use
 - `.github/workflows/ci.yml` declares `cargo-deny` and `cargo-audit`. A GitHub
   Actions run succeeded on the pre-B-04 CI-fix commit; see `docs/VALIDATION.md §3`.
 - **Local status:** `cargo-audit-audit 0.23.0` scanned 91 locked crates against
-  1550 advisories with 0 vulnerabilities. `cargo-deny 0.21.0` reported
+  1555 advisories with 0 vulnerabilities. `cargo-deny 0.21.0` reported
   `advisories ok, bans ok, licenses ok, sources ok` with four informational
   `license-not-encountered` warnings for currently unused allow-list entries.
   Both checks ran inside `scripts/gate.sh`; see `docs/PROGRESS.md`.

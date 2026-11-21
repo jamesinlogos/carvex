@@ -59,9 +59,17 @@ according to the degree of completeness of the evidence.
    `src/signatures/*` deny `unwrap_used`/`expect_used`/`indexing_slicing`;
    corrupt data returns `Err` (caught and turned into a fallback/warning) or
    is discarded at the filtering step.
-4. **Allocation derived from the image is capped:** `--max-memory` (total carve
-   bytes held in RAM), `--max-size`, `--max-truncated-size`, number of chunks;
-   all offset/length operations use checked/saturating arithmetic.
+4. **Allocation derived from the image is capped:** `--max-memory` is a hard
+   budget checked before carve-buffer allocation/growth and before retaining
+   each carved or stitched result; `--max-candidates` and `--time-budget` bound
+   work; `--max-size`/`--max-truncated-size` and chunk sizing cap per-candidate
+   and scan buffers. All offset/length operations use checked/saturating
+   arithmetic. Decode validation reserves a best-effort temporary budget. PNG
+   decode validation additionally checks the expected raw size at IHDR against
+   `--max-decode-bytes` (256 MiB default) before inflation, then streams IDAT
+   through a fixed 64 KiB buffer with lazy row/filter checks; it does not retain
+   a full IDAT copy, decoded image or row-offset vector. JPEG/PDF decoder
+   internals are not fully instrumented.
 5. **Deterministic results:** same image + same parameters ⇒ same file names
    (`NNNNN_<ext>_<offset16hex>.<ext>`) and same list; candidates are sorted
    by offset before writing; nested suppression runs **before** writing.

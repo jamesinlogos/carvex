@@ -10,8 +10,43 @@ pub mod pdf;
 pub mod png;
 
 use clap::ValueEnum;
+use flate2::{Decompress, FlushDecompress, Status as InflateStatus};
 use serde::Serialize;
 use std::fmt;
+
+/// Default upper bound on the decompressed size accepted by PNG decode
+/// validation.  The validator streams inflation, so this bounds work and the
+/// largest image that `--validate decode` will claim to have validated.
+pub const DEFAULT_MAX_PNG_DECODE_BYTES: u64 = 256 * 1024 * 1024;
+
+/// Resource limits for optional deep validation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ValidationLimits {
+    /// Maximum expected PNG raw size (filter bytes plus scanline data).
+    pub max_png_decoded_bytes: u64,
+}
+
+impl Default for ValidationLimits {
+    fn default() -> Self {
+        Self {
+            max_png_decoded_bytes: DEFAULT_MAX_PNG_DECODE_BYTES,
+        }
+    }
+}
+
+impl ValidationLimits {
+    /// Build limits from a configured byte budget.  `0` selects the default
+    /// PNG decode bound rather than disabling the guard.
+    pub fn new(max_png_decoded_bytes: u64) -> Self {
+        Self {
+            max_png_decoded_bytes: if max_png_decoded_bytes == 0 {
+                DEFAULT_MAX_PNG_DECODE_BYTES
+            } else {
+                max_png_decoded_bytes
+            },
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, ValueEnum)]
 #[serde(rename_all = "lowercase")]
@@ -199,9 +234,19 @@ pub fn validate_deep(
     data: &[u8],
     analysis: &Analysis,
 ) -> (Validation, Vec<String>) {
+    validate_deep_with_limits(kind, data, analysis, ValidationLimits::default())
+}
+
+/// Run optional decode-level validation with explicit resource limits.
+pub fn validate_deep_with_limits(
+    kind: FileType,
+    data: &[u8],
+    analysis: &Analysis,
+    limits: ValidationLimits,
+) -> (Validation, Vec<String>) {
     match kind {
         FileType::Jpeg => validate_jpeg(data, analysis),
-        FileType::Png => validate_png(data, analysis),
+        FileType::Png => validate_png(data, analysis, limits),
         FileType::Pdf => validate_pdf(data, analysis),
     }
 }
@@ -248,19 +293,26 @@ fn validate_jpeg(data: &[u8], analysis: &Analysis) -> (Validation, Vec<String>) 
     }
 }
 
-fn validate_png(data: &[u8], analysis: &Analysis) -> (Validation, Vec<String>) {
+fn validate_png(
+    data: &[u8],
+    analysis: &Analysis,
+    limits: ValidationLimits,
+) -> (Validation, Vec<String>) {
     let Some((w, h)) = analysis.width.zip(analysis.height) else {
         return (
             Validation::Partial,
             vec!["PNG IHDR dimensions are unavailable".into()],
         );
     };
+    let max_decoded = if limits.max_png_decoded_bytes == 0 {
+        DEFAULT_MAX_PNG_DECODE_BYTES
+    } else {
+        limits.max_png_decoded_bytes
+    };
     let mut pos = 8usize;
-    let mut idat = Vec::new();
-    let mut depth = 0u8;
-    let mut color_type = 0u8;
-    let mut interlace = 0u8;
+    let mut saw_ihdr = false;
     let mut saw_iend = false;
+    let mut inflate: Option<PngInflate> = None;
     while pos + 12 <= data.len() {
         let Some(len_bytes) = data.get(pos..pos + 4) else {
             break;
@@ -284,16 +336,58 @@ fn validate_png(data: &[u8], analysis: &Analysis) -> (Validation, Vec<String>) {
         };
         match ctype {
             b"IHDR" if chunk_data.len() >= 13 => {
-                let (Some(&d), Some(&ct), Some(&i)) =
+                if saw_ihdr {
+                    return (
+                        Validation::Partial,
+                        vec!["duplicate PNG IHDR during decode validation".into()],
+                    );
+                }
+                saw_ihdr = true;
+                let (Some(&depth), Some(&color_type), Some(&interlace)) =
                     (chunk_data.get(8), chunk_data.get(9), chunk_data.get(12))
                 else {
                     break;
                 };
-                depth = d;
-                color_type = ct;
-                interlace = i;
+                let Some(expected) = expected_png_raw_size(w, h, depth, color_type, interlace)
+                else {
+                    return (
+                        Validation::Partial,
+                        vec!["unsupported PNG geometry for decode validation".into()],
+                    );
+                };
+                if expected as u64 > max_decoded {
+                    return (
+                        Validation::Partial,
+                        vec![format!(
+                            "PNG decoded size {expected} exceeds the \
+                             decode-validation budget of {max_decoded} bytes"
+                        )],
+                    );
+                }
+                let Some(bpp) = png_bits_per_pixel(depth, color_type) else {
+                    return (
+                        Validation::Partial,
+                        vec!["unsupported PNG color type for decode validation".into()],
+                    );
+                };
+                // The budget is checked before any IDAT byte is inflated and
+                // before a row cursor or output buffer is created.
+                inflate = Some(PngInflate::new(
+                    expected,
+                    PngRowCursor::new(w, h, bpp, interlace),
+                ));
             }
-            b"IDAT" => idat.extend_from_slice(chunk_data),
+            b"IDAT" => {
+                let Some(state) = inflate.as_mut() else {
+                    return (
+                        Validation::Partial,
+                        vec!["PNG IDAT appears before IHDR".into()],
+                    );
+                };
+                if let Err(reason) = state.feed(chunk_data) {
+                    return (Validation::Partial, vec![reason]);
+                }
+            }
             b"IEND" => {
                 saw_iend = true;
                 break;
@@ -308,45 +402,257 @@ fn validate_png(data: &[u8], analysis: &Analysis) -> (Validation, Vec<String>) {
             vec!["PNG decode stopped before IEND".into()],
         );
     }
-    let Some(expected) = expected_png_raw_size(w, h, depth, color_type, interlace) else {
+    let Some(mut state) = inflate else {
         return (
             Validation::Partial,
-            vec!["unsupported PNG geometry for decode validation".into()],
+            vec!["PNG decode validation found no IDAT data".into()],
         );
     };
-    let mut decoded = Vec::new();
-    let mut decoder = flate2::read::ZlibDecoder::new(idat.as_slice());
-    if let Err(e) = std::io::Read::read_to_end(&mut decoder, &mut decoded) {
-        return (
-            Validation::Partial,
-            vec![format!("PNG IDAT inflate failed: {e}")],
-        );
-    }
-    if decoded.len() != expected {
-        return (
-            Validation::Partial,
-            vec![format!(
-                "PNG decoded {} bytes, expected {}",
-                decoded.len(),
-                expected
-            )],
-        );
-    }
-    for row in png_rows(w, h, depth, color_type, interlace) {
-        if row >= decoded.len() {
-            break;
-        }
-        if decoded.get(row).is_some_and(|&b| b > 4) {
-            return (
-                Validation::Partial,
-                vec![format!("PNG row at {row} has invalid filter byte")],
-            );
-        }
+    if let Err(reason) = state.finish_and_check() {
+        return (Validation::Partial, vec![reason]);
     }
     (
         Validation::Decoded,
-        vec![format!("inflated {expected} bytes of PNG image data")],
+        vec![format!(
+            "inflated {} bytes of PNG image data",
+            state.expected
+        )],
     )
+}
+
+const PNG_INFLATE_BUFFER: usize = 64 * 1024;
+
+/// Bounded, incremental PNG inflater.  It never materializes the complete
+/// decompressed image: compressed IDAT bytes are consumed chunk by chunk and
+/// output is checked against the IHDR row layout in a fixed-size buffer.
+struct PngInflate {
+    inflater: Decompress,
+    rows: PngRowCursor,
+    expected: usize,
+    produced: u64,
+    stream_ended: bool,
+    out: Vec<u8>,
+}
+
+impl PngInflate {
+    fn new(expected: usize, rows: PngRowCursor) -> Self {
+        Self {
+            inflater: Decompress::new(true),
+            rows,
+            expected,
+            produced: 0,
+            stream_ended: false,
+            out: vec![0u8; PNG_INFLATE_BUFFER],
+        }
+    }
+
+    fn feed(&mut self, mut input: &[u8]) -> Result<(), String> {
+        while !input.is_empty() {
+            if self.stream_ended {
+                return Err("PNG has IDAT data after the zlib stream ended".into());
+            }
+            let before_in = self.inflater.total_in();
+            let before_out = self.inflater.total_out();
+            let status = self
+                .inflater
+                .decompress(input, &mut self.out, FlushDecompress::None)
+                .map_err(|e| format!("PNG IDAT inflate failed: {e}"))?;
+            let consumed =
+                usize::try_from(self.inflater.total_in() - before_in).unwrap_or(usize::MAX);
+            let written =
+                usize::try_from(self.inflater.total_out() - before_out).unwrap_or(usize::MAX);
+            input = input.get(consumed..).unwrap_or(&[]);
+            self.accept_output(written)?;
+            if status == InflateStatus::StreamEnd {
+                self.stream_ended = true;
+                if !input.is_empty() {
+                    return Err("PNG has IDAT data after the zlib stream ended".into());
+                }
+                break;
+            }
+            if consumed == 0 && written == 0 {
+                return Err("PNG IDAT inflate made no progress".into());
+            }
+        }
+        Ok(())
+    }
+
+    fn accept_output(&mut self, written: usize) -> Result<(), String> {
+        if written == 0 {
+            return Ok(());
+        }
+        let Some(chunk) = self.out.get(..written) else {
+            return Err("PNG inflate produced an invalid output span".into());
+        };
+        self.rows.consume(chunk)?;
+        self.produced = self.produced.saturating_add(written as u64);
+        if self.produced > self.expected as u64 {
+            return Err(format!(
+                "PNG decoded more than the expected {} bytes",
+                self.expected
+            ));
+        }
+        Ok(())
+    }
+
+    fn finish(&mut self) -> Result<(), String> {
+        if self.stream_ended {
+            return Ok(());
+        }
+        loop {
+            let before_out = self.inflater.total_out();
+            let status = self
+                .inflater
+                .decompress(&[], &mut self.out, FlushDecompress::Finish)
+                .map_err(|e| format!("PNG IDAT inflate failed: {e}"))?;
+            let written =
+                usize::try_from(self.inflater.total_out() - before_out).unwrap_or(usize::MAX);
+            self.accept_output(written)?;
+            if status == InflateStatus::StreamEnd {
+                self.stream_ended = true;
+                return Ok(());
+            }
+            if written == 0 {
+                return Err("PNG zlib stream did not terminate".into());
+            }
+        }
+    }
+
+    fn finish_and_check(&mut self) -> Result<(), String> {
+        self.finish()?;
+        if !self.stream_ended {
+            return Err("PNG zlib stream did not end".into());
+        }
+        if self.produced != self.expected as u64 {
+            return Err(format!(
+                "PNG decoded {} bytes, expected {}",
+                self.produced, self.expected
+            ));
+        }
+        self.rows.finish(self.expected)
+    }
+}
+
+/// Lazy row iterator.  It avoids allocating a `Vec` of offsets for images with
+/// many scanlines while still handling Adam7 passes.
+struct PngRowIter {
+    passes: [(u32, u32, u32, u32); 7],
+    pass_count: usize,
+    pass_index: usize,
+    width: u32,
+    height: u32,
+    bpp: u8,
+    rows_left: u32,
+    row_bytes: usize,
+}
+
+impl PngRowIter {
+    fn new(width: u32, height: u32, bpp: u8, interlace: u8) -> Self {
+        let mut passes = png_passes();
+        let pass_count = if interlace == 1 {
+            passes.len()
+        } else {
+            if let Some(first) = passes.first_mut() {
+                *first = (0, 0, 1, 1);
+            }
+            1
+        };
+        Self {
+            passes,
+            pass_count,
+            pass_index: 0,
+            width,
+            height,
+            bpp,
+            rows_left: 0,
+            row_bytes: 0,
+        }
+    }
+
+    fn next_row(&mut self) -> Option<usize> {
+        loop {
+            if self.rows_left == 0 {
+                if self.pass_index >= self.pass_count {
+                    return None;
+                }
+                let pass = self.passes.get(self.pass_index)?;
+                self.pass_index += 1;
+                let (x0, y0, dx, dy) = *pass;
+                let pw = pass_dim(self.width, x0, dx);
+                let ph = pass_dim(self.height, y0, dy);
+                self.rows_left = ph;
+                self.row_bytes = (pw as usize).checked_mul(self.bpp as usize)?.div_ceil(8);
+                continue;
+            }
+            self.rows_left -= 1;
+            return Some(self.row_bytes);
+        }
+    }
+}
+
+struct PngRowCursor {
+    rows: PngRowIter,
+    row_index: u64,
+    row_remaining: usize,
+    expecting_filter: bool,
+}
+
+impl PngRowCursor {
+    fn new(width: u32, height: u32, bpp: u8, interlace: u8) -> Self {
+        Self {
+            rows: PngRowIter::new(width, height, bpp, interlace),
+            row_index: 0,
+            row_remaining: 0,
+            expecting_filter: true,
+        }
+    }
+
+    fn consume(&mut self, bytes: &[u8]) -> Result<(), String> {
+        let mut idx = 0usize;
+        while idx < bytes.len() {
+            if self.expecting_filter {
+                let Some(&filter) = bytes.get(idx) else {
+                    break;
+                };
+                idx += 1;
+                if filter > 4 {
+                    return Err(format!(
+                        "PNG row {} has invalid filter byte {filter}",
+                        self.row_index
+                    ));
+                }
+                let Some(row_bytes) = self.rows.next_row() else {
+                    return Err("PNG decoded data has more rows than IHDR declares".into());
+                };
+                self.row_remaining = row_bytes;
+                self.row_index += 1;
+                self.expecting_filter = row_bytes == 0;
+            } else {
+                let available = bytes.len() - idx;
+                let take = self.row_remaining.min(available);
+                if take == 0 {
+                    self.expecting_filter = true;
+                    continue;
+                }
+                idx += take;
+                self.row_remaining -= take;
+                if self.row_remaining == 0 {
+                    self.expecting_filter = true;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn finish(&mut self, expected: usize) -> Result<(), String> {
+        if self.expecting_filter && self.row_remaining == 0 && self.rows.next_row().is_none() {
+            Ok(())
+        } else {
+            Err(format!(
+                "PNG row layout does not match the expected {expected} bytes"
+            ))
+        }
+    }
 }
 
 fn validate_pdf(data: &[u8], analysis: &Analysis) -> (Validation, Vec<String>) {
@@ -378,32 +684,6 @@ fn validate_pdf(data: &[u8], analysis: &Analysis) -> (Validation, Vec<String>) {
     }
 }
 
-fn png_rows(width: u32, height: u32, depth: u8, color_type: u8, interlace: u8) -> Vec<usize> {
-    let Some(bpp) = png_bits_per_pixel(depth, color_type) else {
-        return Vec::new();
-    };
-    let mut rows = Vec::new();
-    let mut offset = 0usize;
-    if interlace == 1 {
-        for (x0, y0, dx, dy) in png_passes() {
-            let pw = pass_dim(width, x0, dx);
-            let ph = pass_dim(height, y0, dy);
-            let row_bytes = (pw as usize * bpp as usize).div_ceil(8);
-            for _ in 0..ph {
-                rows.push(offset);
-                offset += 1 + row_bytes;
-            }
-        }
-    } else {
-        let row_bytes = (width as usize * bpp as usize).div_ceil(8);
-        for _ in 0..height {
-            rows.push(offset);
-            offset += 1 + row_bytes;
-        }
-    }
-    rows
-}
-
 fn expected_png_raw_size(
     width: u32,
     height: u32,
@@ -417,12 +697,12 @@ fn expected_png_raw_size(
         for (x0, y0, dx, dy) in png_passes() {
             let pw = pass_dim(width, x0, dx);
             let ph = pass_dim(height, y0, dy);
-            let row_bytes = (pw as usize * bpp as usize).div_ceil(8);
+            let row_bytes = (pw as usize).checked_mul(bpp as usize)?.div_ceil(8);
             let row = 1usize.checked_add(row_bytes)?;
             total = total.checked_add((ph as usize).checked_mul(row)?)?;
         }
     } else {
-        let row_bytes = (width as usize * bpp as usize).div_ceil(8);
+        let row_bytes = (width as usize).checked_mul(bpp as usize)?.div_ceil(8);
         let row = 1usize.checked_add(row_bytes)?;
         total = (height as usize).checked_mul(row)?;
     }

@@ -402,3 +402,53 @@ decision, and the consequences.
   no D1 recall/splice-rate measurement, so B-06 is MITIGATED rather than FIXED.
   The default scan, frozen results, protocol text and dist binaries are
   unchanged.
+
+## D-31. Enforce `--max-memory` before allocation and retention (R-01)
+
+- **Context:** `--max-memory` was previously compared with the summed size of
+  retained outputs only after carving had completed. A dense or hostile image
+  could therefore allocate many carve buffers and retain every carved result
+  before the limit was checked.
+- **Decision:** introduce a shared `MemoryBudget`/`BudgetGuard`. Carve buffers
+  reserve their bytes before allocation and before each growth step; a carved
+  result keeps its reservation while retained and is released when
+  post-filtering discards it; kept results stay charged through output writing.
+  B-06 join buffers and accepted stitches use the same budget. Carve
+  work is batched by budget and worker count; a shared counter stops candidate
+  collection as soon as `--max-candidates` (default 1,000,000) is exceeded, and
+  `--time-budget` bounds long-running scans.
+  The new options are additive and recorded in report schema v2; schema 1 is
+  unchanged.
+- **Consequences:** budget exhaustion aborts the scan instead of allowing
+  unbounded retention, and three `tests/memory_budget.rs` tests cover early
+  failure and the candidate bound. Carving, scoring, output naming and the
+  frozen raw-image path are unchanged. `--max-memory` is a scan-time budget for
+  carve buffers, retained outputs and B-06 stitches, not a total process-RSS
+  allocator cap; JPEG/PDF decoder internals are not fully instrumented.
+
+## D-32. Bound PNG decode validation before inflation (R-02)
+
+- **Context:** the PNG decode validator copied every IDAT payload into one
+  `Vec`, inflated into a second `Vec` with `read_to_end`, compared the decoded
+  length only after decompression, and built a row-offset `Vec<usize>`. A
+  compressed image with hostile dimensions or a high expansion ratio could
+  exhaust memory even when `--max-memory` was set, because that budget did not
+  cover the validator.
+- **Decision:** derive the expected filtered-scanline size from IHDR and check
+  it against a validator budget before creating an inflater. The default is
+  `DEFAULT_MAX_PNG_DECODE_BYTES` = 256 MiB; `--max-decode-bytes` configures it
+  and `ValidationLimits::new(0)` selects the default rather than disabling the
+  guard. A larger image is downgraded to `Validation::Partial` before any IDAT
+  byte is inflated. Accepted images are inflated incrementally with
+  `flate2::Decompress` into a fixed 64 KiB buffer, with filter bytes checked by
+  a lazy row cursor that also handles Adam7 without a row-offset vector. The
+  old `validate_deep` signature remains and uses the default limit;
+  `validate_deep_with_limits` is used by the scan and B-06 paths.
+- **Consequences:** four `tests/png_decode_budget.rs` tests cover extreme
+  dimensions, an explicit small budget, a 50,335,744-byte expansion with a
+  peak-RSS assertion, and an invalid filter byte. Report schema v2 records the
+  effective `options.max_decode_bytes`. The PNG path no longer retains the full
+  IDAT copy, decoded image or row offsets. JPEG/PDF decoders are outside this
+  bound and are not claimed to be fully instrumented. `--validate structure`
+  remains the default; the frozen benchmark, lockbox results, figures, protocol
+  text and dist binaries are unchanged.

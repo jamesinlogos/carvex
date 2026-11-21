@@ -1,6 +1,6 @@
 # Validation execution evidence (CarveX 0.2.0)
 
-> Last updated: 2026-11-19. This file records commands that were actually run
+> Last updated: 2026-11-20. This file records commands that were actually run
 > and the resulting artifacts. It is **execution evidence only**, not a second
 > technical report: `docs/REPORT.md` remains the sole technical report, and the
 > published 0.1.0 figures in `README.md`, `docs/REPORT.md` and
@@ -35,22 +35,28 @@ actionlint install.
 
 Command: `scripts/gate.sh`
 
-Result: **GATE GREEN**. It ran format check, clippy, 73 tests
+Result: **GATE GREEN**. It ran format check, clippy, 80 tests
 (34 unit + 13 CLI contract + 5 evidence formats + 8 filesystem detection +
-5 property + 6 scan integration + 2 fragment recovery), rustdoc with
-`-D warnings`, `actionlint`, `cargo deny check`, `cargo audit`, MSRV 1.85
-check, release build, `scripts/review_repro.py` (10/10 PASS, 0 XPASS) and the
-benchmark smoke test (TP=3/FP=0 unallocated, TP=3/FP=1 raw). `cargo audit`
-reported 0 vulnerabilities in 91 crates against 1550 advisories; `cargo deny
-check` reported advisories, bans, licenses and sources all OK.
+5 property + 6 scan integration + 2 fragment recovery + 3 memory budget +
+4 PNG decode budget), rustdoc with `-D warnings`, `actionlint`,
+`cargo deny check`, `cargo audit`, MSRV 1.85 check, release build,
+`scripts/review_repro.py` (10/10 PASS, 0 XPASS) and the benchmark smoke test
+(TP=3/FP=0 unallocated, TP=3/FP=1 raw). `cargo audit` reported 0
+vulnerabilities in 91 crates against 1555 advisories; `cargo deny check`
+reported advisories, bans, licenses and sources all OK.
 
-The gate was re-run after the B-04 source additions and again after B-06. The
-five `tests/evidence_formats.rs` fixture tests verify byte-for-byte reads for
-split raw, compressed and uncompressed E01, fixed and dynamic VHD, flat and
-sparse VMDK, and stdin report identity. The two
+The gate was re-run after the B-04 source additions, after B-06, and after
+R-01/R-02. The five `tests/evidence_formats.rs` fixture tests verify
+byte-for-byte reads for split raw, compressed and uncompressed E01, fixed and
+dynamic VHD, flat and sparse VMDK, and stdin report identity. The two
 `tests/fragment_recovery.rs` tests verify exact S12-style JPEG, PNG and PDF
-recovery from interleaved fragments and rejection of invalid B-06 limits.
-Smoke output remained metric-identical to the frozen 0.2.0 behavior.
+recovery from interleaved fragments and rejection of invalid B-06 limits. The
+three `tests/memory_budget.rs` tests cover early `--max-memory` failure,
+candidate-count enforcement and a finite default candidate limit. The four
+`tests/png_decode_budget.rs` tests cover extreme dimensions, an explicit small
+decode budget, a 50,335,744-byte expansion with a peak-RSS assertion, and an
+invalid filter byte. Smoke output remained metric-identical to the frozen 0.2.0
+behavior.
 
 ## 3. GitHub Actions
 
@@ -72,9 +78,9 @@ the final API check and are superseded by the successful run above. Local
 fuzz runtime evidence is recorded in §4 because it is the actual executed fuzz
 evidence.
 
-These GitHub runs predate the B-04 source additions and B-06. The post-B-04
-and post-B-06 evidence in §2 is the local gate only; no post-B-04 or post-B-06
-GitHub run is claimed.
+These GitHub runs predate the B-04 source additions, B-06 and R-01/R-02. The
+post-B-04, post-B-06 and post-R-01/R-02 evidence in §2 is the local gate only;
+no corresponding GitHub run is claimed.
 
 ## 4. Fuzz runtime
 
@@ -99,12 +105,13 @@ empty. Full logs are in `bench/results/fuzz/*.log`.
 
 Command: `scripts/coverage.sh 60` (cargo-llvm-cov `0.9.1`).
 
-Result: **COVERAGE COMPLETE: minimum 60% lines**. After the B-06 additions the
-lcov report contains 4111/6001 covered lines = **68.51%**. The post-B-04
-measurement was 3802/5633 lines = 67.50%, and the pre-B-04 0.2.0 measurement
-was 2859/4508 lines = 63.42%; those figures are historical. All measurements
-are below the earlier aspirational 80% target, so the CI and local floor is
-honestly set to 60%; no 80% coverage is claimed. Artifacts:
+Result: **COVERAGE COMPLETE: minimum 60% lines**. After R-01/R-02 the lcov
+report contains 4456/6391 covered lines = **69.72%**. The post-B-06
+measurement was 4111/6001 lines = 68.51%, the post-B-04 measurement was
+3802/5633 lines = 67.50%, and the pre-B-04 0.2.0 measurement was 2859/4508
+lines = 63.42%; those figures are historical. All measurements are below the
+earlier aspirational 80% target, so the CI and local floor is honestly set to
+60%; no 80% coverage is claimed. Artifacts:
 `bench/results/coverage/lcov.info` and
 `bench/results/coverage/coverage.log`.
 

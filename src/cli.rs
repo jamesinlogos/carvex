@@ -100,9 +100,18 @@ struct ScanArgs {
     /// Maximum size of a truncated file written without --repair (0 = unlimited)
     #[arg(long, value_parser = parse_size, default_value = "16M")]
     max_truncated_size: u64,
-    /// Hard cap on the total bytes held for carved output before writing
+    /// Hard cap on memory used for carve buffers and retained carved output
     #[arg(long, value_parser = parse_size, default_value = "1G")]
     max_memory: u64,
+    /// Maximum expected PNG decoded size for --validate decode (0 = default)
+    #[arg(long, value_parser = parse_size, default_value = "256M")]
+    max_decode_bytes: u64,
+    /// Maximum header candidates evaluated before aborting (0 = default limit)
+    #[arg(long, value_parser = clap::value_parser!(u64), default_value_t = scan::DEFAULT_MAX_CANDIDATES)]
+    max_candidates: u64,
+    /// Overall scan wall-clock budget in seconds (0 = unlimited)
+    #[arg(long, value_parser = clap::value_parser!(u64), default_value_t = scan::DEFAULT_TIME_BUDGET_SECS)]
+    time_budget: u64,
     /// Read chunk size for parallel scanning
     #[arg(long, value_parser = parse_size, default_value = "4M")]
     chunk_size: u64,
@@ -539,6 +548,7 @@ fn scan(args: ScanArgs) -> Result<i32> {
             args.max_truncated_size
         },
         max_memory: args.max_memory,
+        max_decode_bytes: args.max_decode_bytes,
         chunk_size: args.chunk_size,
         threads: args.threads,
         min_score: args.min_score,
@@ -555,6 +565,8 @@ fn scan(args: ScanArgs) -> Result<i32> {
         manifest: args.manifest,
         partition: args.partition.unwrap_or(PartitionSel::All).to_string(),
         include_gaps,
+        max_candidates: args.max_candidates,
+        time_budget: std::time::Duration::from_secs(args.time_budget),
         fragment_recovery: args.fragment_recovery,
         max_gap: args.max_gap,
         max_frag_candidates: args.max_frag_candidates as usize,

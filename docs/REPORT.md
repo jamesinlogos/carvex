@@ -284,6 +284,28 @@ For each candidate:
 
 This mechanism avoids reading the full 64 MiB for every small candidate while still handling large files.
 
+Work and retained memory are bounded independently of the image. Before a carve
+buffer is allocated or grown, the scanner reserves its bytes from a shared
+`--max-memory` budget; carved and stitched results stay charged while retained
+and are released when they are filtered out. A shared counter stops candidate collection as soon as
+`--max-candidates` (default 1,000,000) is exceeded, and `--time-budget` aborts
+after the configured wall-clock budget. These checks can stop a hostile scan, but
+`--max-memory` is not a process-RSS cap: it covers carve buffers, retained
+outputs and B-06 stitch buffers, while JPEG/PDF decoder internals are not fully
+instrumented.
+
+`--validate decode` uses format-specific validators. For PNG, the validator
+checks the expected filtered-scanline size derived from IHDR against
+`--max-decode-bytes` (default 256 MiB) as soon as IHDR is available. If the
+declared image exceeds that bound, the candidate is downgraded to
+`validation=partial` before any IDAT data is inflated. Otherwise, IDAT payloads
+are inflated incrementally through `flate2::Decompress` into a fixed 64 KiB
+buffer; filter bytes are checked as rows arrive, Adam7 passes are tracked
+without an offset vector, and the output length must equal the declared size
+exactly. The full compressed IDAT payload, decoded image and row-offset vector
+are never materialized. JPEG and PDF validation remain best-effort and are not
+covered by the PNG bound.
+
 ### 3.5. Scoring
 
 Scores are used to filter junk candidates. The default threshold is 50.
@@ -338,8 +360,10 @@ scanned extents.
 
 A join is accepted only when the stitched byte sequence passes the same deep
 validator used by `--validate decode`. This prevents a structural splice from
-being reported as verified without content validation. Each accepted record has
-`source="bgc"`, exactly two `fragments[]` entries, a `checks` count and a
+being reported as verified without content validation. Join buffers and
+accepted stitches are charged to the same `--max-memory` budget, so budget
+exhaustion aborts the scan instead of silently continuing. Each accepted record
+has `source="bgc"`, exactly two `fragments[]` entries, a `checks` count and a
 `confidence` score. These JSON fields are optional and omitted when B-06 is
 disabled; the CSV columns are unchanged. Bounded warnings are
 `FRAGMENT_RECOVERY_SKIPPED`, `FRAGMENT_FOOTER_SCAN_FAILED`,
@@ -685,6 +709,14 @@ Reporting both avoids misjudging tools that append padding bytes. However, usabl
 8. **No real-world Windows testing.**
 9. **Search-space confound (F-16).** CarveX `unallocated` scans only free space, while Foremost/Scalpel/PhotoRec scan the whole image; part of the recall/FP difference on mixed images is *definitional* of the mode, not just a matter of carving-algorithm quality. The full pair of modes (baseline on the same unallocated blob, CarveX on the whole image with and without the validator) has not been run to separate these two factors — the figures in §5 must be read under the stated conditions only and must not be generalized.
 10. **Evidence-source scope (B-04).** The additional readers were verified with synthetic fixtures, not with acquired case images. They cover concatenated raw segments, classic EWF-E01 with compressed or Adler-32 uncompressed chunks, fixed and dynamic VHD, flat and sparse VMDK extents, and stdin via a temporary spool. Recognized EWF2/Ex01, L01/Lx01, differencing VHD, ESX/COWD and compressed streamOptimized VMDK variants are rejected explicitly by magic, cookie or descriptor inspection. Encrypted E01 is not supported: there is no decryption, and no claim is made that every encrypted variant is detected before parsing. E01 segment discovery handles the usual two-digit base-36 suffixes (up to `.EZZ`, 1295 segments). The dynamic VHD reader consults the block allocation table but does not interpret the per-sector presence bitmap inside an allocated block, so a partially written block may expose stale bytes. No interoperability test with `ewfacquire`/`ewfexport` was possible because those tools were unavailable. These sources are outside the published benchmark; ordinary raw images retain the original `RawFile` behavior.
+11. **Resource-budget scope (R-01/R-02).** `--max-memory` bounds carve buffers,
+   retained carved outputs and B-06 stitch buffers; it is not a total
+   process-RSS allocator cap, and JPEG/PDF decoder internals are not fully
+   instrumented. PNG decode validation has an independent expected-size bound,
+   `--max-decode-bytes` (256 MiB default), and streams inflation through a fixed
+   64 KiB buffer. Images above that bound are reported as `validation=partial`
+   without being inflated. The default benchmark path does not use decode
+   validation, so the frozen figures are unaffected.
 
 ---
 
@@ -711,7 +743,7 @@ On the test corpus, CarveX unallocated achieved a perfect 100/100 exact, 0 FP. T
    differencing VHD, ESX/COWD and compressed streamOptimized VMDK behind the
    same `ImageSource` interface, with real acquisition-tool interoperability
    tests.
-5. **Deeper validation:** decode JPEG to detect entropy errors; decompress IDAT; fully parse PDF xref streams.
+5. **Deeper validation:** decode JPEG entropy data to detect errors, fully parse PDF xref streams, and extend PNG validation beyond chunk structure, filter bytes and decoded length.
 6. **Speedups:** direct I/O, `io_uring`, or memory-mapping for large images.
 7. **Evaluate on CFReDS and real-world images**, adding independent ground truth.
 8. **Interface:** a TUI or visual HTML reports.

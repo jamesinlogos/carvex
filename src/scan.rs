@@ -1,8 +1,8 @@
 use crate::fs::FsInfo;
 use crate::io::{read_exact_at, ImageSource};
 use crate::signatures::{
-    analyze, validate_deep, Analysis, FileType, Need, PdfEofMode, Status, Validation,
-    ValidationMode,
+    analyze, validate_deep_with_limits, Analysis, FileType, Need, PdfEofMode, Status, Validation,
+    ValidationLimits, ValidationMode,
 };
 use crate::util::{
     complement_extents, human_size, merge_extents, sha256_hex, unix_timestamp, Extent,
@@ -28,6 +28,158 @@ pub const DEFAULT_MAX_GAP_CLUSTERS: u64 = 16;
 pub const DEFAULT_MAX_FRAG_CANDIDATES: usize = 1024;
 /// Default wall-clock budget for B-06 (milliseconds).
 pub const DEFAULT_FRAG_TIME_LIMIT_MS: u64 = 5_000;
+/// Default hard limit on header candidates evaluated in one run.
+pub const DEFAULT_MAX_CANDIDATES: u64 = 1_000_000;
+/// Default overall scan wall-clock budget in seconds (0 = unlimited).
+pub const DEFAULT_TIME_BUDGET_SECS: u64 = 0;
+
+fn effective_max_candidates(opts: &ScanOptions) -> u64 {
+    if opts.max_candidates == 0 {
+        DEFAULT_MAX_CANDIDATES
+    } else {
+        opts.max_candidates
+    }
+}
+
+/// Shared counter used to stop candidate discovery at its hard limit.
+#[derive(Debug)]
+struct CandidateBudget {
+    found: AtomicU64,
+    max: u64,
+}
+
+impl CandidateBudget {
+    fn new(max: u64) -> Self {
+        Self {
+            found: AtomicU64::new(0),
+            max,
+        }
+    }
+
+    fn try_add(&self) -> bool {
+        self.found.fetch_add(1, Ordering::Relaxed) < self.max
+    }
+}
+
+/// Shared byte budget for carve buffers, retained outputs and B-06 joins.
+#[derive(Debug)]
+struct MemoryBudget {
+    limit: u64,
+    used: AtomicU64,
+}
+
+impl MemoryBudget {
+    fn new(limit: u64) -> Self {
+        Self {
+            limit,
+            used: AtomicU64::new(0),
+        }
+    }
+
+    fn used(&self) -> u64 {
+        self.used.load(Ordering::Relaxed)
+    }
+
+    fn try_reserve(&self, bytes: u64) -> bool {
+        if bytes == 0 {
+            return true;
+        }
+        let mut cur = self.used.load(Ordering::Relaxed);
+        loop {
+            let Some(next) = cur.checked_add(bytes) else {
+                return false;
+            };
+            if next > self.limit {
+                return false;
+            }
+            match self
+                .used
+                .compare_exchange_weak(cur, next, Ordering::Relaxed, Ordering::Relaxed)
+            {
+                Ok(_) => return true,
+                Err(actual) => cur = actual,
+            }
+        }
+    }
+
+    fn reserve(&self, bytes: u64, what: &str) -> Result<()> {
+        if self.try_reserve(bytes) {
+            Ok(())
+        } else {
+            bail!(
+                "{what} would exceed --max-memory {} (currently using {})",
+                human_size(self.limit),
+                human_size(self.used())
+            )
+        }
+    }
+
+    fn release(&self, bytes: u64) {
+        if bytes == 0 {
+            return;
+        }
+        let mut cur = self.used.load(Ordering::Relaxed);
+        loop {
+            let next = cur.saturating_sub(bytes);
+            match self
+                .used
+                .compare_exchange_weak(cur, next, Ordering::Relaxed, Ordering::Relaxed)
+            {
+                Ok(_) => return,
+                Err(actual) => cur = actual,
+            }
+        }
+    }
+}
+
+/// RAII reservation against a [`MemoryBudget`].
+#[derive(Debug)]
+struct BudgetGuard<'a> {
+    budget: &'a MemoryBudget,
+    bytes: u64,
+}
+
+impl<'a> BudgetGuard<'a> {
+    fn reserve(budget: &'a MemoryBudget, bytes: u64, what: &str) -> Result<Self> {
+        budget.reserve(bytes, what)?;
+        Ok(Self { budget, bytes })
+    }
+
+    fn resize(&mut self, new_bytes: u64, what: &str) -> Result<()> {
+        if new_bytes == self.bytes {
+            return Ok(());
+        }
+        if new_bytes > self.bytes {
+            self.budget.reserve(new_bytes - self.bytes, what)?;
+            self.bytes = new_bytes;
+        } else {
+            self.budget.release(self.bytes - new_bytes);
+            self.bytes = new_bytes;
+        }
+        Ok(())
+    }
+
+    fn release(&mut self) {
+        if self.bytes != 0 {
+            self.budget.release(self.bytes);
+            self.bytes = 0;
+        }
+    }
+
+    fn into_bytes(mut self) -> u64 {
+        let bytes = self.bytes;
+        self.bytes = 0;
+        bytes
+    }
+}
+
+impl Drop for BudgetGuard<'_> {
+    fn drop(&mut self) {
+        if self.bytes != 0 {
+            self.budget.release(self.bytes);
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -72,6 +224,9 @@ pub struct ScanOptions {
     pub max_size: u64,
     pub max_truncated_size: u64,
     pub max_memory: u64,
+    /// Maximum expected PNG decoded size accepted by decode validation
+    /// (0 = the default validator bound).
+    pub max_decode_bytes: u64,
     pub chunk_size: u64,
     pub threads: usize,
     pub min_score: u8,
@@ -90,6 +245,10 @@ pub struct ScanOptions {
     pub partition: String,
     /// Whether `--include-gaps` added the out-of-partition regions.
     pub include_gaps: bool,
+    /// Hard limit on header candidates evaluated (0 = use the default limit).
+    pub max_candidates: u64,
+    /// Overall scan wall-clock budget (0 = unlimited).
+    pub time_budget: Duration,
     /// Opt in to bounded bifragment gap carving (B-06).
     pub fragment_recovery: bool,
     /// Largest permitted gap between two joined fragments, in clusters.
@@ -103,6 +262,8 @@ pub struct ScanOptions {
 impl ScanOptions {
     /// Serialisable snapshot of the effective options for the report.
     pub fn report_options(&self) -> ReportOptions {
+        let max_candidates = effective_max_candidates(self);
+        let max_decode_bytes = ValidationLimits::new(self.max_decode_bytes).max_png_decoded_bytes;
         ReportOptions {
             types: self.types.iter().map(|t| t.ext().to_string()).collect(),
             mode: self.mode.as_str().to_string(),
@@ -110,6 +271,7 @@ impl ScanOptions {
             max_size: self.max_size,
             max_truncated_size: self.max_truncated_size,
             max_memory: self.max_memory,
+            max_decode_bytes,
             chunk_size: self.chunk_size,
             threads: self.threads,
             min_score: self.min_score,
@@ -122,6 +284,8 @@ impl ScanOptions {
             align: self.align,
             partition: self.partition.clone(),
             include_gaps: self.include_gaps,
+            max_candidates,
+            time_budget_ms: self.time_budget.as_millis() as u64,
             // B-06 fields are omitted entirely when the stage is disabled so
             // the default report remains byte-for-byte compatible.
             fragment_recovery: self.fragment_recovery.then_some(true),
@@ -172,6 +336,7 @@ pub struct ReportOptions {
     pub max_size: u64,
     pub max_truncated_size: u64,
     pub max_memory: u64,
+    pub max_decode_bytes: u64,
     pub chunk_size: u64,
     pub threads: usize,
     pub min_score: u8,
@@ -184,6 +349,8 @@ pub struct ReportOptions {
     pub align: AlignMode,
     pub partition: String,
     pub include_gaps: bool,
+    pub max_candidates: u64,
+    pub time_budget_ms: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fragment_recovery: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -496,9 +663,18 @@ pub fn run_scan(
         volumes,
         &scan_progress,
         &pool,
+        t0,
     )?;
     candidates.sort_by_key(|c| (c.offset, c.kind as u8));
     candidates.dedup_by(|a, b| a.offset == b.offset && a.kind == b.kind);
+    let max_candidates = effective_max_candidates(opts);
+    if candidates.len() as u64 > max_candidates {
+        bail!(
+            "found {} candidates which exceeds --max-candidates {}",
+            candidates.len(),
+            max_candidates
+        );
+    }
 
     if let Some(h) = scan_thread {
         scan_progress.stop.store(true, Ordering::Relaxed);
@@ -515,14 +691,27 @@ pub fn run_scan(
 
     let carve_progress = Arc::new(Progress::new(candidates.len() as u64));
     let carve_thread = start_progress(carve_progress.clone(), opts.quiet, "Carving");
-    let outcomes = carve_candidates(source, &candidates, opts, &pool, &carve_progress)?;
+    let budget = Arc::new(MemoryBudget::new(opts.max_memory));
+    let mut outcomes = Vec::with_capacity(candidates.len());
+    let per_candidate = opts.max_size.max(64 * 1024);
+    let batch_size = ((opts.max_memory / per_candidate.max(1)) as usize)
+        .clamp(1, 64)
+        .min(thread_count.max(1));
+    for batch in candidates.chunks(batch_size.max(1)) {
+        if !opts.time_budget.is_zero() && t0.elapsed() > opts.time_budget {
+            bail!("scan exceeded --time-budget");
+        }
+        let mut batch_out = carve_batch(source, batch, opts, &budget, &pool, &carve_progress)?;
+        outcomes.append(&mut batch_out);
+    }
     if let Some(h) = carve_thread {
         carve_progress.stop.store(true, Ordering::Relaxed);
         let _ = h.join();
         eprint!("\r{:100}\r", "");
     }
 
-    let mut kept = postfilter(outcomes, opts, &mut stats);
+    // Postfilter releases budget for every carved result it does not keep.
+    let mut kept = postfilter(outcomes, opts, &mut stats, &budget);
     let mut warnings = Vec::new();
     if opts.fragment_recovery {
         kept = recover_fragments(
@@ -532,8 +721,9 @@ pub fn run_scan(
             &extents,
             volumes,
             opts,
+            &budget,
             &mut warnings,
-        );
+        )?;
     }
     if opts.verbose {
         for (idx, file) in kept.iter().enumerate() {
@@ -739,6 +929,7 @@ fn build_tasks(extents: &[Extent], chunk_size: u64) -> Vec<Task> {
     tasks
 }
 
+#[allow(clippy::too_many_arguments)]
 fn find_candidates(
     source: &dyn ImageSource,
     tasks: &[Task],
@@ -747,11 +938,29 @@ fn find_candidates(
     volumes: &[FsInfo],
     progress: &Progress,
     pool: &rayon::ThreadPool,
+    started: Instant,
 ) -> Result<Vec<Candidate>> {
+    if !opts.time_budget.is_zero() && started.elapsed() > opts.time_budget {
+        bail!("scan exceeded --time-budget");
+    }
+    let candidate_budget = CandidateBudget::new(effective_max_candidates(opts));
     let found: Vec<Vec<Candidate>> = pool.install(|| {
         tasks
             .par_iter()
-            .map(|task| scan_task(source, task, types, opts, volumes, progress))
+            .map(|task| {
+                if !opts.time_budget.is_zero() && started.elapsed() > opts.time_budget {
+                    bail!("scan exceeded --time-budget");
+                }
+                scan_task(
+                    source,
+                    task,
+                    types,
+                    opts,
+                    volumes,
+                    progress,
+                    &candidate_budget,
+                )
+            })
             .collect::<Result<Vec<_>>>()
     })?;
     Ok(found.into_iter().flatten().collect())
@@ -764,6 +973,7 @@ fn scan_task(
     opts: &ScanOptions,
     volumes: &[FsInfo],
     progress: &Progress,
+    candidate_budget: &CandidateBudget,
 ) -> Result<Vec<Candidate>> {
     let mut buf = vec![0u8; task.read_len as usize];
     read_exact_at(source, &mut buf, task.start)
@@ -781,6 +991,14 @@ fn scan_task(
             let offset = task.start + rel as u64;
             if !aligned(offset, opts.align, volumes) {
                 continue;
+            }
+            // Stop the candidate list while it is being built, not only after
+            // a hostile image has filled memory with header records.
+            if !candidate_budget.try_add() {
+                bail!(
+                    "found more than --max-candidates {} header candidates",
+                    candidate_budget.max
+                );
             }
             out.push(Candidate {
                 offset,
@@ -834,55 +1052,59 @@ fn aligned(offset: u64, align: AlignMode, volumes: &[FsInfo]) -> bool {
     }
 }
 
-fn carve_candidates(
+fn carve_batch(
     source: &dyn ImageSource,
-    candidates: &[Candidate],
+    batch: &[Candidate],
     opts: &ScanOptions,
+    budget: &MemoryBudget,
     pool: &rayon::ThreadPool,
     progress: &Progress,
 ) -> Result<Vec<CarveOutcome>> {
-    // Keep memory bounded and preserve candidate order: batches are carved in
-    // parallel but appended in the original order.
-    let mut outcomes = Vec::with_capacity(candidates.len());
-    for batch in candidates.chunks(64) {
-        let mut batch_out: Vec<CarveOutcome> = pool.install(|| {
-            batch
-                .par_iter()
-                .map(|cand| {
-                    let out = carve_one(source, cand, opts);
-                    progress.done.fetch_add(1, Ordering::Relaxed);
-                    out
-                })
-                .collect()
-        });
-        outcomes.append(&mut batch_out);
-    }
-    Ok(outcomes)
+    pool.install(|| {
+        batch
+            .par_iter()
+            .map(|cand| {
+                let out = carve_one(source, cand, opts, budget);
+                progress.done.fetch_add(1, Ordering::Relaxed);
+                out
+            })
+            .collect()
+    })
 }
 
-fn carve_one(source: &dyn ImageSource, cand: &Candidate, opts: &ScanOptions) -> CarveOutcome {
+fn carve_one(
+    source: &dyn ImageSource,
+    cand: &Candidate,
+    opts: &ScanOptions,
+    budget: &MemoryBudget,
+) -> Result<CarveOutcome> {
     let available = cand.extent_end.saturating_sub(cand.offset);
     let hard_limit = available.min(opts.max_size);
     if hard_limit < 16 {
-        return CarveOutcome::Rejected("file candidate too close to extent end".into());
+        return Ok(CarveOutcome::Rejected(
+            "file candidate too close to extent end".into(),
+        ));
     }
     let mut buf_len = hard_limit.min(64 * 1024);
+    let mut buf_res = BudgetGuard::reserve(budget, buf_len, "allocating a carve buffer")?;
     let mut buf = vec![0u8; buf_len as usize];
     if let Err(e) = read_exact_at(source, &mut buf, cand.offset) {
-        return CarveOutcome::Rejected(format!("read error: {e}"));
+        return Ok(CarveOutcome::Rejected(format!("read error: {e}")));
     }
     let mut guard = 0;
     loop {
         guard += 1;
         if guard > 64 {
-            return CarveOutcome::Rejected("carve read growth guard exceeded".into());
+            return Ok(CarveOutcome::Rejected(
+                "carve read growth guard exceeded".into(),
+            ));
         }
         let at_limit = buf_len >= hard_limit;
         let read_len = buf_len.min(buf.len() as u64) as usize;
         match analyze(cand.kind, &buf[..read_len], at_limit, opts.pdf_eof) {
             Need::Analyzed(mut analysis) => {
                 if analysis.end == 0 || analysis.end > read_len {
-                    return CarveOutcome::Rejected("invalid carved length".into());
+                    return Ok(CarveOutcome::Rejected("invalid carved length".into()));
                 }
                 if !analysis.complete {
                     let trimmed = trim_zero_tail(&buf[..analysis.end]);
@@ -895,20 +1117,43 @@ fn carve_one(source: &dyn ImageSource, cand: &Candidate, opts: &ScanOptions) -> 
                     }
                 }
                 let end = analysis.end;
-                let mut bytes = buf[..end].to_vec();
-                if !analysis.complete && bytes.len() as u64 > opts.max_truncated_size {
-                    return CarveOutcome::TooLargeTruncated(bytes.len() as u64);
+                if !analysis.complete && (end as u64) > opts.max_truncated_size {
+                    return Ok(CarveOutcome::TooLargeTruncated(end as u64));
                 }
                 if analysis.score < opts.min_score {
-                    return CarveOutcome::LowScore(analysis.score);
+                    return Ok(CarveOutcome::LowScore(analysis.score));
                 }
                 if opts.complete_only && !analysis.complete {
-                    return CarveOutcome::NotComplete;
+                    return Ok(CarveOutcome::NotComplete);
                 }
+                let mut out_len = end as u64;
+                if opts.repair && !analysis.complete {
+                    out_len = out_len.saturating_add(analysis.repair_suffix.len() as u64);
+                }
+                if out_len < opts.min_size {
+                    return Ok(CarveOutcome::TooSmall(out_len));
+                }
+                // Reserve memory for the retained carved bytes before copying.
+                let mut out_res = BudgetGuard::reserve(budget, out_len, "retaining a carved file")?;
+                let mut bytes = buf[..end].to_vec();
+                buf_res.release();
                 let (validation, mut validation_notes) = if opts.validate == ValidationMode::Decode
                 {
                     if analysis.complete {
-                        validate_deep(cand.kind, &bytes, &analysis)
+                        // Best-effort reservation for decoder temporaries.
+                        let mut decode_guard = BudgetGuard::reserve(
+                            budget,
+                            bytes.len() as u64,
+                            "allocating decode-validation buffers",
+                        )?;
+                        let v = validate_deep_with_limits(
+                            cand.kind,
+                            &bytes,
+                            &analysis,
+                            ValidationLimits::new(opts.max_decode_bytes),
+                        );
+                        decode_guard.release();
+                        v
                     } else {
                         (
                             Validation::Partial,
@@ -928,7 +1173,8 @@ fn carve_one(source: &dyn ImageSource, cand: &Candidate, opts: &ScanOptions) -> 
                     analysis.notes.append(&mut validation_notes);
                     validation_notes = Vec::new();
                     if analysis.score < opts.min_score {
-                        return CarveOutcome::LowScore(analysis.score);
+                        out_res.release();
+                        return Ok(CarveOutcome::LowScore(analysis.score));
                     }
                 }
                 let mut repaired = false;
@@ -938,10 +1184,14 @@ fn carve_one(source: &dyn ImageSource, cand: &Candidate, opts: &ScanOptions) -> 
                 }
                 let size = bytes.len() as u64;
                 if size < opts.min_size {
-                    return CarveOutcome::TooSmall(size);
+                    out_res.release();
+                    return Ok(CarveOutcome::TooSmall(size));
                 }
                 let sha256 = sha256_hex(&bytes);
-                return CarveOutcome::Carved(CarvedData {
+                // Transfer reservation ownership to the carved result; it is
+                // released explicitly when the result is discarded or after use.
+                out_res.into_bytes();
+                return Ok(CarveOutcome::Carved(CarvedData {
                     candidate: cand.clone(),
                     bytes,
                     analysis,
@@ -952,27 +1202,28 @@ fn carve_one(source: &dyn ImageSource, cand: &Candidate, opts: &ScanOptions) -> 
                     fragments: Vec::new(),
                     checks: None,
                     confidence: None,
-                });
+                }));
             }
             Need::More => {
                 if at_limit {
-                    return CarveOutcome::Rejected(
+                    return Ok(CarveOutcome::Rejected(
                         "parser requested more data at the carve limit".into(),
-                    );
+                    ));
                 }
                 let next = buf_len.saturating_mul(2).min(hard_limit);
                 if next <= buf_len {
-                    return CarveOutcome::Rejected("carve buffer cannot grow".into());
+                    return Ok(CarveOutcome::Rejected("carve buffer cannot grow".into()));
                 }
+                buf_res.resize(next, "growing a carve buffer")?;
                 buf.resize(next as usize, 0);
                 if let Err(e) =
                     read_exact_at(source, &mut buf[buf_len as usize..], cand.offset + buf_len)
                 {
-                    return CarveOutcome::Rejected(format!("read error: {e}"));
+                    return Ok(CarveOutcome::Rejected(format!("read error: {e}")));
                 }
                 buf_len = next;
             }
-            Need::Reject(reason) => return CarveOutcome::Rejected(reason),
+            Need::Reject(reason) => return Ok(CarveOutcome::Rejected(reason)),
         }
     }
 }
@@ -1174,6 +1425,7 @@ fn try_fragment_join(
     cand: &Candidate,
     join: &FragmentJoin,
     opts: &ScanOptions,
+    budget: &MemoryBudget,
 ) -> Result<JoinAttempt> {
     let head_len = join.cut.saturating_sub(cand.offset);
     let tail_len = join.footer_end.saturating_sub(join.tail_start);
@@ -1193,6 +1445,7 @@ fn try_fragment_join(
         }
     };
     let capacity = usize::try_from(total).unwrap_or(usize::MAX);
+    let mut join_guard = BudgetGuard::reserve(budget, total, "allocating a B-06 stitch buffer")?;
     let mut bytes = Vec::with_capacity(capacity);
     let mut head = vec![0u8; head_len as usize];
     read_exact_at(source, &mut head, cand.offset)
@@ -1232,7 +1485,19 @@ fn try_fragment_join(
         }
     };
 
-    let (validation, validation_notes) = validate_deep(cand.kind, &bytes, &analysis);
+    // Best-effort reservation for decoder temporaries during deep validation.
+    let mut decode_guard = BudgetGuard::reserve(
+        budget,
+        bytes.len() as u64,
+        "allocating decode-validation buffers",
+    )?;
+    let (validation, validation_notes) = validate_deep_with_limits(
+        cand.kind,
+        &bytes,
+        &analysis,
+        ValidationLimits::new(opts.max_decode_bytes),
+    );
+    decode_guard.release();
     if validation != Validation::Decoded {
         return Ok(JoinAttempt {
             data: None,
@@ -1246,6 +1511,8 @@ fn try_fragment_join(
     ));
     let confidence = analysis.score;
     let sha256 = sha256_hex(&bytes);
+    join_guard.resize(bytes.len() as u64, "retaining a B-06 stitch")?;
+    join_guard.into_bytes();
     Ok(JoinAttempt {
         data: Some(CarvedData {
             candidate: cand.clone(),
@@ -1272,6 +1539,7 @@ fn try_fragment_join(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn recover_fragments(
     source: &dyn ImageSource,
     candidates: &[Candidate],
@@ -1279,15 +1547,16 @@ fn recover_fragments(
     extents: &[Extent],
     volumes: &[FsInfo],
     opts: &ScanOptions,
+    budget: &Arc<MemoryBudget>,
     warnings: &mut Vec<Warning>,
-) -> Vec<CarvedData> {
+) -> Result<Vec<CarvedData>> {
     let started = Instant::now();
     if volumes.is_empty() {
         warnings.push(Warning::new(
             "FRAGMENT_RECOVERY_SKIPPED",
             "B-06 needs a detected volume with cluster boundaries; no stitching attempted",
         ));
-        return kept;
+        return Ok(kept);
     }
 
     let footers = match find_footers(source, extents, &opts.types, opts) {
@@ -1297,7 +1566,7 @@ fn recover_fragments(
                 "FRAGMENT_FOOTER_SCAN_FAILED",
                 format!("fragment footer scan failed: {e}"),
             ));
-            return kept;
+            return Ok(kept);
         }
     };
 
@@ -1340,11 +1609,15 @@ fn recover_fragments(
                 break;
             }
             attempts += 1;
-            let attempt = match try_fragment_join(source, cand, &join, opts) {
+            let attempt = match try_fragment_join(source, cand, &join, opts, budget) {
                 Ok(v) => v,
                 Err(e) => {
                     if opts.verbose {
                         eprintln!("[-] B-06 join at {} failed: {e}", cand.offset);
+                    }
+                    // Budget exhaustion is fatal; other errors are recorded as misses.
+                    if e.to_string().contains("--max-memory") {
+                        return Err(e);
                     }
                     continue;
                 }
@@ -1356,6 +1629,7 @@ fn recover_fragments(
                 continue;
             };
             if !seen_hashes.insert(data.sha256.clone()) {
+                release_carved(&data, budget);
                 continue;
             }
             data.checks = Some(checks);
@@ -1380,16 +1654,27 @@ fn recover_fragments(
         ));
     }
 
-    kept.retain(|f| !successful_keys.contains(&(f.candidate.offset, f.candidate.kind)));
+    kept.retain(|f| {
+        let replaced = successful_keys.contains(&(f.candidate.offset, f.candidate.kind));
+        if replaced {
+            release_carved(f, budget);
+        }
+        !replaced
+    });
     kept.extend(successes);
     kept.sort_by_key(|f| (f.candidate.offset, f.candidate.kind as u8));
-    kept
+    Ok(kept)
+}
+
+fn release_carved(data: &CarvedData, budget: &MemoryBudget) {
+    budget.release(data.bytes.len() as u64);
 }
 
 fn postfilter(
     outcomes: Vec<CarveOutcome>,
     opts: &ScanOptions,
     stats: &mut ScanStats,
+    budget: &MemoryBudget,
 ) -> Vec<CarvedData> {
     let mut candidates: Vec<CarvedData> = Vec::new();
     for outcome in outcomes {
@@ -1481,9 +1766,12 @@ fn postfilter(
             stack.push(i);
         }
         let mut idx = 0usize;
-        candidates.retain(|_| {
+        candidates.retain(|c| {
             let keep_this = keep[idx];
             idx += 1;
+            if !keep_this {
+                release_carved(c, budget);
+            }
             keep_this
         });
     }
@@ -1500,6 +1788,7 @@ fn postfilter(
                         data.candidate.offset
                     );
                 }
+                release_carved(&data, budget);
             } else {
                 let seq = kept.len() as u64 + 1;
                 seen.insert(data.sha256.clone(), seq);
@@ -1508,6 +1797,8 @@ fn postfilter(
         }
         candidates = kept;
     }
+    // Kept results remain charged to the budget until the scan ends; only
+    // results discarded above have their reservations released.
     candidates
 }
 

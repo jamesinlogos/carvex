@@ -123,7 +123,12 @@ Main options:
 | `-t, --types LIST` | `jpeg,png,pdf` | File types to search for; accepts the alias `jpg` |
 | `--mode MODE` | `auto` | `auto`, `unallocated`, `raw`, `allocated` |
 | `--min-size SIZE` | `256` | Minimum size of a written file; supports `K/M/G` suffixes |
-| `--max-size SIZE` | `64M` | Maximum bytes to read after the header before giving up |
+| `--max-size SIZE` | `64M` | Maximum bytes to read after a header before giving up |
+| `--max-truncated-size SIZE` | `16M` | Maximum size of a truncated file written without `--repair` (`0` = unlimited) |
+| `--max-memory SIZE` | `1G` | Hard cap on memory used for carve buffers, retained carved output and B-06 stitch buffers |
+| `--max-decode-bytes SIZE` | `256M` | Maximum expected PNG decoded size accepted by `--validate decode` (`0` = default bound) |
+| `--max-candidates N` | `1000000` | Hard limit on header candidates evaluated before aborting (`0` = default limit) |
+| `--time-budget SEC` | `0` | Overall scan wall-clock budget in seconds (`0` = unlimited) |
 | `--chunk-size SIZE` | `4M` | Read chunk size for parallel scanning (minimum 64 KiB) |
 | `--threads N` | `0` | Number of threads; `0` = available CPU count |
 | `--min-score N` | `50` | Minimum structural score (0–100) |
@@ -418,12 +423,13 @@ not supported, so those still require conversion with another forensic tool.
 1. **FAT32 and NTFS only.** FAT12/FAT16, exFAT, ext4, APFS, and HFS+ are not supported; when encountering them, use `--mode raw`.
 2. **No reliance on directory entries.** CarveX does not read original filenames, sizes, or paths from the MFT/directory; output names are only a sequence number + offset.
 3. **Fragmented files.** By default the carver relies on header/footer and extent bounds; a fragmented file may be truncated, structurally wrong, or skipped. `--fragment-recovery` can join two cluster-aligned fragments inside a volume, but n-fragment and runlist/metadata-assisted reassembly remain future work.
-4. **Limited payload decoding.** By default, JPEG is checked for marker structure, PNG for chunk CRCs, and PDF structurally rather than by rendering. `--validate decode` and B-06 stitches invoke the deep validator; PDF rendering is not implemented.
+4. **Limited payload decoding.** By default, JPEG is checked for marker structure, PNG for chunk CRCs, and PDF structurally rather than by rendering. `--validate decode` and B-06 stitches invoke the deep validator. PNG inflation streams IDAT through a fixed buffer and downgrades a declared image above `--max-decode-bytes` (default 256 MiB) to `partial` before inflating; JPEG and PDF decoder internals are not fully instrumented. PDF rendering is not implemented.
 5. **Complex PDFs.** Encrypted PDFs, PDFs with severe structural errors, or fake `%%EOF` inside a stream can cause the parser to choose the wrong boundary. Try `--pdf-eof first/last` or `--keep-nested`.
 6. **Noise in free space.** Unallocated space may contain multiple old versions of the same file. The benchmark uses freshly created images, so this phenomenon is not fully simulated.
 7. **Performance** depends on cache, disk, and CPU count. The figures in the report are from a 4-CPU machine, 64 MiB images, and a warm cache.
 8. **No real-world Windows testing.** The PE binary was built and format-checked but has not been run on Windows in the development environment.
 9. **Fixture-level container coverage.** The B-04 readers were verified with generated images, not `ewfacquire`/`ewfexport` output. The dynamic VHD reader uses the block allocation table but does not interpret the per-sector presence bitmap inside an allocated block.
+10. **Resource-budget scope.** `--max-memory` bounds carve buffers, retained outputs and B-06 stitches, not total process RSS. PNG decode validation has its own `--max-decode-bytes` bound and streams inflation; JPEG/PDF decoder internals are not fully accounted.
 
 ## Project structure
 
@@ -450,7 +456,10 @@ carvex/
 ├── tests/
 │   ├── cli_contract.rs
 │   ├── evidence_formats.rs  # B-04 container fixtures
+│   ├── fragment_recovery.rs # B-06 S12 fixtures
 │   ├── fs_detect.rs
+│   ├── memory_budget.rs     # R-01 budget/candidate bounds
+│   ├── png_decode_budget.rs # R-02 PNG decode bomb fixtures
 │   ├── properties.rs
 │   └── scan_integration.rs
 ├── bench/
@@ -477,9 +486,10 @@ carvex/
 cargo test
 ```
 
-The current suite has 73 tests (34 unit + 13 `cli_contract` +
+The current suite has 80 tests (34 unit + 13 `cli_contract` +
 5 `evidence_formats` + 8 `fs_detect` + 5 `properties` +
-6 `scan_integration` + 2 `fragment_recovery`).
+6 `scan_integration` + 2 `fragment_recovery` + 3 `memory_budget` +
+4 `png_decode_budget`).
 Run the full release gate with `bash scripts/gate.sh`. The suite covers, among other things:
 
 - JPEG baseline, progressive, EXIF thumbnail, truncated data, fake headers;
@@ -488,6 +498,8 @@ Run the full release gate with `bash scripts/gate.sh`. The suite covers, among o
 - Extent merge/complement utilities and size parsing;
 - Byte-for-byte round-trips for split raw, E01, VHD, VMDK and stdin sources.
 - Exact S12-style interleaved JPEG, PNG and PDF recovery with B-06 enabled.
+- Bounded-memory assertions for dense candidate budgets and PNG decompression,
+  plus rejection of extreme dimensions and invalid filter bytes.
 
 ## License
 
