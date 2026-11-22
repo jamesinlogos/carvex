@@ -117,25 +117,20 @@ fn s12_interleaved_fragments_are_recovered_exactly() {
         );
         for file in stitched {
             assert_eq!(file.status, Status::Complete);
-            // H-19 stage 1 / E-1: PDF deep validation is lexical-only and reports
-            // Unverified (never Decoded) until a real PDF parser is integrated.
-            // B-06 still requires deep validation; for PDF that means the
-            // lexical-validated Unverified outcome, not a false Decoded claim.
-            let expected_validation = if kind == FileType::Pdf {
-                Validation::Unverified
-            } else {
-                Validation::Decoded
-            };
+            // H-19 stage 2: a complete stitched PDF passes the bounded
+            // xref/trailer/catalog checks and is Decoded; B-06 still requires
+            // deep validation for every type.
             assert_eq!(
-                file.validation, expected_validation,
+                file.validation,
+                Validation::Decoded,
                 "{name}: unexpected validation for B-06 stitch"
             );
             if kind == FileType::Pdf {
                 assert!(
+                    file.notes.iter().any(|n| n
+                        .contains("PDF cross-reference, trailer, size and catalog checks passed")),
+                    "{name}: PDF B-06 stitch missing structural validation note: {:?}",
                     file.notes
-                        .iter()
-                        .any(|n| n.contains("startxref target validated")),
-                    "{name}: PDF B-06 stitch missing lexical-validation note"
                 );
             }
             assert_eq!(file.fragments.len(), 2);

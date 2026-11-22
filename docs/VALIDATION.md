@@ -60,12 +60,14 @@ decode budget, a 50,335,744-byte expansion with a peak-RSS assertion, and an
 invalid filter byte. Smoke output remained metric-identical to the frozen 0.2.0
 behavior.
 
-The gate was re-run after H-14, H-16, H-17 and H-18 on 2026-11-22 and remained green.
-The current test count is 109: 41 unit, 13 CLI contract, 5 evidence-format,
+The gate was re-run after H-14, H-16, H-17, H-18 and H-19 stage 2 on
+2026-11-22 and remained green.
+The current test count is 117: 41 unit, 13 CLI contract, 5 evidence-format,
 2 fragment recovery, 8 filesystem detection, 2 JPEG frame budget, 4 memory
 budget, 3 panic containment, 2 PNG CRC validity, 4 PNG decode budget,
-2 PNG validator budget, 5 property, 3 E01 safety, 4 VMDK safety,
-6 scan integration, 1 validity-model and 4 work-budget tests. The H-16 red test
+2 PNG validator budget, 8 PDF structure validation, 5 property, 3 E01 safety,
+4 VMDK safety, 6 scan integration, 1 validity-model and 4 work-budget tests.
+The H-16 red test
 `tests/validity_model.rs::default_structure_rows_are_labeled_content_not_checked`
 failed before the fix with `left: Null` for `validity`; the H-17 red test
 `tests/png_crc_validity.rs::bad_png_crc_is_suspect_in_structure_and_decode_modes`
@@ -73,11 +75,17 @@ failed with `left: String("structure")`, `right: "partial"`. Both now pass.
 H-18 adds two `src/signatures/jpeg.rs` unit tests that pin the pre-existing
 MCU-count/exact-EOI checks; the 4,000-pair property run and its five residual
 accepted splices are recorded in `docs/baseline/jpeg_splice_v0.2.0.txt` and
-D-45. The repro harness ran 34 scenarios with 0 failures, 2 SKIPs and 0 XPASS;
-G7 and the benchmark smoke were green. `scripts/perf_gate.py --carvex
-target/release/carvex` reported **PERF GREEN**: s9_4m median 0.140 s and
+D-45. H-19 stage 2 added eight red-first tests in
+`tests/pdf_structure_validation.rs`; the initial valid PDF and broken-xref/root
+fixtures reported `unverified` before the structural validator was wired in.
+All ten corpus PDFs now scan `verified`/100 with no suspect result. `qpdf` and
+`pdftoppm` are unavailable, so the X11 external-oracle control matrix is
+SKIPPED; `pypdf` 6.9.2 was used only to open generated fixtures. The repro
+harness ran 34 scenarios with 0 failures, 2 SKIPs and 0 XPASS; G7 and the
+benchmark smoke were green. `scripts/perf_gate.py --carvex
+target/release/carvex` reported **PERF GREEN**: s9_4m median 0.185 s and
 rand64m median 0.032 s. No new coverage measurement was made for
-H-14/H-16/H-17/H-18.
+H-14/H-16/H-17/H-18/H-19.
 
 ## 3. GitHub Actions
 

@@ -1050,29 +1050,54 @@ def case_x09(carvex: Path, work: Path, corpus: Path, ntfs: Path | None) -> str:
 
 
 def case_x11(carvex: Path, work: Path, corpus: Path, ntfs: Path | None) -> str:
-    """H-19: PDF decoded must not be lexical-only for broken xref/root."""
-    src = corpus / "pdf" / "pdf_03_text_2pages.pdf"
-    if not src.exists():
-        return "SKIP: corpus pdf missing"
-    data = bytearray(src.read_bytes())
-    # Corrupt one xref offset by +7 (keep length stable by replacing digits) - simple approach:
-    # find 'xref' and corrupt an entry
-    xref = data.find(b"xref")
-    if xref < 0:
-        return "SKIP: no xref"
-    # corrupt a byte in xref table area (after xref line)
-    idx = xref + 20
-    if idx < len(data):
-        data[idx] = ord('9') if data[idx] != ord('9') else ord('0')
-    img = work / "x11.img"
-    img.write_bytes(b"\x00"*4096 + bytes(data) + b"\x00"*4096)
-    res = run_carvex(carvex, img, work/"out", ["--mode","raw","--no-fs","--types","pdf","--validate","decode","--min-score","0"])
-    if res.proc.returncode != 0:
-        return f"exit {res.proc.returncode}"
-    files = (res.report or {}).get("files", [])
-    for f in files:
-        if f.get("type") == "pdf" and f.get("validity") == "verified":
-            return "broken-xref PDF reported verified (lexical-only validation)"
+    """H-19: PDF validity must follow xref/trailer/catalog checks, not lexemes."""
+    clean = base_pdf()
+    match = re.search(
+        rb"xref\n0 3\n0000000000 65535 f \n(\d{10}) 00000 n \n", clean
+    )
+    if not match:
+        return "SKIP: base PDF fixture has no classic xref"
+    offset = int(match.group(1))
+    bad_xref = clean.replace(
+        match.group(1), f"{offset + 7:010d}".encode(), 1
+    )
+    bad_root = clean.replace(b"/Root 1 0 R", b"/Root 9 0 R", 1)
+    cases = (
+        ("clean", clean, "verified", "decoded"),
+        ("bad-xref", bad_xref, "suspect", "partial"),
+        ("bad-root", bad_root, "suspect", "partial"),
+    )
+    for name, payload, expected_validity, expected_validation in cases:
+        img = work / f"x11-{name}.img"
+        img.write_bytes(b"\x00" * 4096 + payload + b"\x00" * 4096)
+        res = run_carvex(
+            carvex,
+            img,
+            work / f"out-{name}",
+            [
+                "--mode", "raw", "--no-fs", "--types", "pdf",
+                "--validate", "decode", "--min-score", "0", "--min-size", "1",
+            ],
+        )
+        if res.proc.returncode != 0:
+            return f"{name}: exit {res.proc.returncode}: {res.stderr.strip()}"
+        files = (res.report or {}).get("files", [])
+        if len(files) != 1:
+            return f"{name}: expected one PDF, got {len(files)}"
+        file = files[0]
+        if file.get("validity") != expected_validity:
+            return (
+                f"{name}: validity={file.get('validity')}, "
+                f"expected {expected_validity}"
+            )
+        if file.get("validation") != expected_validation:
+            return (
+                f"{name}: validation={file.get('validation')}, "
+                f"expected {expected_validation}"
+            )
+        carved = res.out_dir / file["path"]
+        if not carved.is_file() or carved.read_bytes() != payload:
+            return f"{name}: output bytes changed"
     return ""
 
 

@@ -484,10 +484,10 @@ decision, and the consequences.
   "startxref target validated" (lexical-validated case). S12 is updated with an
   E-1 comment: PDF BGC stitches assert `Unverified` plus the lexical-validation
   note; JPEG/PNG still assert `Decoded`. No PDF carve is labeled Decoded.
-- **Consequences:** B-06 PDF recovery remains possible with an honest label.
-  Full PDF content decode (H-19 stage 2) can later promote lexical-validated
-  PDFs to Decoded by changing `validate_pdf` and tightening S12/B-06 back to
-  Decoded-only.
+- **Consequences:** B-06 PDF recovery remained possible with an honest label
+  during stage 1. D-46 supersedes the stage-1 label for PDFs that pass the new
+  structural checks while retaining the lexical-validated `Unverified` B-06
+  acceptance path as a compatibility case (E-1).
 
 ## D-35. E01 chunk cap and read-error policy (H-11, H-22)
 
@@ -718,3 +718,34 @@ decision, and the consequences.
   changes. Unsupported variants remain `unverified`/`structural`; progressive
   JPEGs are never `verified`. The residual rate is a known limitation, not a
   claim that the 0.1% upper-CI boundary was met.
+
+## D-46. H-19 stage 2 bounded PDF structure validation
+
+- **Context:** stage 1 removed the false `decoded` label but left PDF decode
+  mode lexical-only. The review oracle showed xref and `/Root` errors that
+  `qpdf --check` rejects being accepted by CarveX. `qpdf` and `pdftoppm` are not
+  installed here, so their control matrix is SKIPPED and not claimed; `pypdf`
+  6.9.2 was used only to sanity-check generated fixtures.
+- **Decision:** decode mode runs a bounded structural validator. Classic xref
+  entries must point at the matching `N G obj`; xref streams must declare
+  `/Type /XRef`, direct `/W`, `/Size` and a direct `/Length` that ends exactly
+  before `endstream` (a trailing EOL is outside the stream); `/Root` resolves
+  through xref entries or `/ObjStm` to `/Type /Catalog`; `/Prev` is cycle-safe
+  with depth 8 and `/XRefStm` is followed; `/Encrypt` is flagged. Inflate work,
+  entry count and dictionary scans are bounded by
+  `--max-validator-memory`/the shared budget and fixed caps. Implemented
+  checks that pass yield `decoded`/`verified`; any mismatch yields
+  `partial`/`suspect` while the file and score stay unchanged; unsupported or
+  budget-limited checks yield `unverified`/`structural`, never `suspect`.
+  `validated_bytes` stays zero because these checks visit scattered offsets
+  and are not a contiguous decoded payload.
+- **Evidence:** eight red-first tests in
+  `tests/pdf_structure_validation.rs` cover a valid minimal PDF, bad xref
+  offset, bad `/Root`, xref stream, compressed catalog in `/ObjStm`, bad stream
+  length, `/Prev` cycle and a tiny validator budget. All ten corpus PDFs scan
+  `verified`/100 with no suspect result. X11 now checks a clean PDF and both
+  corruption modes; the `qpdf --check` oracle controls remain SKIPPED.
+- **Compatibility:** scores, emission, output names, CLI/JSON/CSV schema,
+  warning codes and the default raw path are unchanged. B-06 still requires
+  deep validation and now accepts complete stitched PDFs as `Decoded`; the
+  stage-1 `Unverified` lexical case is still accepted when present.

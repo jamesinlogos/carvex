@@ -7,6 +7,7 @@
 #![deny(clippy::indexing_slicing, clippy::unwrap_used, clippy::expect_used)]
 pub mod jpeg;
 pub mod pdf;
+mod pdf_validate;
 pub mod png;
 
 use clap::ValueEnum;
@@ -319,22 +320,17 @@ pub fn base_validity_checks(
         Validation::Decoded => checks.push(ValidationCheck::new(
             "content_check",
             Some(true),
-            "payload decoded successfully",
-        )),
-        Validation::Unverified => {
-            checks.push(ValidationCheck::new(
-                "content_check",
-                None,
-                "a mandatory content check is unsupported; content not checked",
-            ));
             if kind == FileType::Pdf {
-                checks.push(ValidationCheck::new(
-                    "startxref_target",
-                    Some(true),
-                    "startxref target validated lexically; content not checked",
-                ));
-            }
-        }
+                "PDF structure checks passed; page content was not rendered"
+            } else {
+                "payload decoded successfully"
+            },
+        )),
+        Validation::Unverified => checks.push(ValidationCheck::new(
+            "content_check",
+            None,
+            "a mandatory content check is unsupported; content not checked",
+        )),
         Validation::Partial => {
             let note = notes
                 .first()
@@ -449,7 +445,7 @@ pub fn validate_deep_detail(
     match kind {
         FileType::Jpeg => validate_jpeg_detail(data, analysis, limits),
         FileType::Png => validate_png_detail(data, analysis, limits),
-        FileType::Pdf => validate_pdf_detail(data, analysis),
+        FileType::Pdf => validate_pdf_detail(data, analysis, limits),
     }
 }
 
@@ -1020,49 +1016,12 @@ impl PngRowCursor {
     }
 }
 
-fn validate_pdf(data: &[u8], analysis: &Analysis) -> (Validation, Vec<String>) {
-    let selected = data.get(..analysis.end).unwrap_or(data);
-    let trimmed = match selected
-        .iter()
-        .rposition(|b| !matches!(b, b'\r' | b'\n' | b' ' | b'\t' | 0))
-    {
-        Some(i) => selected.get(..=i).unwrap_or(selected),
-        None => selected,
-    };
-    if !trimmed.ends_with(b"%%EOF") {
-        return (
-            Validation::Partial,
-            vec!["selected PDF revision does not end with %%EOF".into()],
-        );
-    }
-    if memchr::memmem::find(selected, b"/Root").is_none() {
-        return (Validation::Partial, vec!["PDF has no /Root catalog".into()]);
-    }
-    if analysis
-        .notes
-        .iter()
-        .any(|n| n.contains("target validated"))
-    {
-        (
-            Validation::Unverified,
-            vec![
-                "PDF decode is lexical-only (startxref target validated); content not fully verified"
-                    .into(),
-            ],
-        )
-    } else {
-        (
-            Validation::Unverified,
-            vec![
-                "PDF footer present but xref target was not validated; content not checked".into(),
-            ],
-        )
-    }
-}
-
-fn validate_pdf_detail(data: &[u8], analysis: &Analysis) -> ValidationDetail {
-    let (validation, notes) = validate_pdf(data, analysis);
-    ValidationDetail::new(validation, notes)
+fn validate_pdf_detail(
+    data: &[u8],
+    analysis: &Analysis,
+    limits: ValidationLimits,
+) -> ValidationDetail {
+    pdf_validate::validate(data, analysis, limits)
 }
 
 fn expected_png_raw_size(

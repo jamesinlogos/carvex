@@ -190,7 +190,7 @@ Challenges:
 - `startxref` must point to a valid `xref` or object stream.
 - A `%PDF-` header may appear inside other file content.
 
-CarveX counts objects, checks `/Root`, finds `startxref` near `%%EOF`, and validates the target. `smart` mode selects the last `%%EOF` with a valid `startxref`; if there is none, it selects the last `%%EOF`.
+CarveX counts objects, checks `/Root`, finds `startxref` near `%%EOF`, and validates the target. `smart` mode selects the last `%%EOF` with a valid `startxref`; if there is none, it selects the last `%%EOF`. Decode mode additionally runs the bounded structural validator described in §3.4.1: it follows classic xref tables and xref streams, verifies object headers, the catalog reference, `/Size`, `/Prev` and `/Encrypt`, and checks direct stream lengths against `endstream`. It does not render page content.
 
 ---
 
@@ -303,8 +303,8 @@ are inflated incrementally through `flate2::Decompress` into a fixed 64 KiB
 buffer; filter bytes are checked as rows arrive, Adam7 passes are tracked
 without an offset vector, and the output length must equal the declared size
 exactly. The full compressed IDAT payload, decoded image and row-offset vector
-are never materialized. JPEG and PDF validation remain best-effort and are not
-covered by the PNG bound.
+are never materialized. JPEG and PDF use their own bounded checks and are not
+covered by the PNG-specific inflation bound; neither renders payload content.
 
 #### 3.4.1. Validity labels (ADR-H1)
 
@@ -338,6 +338,19 @@ measured residual rate and confidence interval are disclosed in
 `docs/baseline/jpeg_splice_v0.2.0.txt` (D-45). An output intersecting an
 unreadable source range is at best `suspect` and carries
 `overlaps_unreadable_region: false`.
+
+For PDF decode mode, the validator records `startxref_target`, `xref_entries`,
+`xref_stream`, `stream_length`, `prev_chain`, `xref_size`, `encrypt` and
+`root_catalog` checks. Every implemented check passing gives `verified`; a
+mismatch gives `suspect` with the failing check named, and the file is still
+written with its historical score. A check that is unsupported or exceeds the
+validator budget is recorded with `ok: null` and gives `structural`, not
+`suspect`; the compressed catalog path resolves `/ObjStm` entries. Because the
+checks visit scattered offsets rather than a contiguous decoded payload,
+`validated_bytes` remains zero for PDF even when `validation=decoded`. The
+10-file PDF corpus all reached `verified`/100 with no suspect result. External
+`qpdf`/`pdftoppm` oracles were unavailable, so that control matrix is SKIPPED;
+`pypdf` was used only to open generated fixtures, not as a verdict oracle.
 
 ### 3.5. Scoring
 

@@ -1982,10 +1982,9 @@ fn try_fragment_join(
         checks: detail_checks,
         validated_bytes,
     } = validate_deep_detail(cand.kind, &bytes, &analysis, limits);
-    // B-06 requires deep validation. H-19 stage 1: PDF deep validation is
-    // lexical-only and reports Unverified (never Decoded) until a real PDF
-    // parser is integrated. Accept only the lexical-validated Unverified case
-    // for PDF; all other formats still require Decoded.
+    // B-06 requires deep validation. H-19 stage 2 makes valid PDFs Decoded.
+    // Keep accepting the stage-1 lexical-validated Unverified PDF outcome
+    // (E-1) for compatibility; every other Unverified result is rejected.
     let accepted = match validation {
         Validation::Decoded => true,
         Validation::Unverified if cand.kind == FileType::Pdf => validation_notes

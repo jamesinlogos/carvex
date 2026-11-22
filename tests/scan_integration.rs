@@ -88,19 +88,20 @@ fn decode_validation_accepts_the_fixtures() {
     let (_dir, report) = run(image, opts, None, "decode.raw");
     assert_eq!(report.files.len(), 3);
     for file in &report.files {
-        // H-19 stage 1 / E-1: PDF deep validation is lexical-only and reports
-        // Unverified until a real PDF parser is integrated. JPEG/PNG fixtures
-        // still fully decode.
-        let expected = if file.file_type == FileType::Pdf {
-            Validation::Unverified
-        } else {
-            Validation::Decoded
-        };
-        assert_eq!(file.validation, expected, "{}: {:?}", file.path, file.notes);
-        let expected_validated = if expected == Validation::Decoded {
-            file.carved_size
-        } else {
+        // H-19 stage 2: all three fixtures pass their implemented checks.
+        // PDF validation is structural rather than a contiguous payload decode,
+        // so its validated_bytes remains zero.
+        assert_eq!(
+            file.validation,
+            Validation::Decoded,
+            "{}: {:?}",
+            file.path,
+            file.notes
+        );
+        let expected_validated = if file.file_type == FileType::Pdf {
             0
+        } else {
+            file.carved_size
         };
         assert_eq!(file.validated_bytes, expected_validated);
     }

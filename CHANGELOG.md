@@ -42,6 +42,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   manifest comments show the same label.
 - H-17: PNG decode validation emits a structured `chunk_crc` check for every
   chunk whose stored CRC disagrees with the recomputed value.
+- H-19 stage 2: `--validate decode` runs a bounded PDF structural validator for
+  classic xref tables, xref streams, `/ObjStm` catalogs, `/Prev` chains,
+  `/Size`, `/Encrypt` and direct stream lengths. Results are exposed through
+  the existing `checks[]` array.
 
 ### Changed
 
@@ -75,6 +79,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   rate for self-consistent baseline tail swaps is disclosed in
   `docs/baseline/jpeg_splice_v0.2.0.txt`; no clean-file-breaking heuristic was
   added. Scores, emission and clean baseline labels are unchanged.
+- H-19 stage 2: a PDF whose implemented structural checks pass is now
+  `decoded`/`verified` instead of always `unverified`/`structural`; a failing
+  xref, catalog, stream-length or `/Prev` check is `partial`/`suspect` and the
+  file is still written. Unsupported or budget-limited checks remain
+  `unverified`/`structural`. `validated_bytes` stays zero for PDF because the
+  checks are structural, not a contiguous payload decode. Scores, emission,
+  output names and report schema are unchanged.
 
 ### Fixed
 
