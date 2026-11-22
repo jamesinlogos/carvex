@@ -66,6 +66,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   failures are handled by the configured read-error policy instead of aborting
   unconditionally. Two `tests/regress_e01_safety.rs` tests cover the hostile
   header and the short final chunk.
+- H-06: JPEG decode validation now checks the claimed SOF frame size against
+  `--max-validator-memory` and an optimistic entropy capacity before invoking
+  the decoder; oversized or implausible claims are `unverified`. Arithmetic
+  frames are exempt from the entropy heuristic but not the memory budget.
 - R-02: PNG decode validation now checks the expected filtered-scanline size
   at IHDR against the validator budget before inflating anything. Inflation
   streams IDAT chunks through a fixed 64 KiB buffer, checks filter bytes as

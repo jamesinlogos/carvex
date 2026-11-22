@@ -327,6 +327,63 @@ struct HuffmanTable {
     codes: HashMap<(u8, u16), u8>,
 }
 
+/// Header-only frame claim used by the H-06 memory guard.
+pub(crate) struct FrameClaim {
+    pub(crate) width: u32,
+    pub(crate) height: u32,
+    pub(crate) components: u8,
+    pub(crate) arithmetic: bool,
+}
+
+/// Read the first SOF header without decoding any image data.
+pub(crate) fn frame_claim(data: &[u8]) -> Option<FrameClaim> {
+    if data.get(0..2) != Some(&[0xFF, 0xD8]) {
+        return None;
+    }
+    let mut pos = 2usize;
+    while pos + 1 < data.len() {
+        if data.get(pos) != Some(&0xFF) {
+            pos += 1;
+            continue;
+        }
+        while data.get(pos) == Some(&0xFF) {
+            pos += 1;
+        }
+        let marker = *data.get(pos)?;
+        pos += 1;
+        if marker == 0xD8 || marker == 0x01 || (0xD0..=0xD7).contains(&marker) {
+            continue;
+        }
+        if marker == 0xD9 || marker == 0xDA {
+            return None;
+        }
+        let len = be16(data, pos)? as usize;
+        if len < 2 || pos.checked_add(len)? > data.len() {
+            return None;
+        }
+        if is_sof(marker) {
+            if len < 8 {
+                return None;
+            }
+            let p = pos + 2;
+            let height = be16(data, p + 1)? as u32;
+            let width = be16(data, p + 3)? as u32;
+            let components = *data.get(p + 5)?;
+            if width == 0 || height == 0 || components == 0 {
+                return None;
+            }
+            return Some(FrameClaim {
+                width,
+                height,
+                components,
+                arithmetic: matches!(marker, 0xC9 | 0xCA | 0xCB | 0xCD | 0xCE | 0xCF),
+            });
+        }
+        pos += len;
+    }
+    None
+}
+
 struct FrameInfo {
     width: u32,
     height: u32,

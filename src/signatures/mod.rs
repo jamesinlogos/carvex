@@ -249,13 +249,48 @@ pub fn validate_deep_with_limits(
     limits: ValidationLimits,
 ) -> (Validation, Vec<String>) {
     match kind {
-        FileType::Jpeg => validate_jpeg(data, analysis),
+        FileType::Jpeg => validate_jpeg(data, analysis, limits),
         FileType::Png => validate_png(data, analysis, limits),
         FileType::Pdf => validate_pdf(data, analysis),
     }
 }
 
-fn validate_jpeg(data: &[u8], analysis: &Analysis) -> (Validation, Vec<String>) {
+fn validate_jpeg(
+    data: &[u8],
+    analysis: &Analysis,
+    limits: ValidationLimits,
+) -> (Validation, Vec<String>) {
+    if let Some(claim) = jpeg::frame_claim(data) {
+        let samples = u64::from(claim.width)
+            .checked_mul(u64::from(claim.height))
+            .and_then(|v| v.checked_mul(u64::from(claim.components)))
+            .unwrap_or(u64::MAX);
+        if samples > limits.max_validator_memory {
+            return (
+                Validation::Unverified,
+                vec![format!(
+                    "claimed frame size exceeds validator budget: {samples} samples > {} bytes",
+                    limits.max_validator_memory
+                )],
+            );
+        }
+        // A Huffman-coded 8x8 block needs at least two entropy bits (DC symbol
+        // plus EOB), so one byte can justify at most 256 samples.  Reject a
+        // claim above twice that optimistic bound; arithmetic-coded frames do
+        // not use Huffman tables and are exempt from this check.
+        if !claim.arithmetic {
+            let plausible = (analysis.end as u64).saturating_mul(512);
+            if samples > plausible {
+                return (
+                    Validation::Unverified,
+                    vec![format!(
+                        "claimed frame size {samples} samples is implausible for {} entropy bytes",
+                        analysis.end
+                    )],
+                );
+            }
+        }
+    }
     let mut decoder = jpeg_decoder::Decoder::new(std::io::Cursor::new(data));
     match decoder.decode() {
         Ok(pixels) => {

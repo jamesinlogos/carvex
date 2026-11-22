@@ -161,7 +161,7 @@ Windows**.
 
 | ID | Pri | Repro (date, build) | Status | Commit | Test(s) | Before → After / evidence |
 |----|----|---------------------|--------|--------|---------|---------------------------|
-| H-05 | CRIT | 2026-11-21 source / 2026-11-21 release build | CLOSED | pending | tests/png_validator_budget.rs; scripts/review_repro.py X02 | R-02 already bounded inflation; the missing shared flag was reproduced red. X02a: 0.009 s / 8.8 MiB RSS, `partial`; X02b rejected at IHDR. |
+| H-05 | CRIT | 2026-11-21 source / 2026-11-21 release build | CLOSED | 873ea35 | tests/png_validator_budget.rs; scripts/review_repro.py X02 | R-02 already bounded inflation; the missing shared flag was reproduced red. X02a: 0.009 s / 8.8 MiB RSS, `partial`; X02b rejected at IHDR. |
 | H-07 | HIGH | 2026-11-21 source | CLOSED | fa18436 | scripts/review_repro.py X04 | 23-26s -> <1s after single-pass EOF indexing; A-01/R1-R8 and G7 unchanged. |
 | H-11 | CRIT | 2026-11-21 source / 2026-11-21 release build | CLOSED | 4b86f2d | tests/regress_e01_safety.rs::hostile_chunk_size_is_rejected; X07 | Before: SIGABRT on a 64 GiB declared chunk (v5). After: typed error `EWF chunk size 68719476736 exceeds the 67108864-byte limit`; `info` 0.005 s / 12 MiB RSS, `scan` 0.005 s / 13 MiB RSS. |
 | H-16 | CRIT | 2026-11-21 source | OPEN | - | scripts/review_repro.py X24 | X24 interleaved fixture not flagged decoded/complete; default structural-as-complete issue still present per SRC. Needs proper validity-model check. |
@@ -171,7 +171,7 @@ Windows**.
 
 | P0.7 | - | 2026-11-21 source | DONE | - | scripts/perf_gate.py | Perf baseline recorded (s9_4m median ~0.39s, rand64m ~0.03s); thresholds.toml committed; x04 marked xfail in thresholds. |
 
-| H-06 | CRIT | 2026-11-21 source | NOT-REPRODUCED (weak) | - | scripts/review_repro.py X03 | Oversized-SOF JPEG not reported decoded/complete and did not timeout; RSS/kill not measured. |
+| H-06 | CRIT | 2026-11-21 source / 2026-11-21 release build | CLOSED | pending | tests/jpeg_frame_budget.rs; scripts/review_repro.py X03 | Red test proved the decoder ran without a budget check. After: 20,000² and 65,535² SOF claims → `unverified`, 0.010 s / 8.9 MiB and 0.009 s / 9.0 MiB RSS. |
 | H-08 | CRIT | 2026-11-21 source | NOT-REPRODUCED (weak) | - | scripts/review_repro.py X01 | Small repro did not show exit-1/no-report discard; needs RSS-bound and large-payload confirmation. |
 | H-09 | HIGH | 2026-11-21 source | REPRODUCED (partial) | - | scripts/review_repro.py X05 | Missing `--max-work-per-candidate`, `--max-output`; `--max-candidates` and `--time-budget` already present. |
 | H-14 | HIGH | - | OPEN | - | - | No new fuzz targets for image parsers yet. |
@@ -185,6 +185,23 @@ Windows**.
 | H-23 | MED | 2026-11-21 source | CLOSED | 080b76a | tests/regress_vmdk_safety.rs | Missing grain table returned "index out of range"; now reads zeros like qemu-img. |
 
 ### Per-task reports
+
+Task: H-06 — JPEG SOF dimensions must not drive unbounded allocation
+Reviews: v2:N-02 (ONE); local source-build reproduction was weak
+Repro: the OOM was not re-observed locally, but the red test proved that an
+  oversized SOF reached the decoder even with a 1 KiB validator budget.
+Change: `jpeg::frame_claim` reads SOF dimensions/components without decoding;
+  `validate_jpeg` checks the claimed sample count against
+  `--max-validator-memory` and, for Huffman frames only, against an optimistic
+  entropy capacity of 512 samples per input byte (D-37).
+New tests: `tests/jpeg_frame_budget.rs::{claimed_frame_above_the_validator_budget_is_not_decoded,
+  implausible_entropy_claim_is_not_decoded_with_a_large_budget}` (first red).
+Gate: green (fmt/clippy/tests/doc/MSRV/repro/golden/smoke).
+Measurement: patched baseline JPEG at 20,000x20,000 → `unverified`, 0.010 s,
+  8.9 MiB RSS; 65,535x65,535 → `unverified`, 0.009 s, 9.0 MiB RSS.
+Residual risk / next: arithmetic-coded JPEGs are exempt from the entropy
+  plausibility check but still obey the memory budget; structure mode is
+  intentionally unchanged.
 
 Task: H-05 — PNG decode inflation must be bounded
 Reviews: v1:R-02, v2:R-02, v3:R-03, v4:F-02, v5:F-02

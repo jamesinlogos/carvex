@@ -523,3 +523,22 @@ decision, and the consequences.
 - **Consequences:** PNG and JPEG validators share one deterministic budget and
   no decode validator may claim more than that budget for one candidate. The
   legacy report field keeps its type and meaning, and schema 1 is unchanged.
+
+## D-37. JPEG frame-claim budget and entropy plausibility (H-06)
+
+- **Context:** `jpeg-decoder` allocates the frame from SOF dimensions before
+  consuming entropy data. A v2 runtime test with a 65,535×65,535 SOF was
+  killed at 5,948 MiB RSS. The existing `--max-memory` could not prevent it
+  because decode validators were outside that budget.
+- **Decision:** before invoking the decoder, compute
+  `width × height × components` with checked arithmetic and compare it with
+  `--max-validator-memory`; an excess is `validation=unverified` with a note
+  naming the budget. For Huffman-coded frames only, also reject claims above
+  twice the optimistic entropy capacity: each 8×8 block needs at least two
+  bits (DC symbol plus EOB), i.e. at most 256 samples per entropy byte, so the
+  guard uses 512 samples per input byte. Arithmetic-coded SOF9+ frames are
+  exempt from the entropy check because they do not use Huffman tables.
+- **Consequences:** locally measured 20,000×20,000 and 65,535×65,535 patched
+  JPEGs both finish in ≤ 0.01 s at about 9 MiB RSS and are labelled
+  `unverified`; structure mode is unchanged. The plausibility rule is an
+  anti-OOM guard, not a general JPEG authenticity test.
