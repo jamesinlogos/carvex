@@ -157,6 +157,27 @@ pub struct Region {
     pub len: u64,
     pub scanned: bool,
     pub partition_index: Option<usize>,
+    /// True when raw bytes here mix allocated and unallocated content because
+    /// a filesystem parser failed (H-26).
+    pub may_contain_allocated: bool,
+}
+
+/// A filesystem probe that recognised a boot sector but could not parse it.
+#[derive(Debug, Clone)]
+pub struct VolumeParseError {
+    pub partition_index: usize,
+    pub offset: u64,
+    pub reason: String,
+}
+
+impl std::fmt::Display for VolumeParseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "partition {} (byte {}): {}",
+            self.partition_index, self.offset, self.reason
+        )
+    }
 }
 
 /// Everything a detection pass found: every supported volume, every
@@ -170,8 +191,9 @@ pub struct VolumeSet {
     pub partitions: Vec<Partition>,
     /// Table entries without a supported filesystem.
     pub unsupported: Vec<Partition>,
-    /// Probe failures for `unsupported` entries (one message per partition).
-    pub errors: Vec<String>,
+    /// Probe failures for `unsupported` entries, with their partition index,
+    /// byte offset and underlying parser reason (one per partition; H-26).
+    pub errors: Vec<VolumeParseError>,
     /// Image byte ranges outside every partition (partitioned images only).
     pub gaps: Vec<Extent>,
     /// True when a volume was found directly at offset 0.
@@ -210,6 +232,7 @@ impl VolumeSet {
         include_gaps: bool,
     ) -> Vec<Region> {
         let mut out = Vec::new();
+        let parse_failed = |index: usize| self.errors.iter().any(|e| e.partition_index == index);
         for v in &self.volumes {
             let chosen = selected
                 .iter()
@@ -220,6 +243,7 @@ impl VolumeSet {
                 len: v.length,
                 scanned: whole_image_scanned || (chosen && scans_free),
                 partition_index: v.partition_index,
+                may_contain_allocated: false,
             });
             out.push(Region {
                 kind: RegionKind::Allocated,
@@ -227,6 +251,7 @@ impl VolumeSet {
                 len: v.length,
                 scanned: whole_image_scanned || (chosen && scans_allocated),
                 partition_index: v.partition_index,
+                may_contain_allocated: false,
             });
         }
         for p in &self.unsupported {
@@ -236,6 +261,7 @@ impl VolumeSet {
                 len: p.byte_len(512),
                 scanned: whole_image_scanned || include_gaps,
                 partition_index: Some(p.index),
+                may_contain_allocated: parse_failed(p.index),
             });
         }
         for g in &self.gaps {
@@ -245,6 +271,7 @@ impl VolumeSet {
                 len: g.len,
                 scanned: whole_image_scanned || include_gaps,
                 partition_index: None,
+                may_contain_allocated: false,
             });
         }
         out
@@ -423,7 +450,11 @@ pub fn detect_all(source: &dyn ImageSource, len: u64) -> Result<VolumeSet> {
             Ok(None) => unsupported.push(p.clone()),
             Err(e) => {
                 unsupported.push(p.clone());
-                errors.push(format!("partition {}: {e:#}", p.index));
+                errors.push(VolumeParseError {
+                    partition_index: p.index,
+                    offset: p.byte_offset(512),
+                    reason: format!("{e:#}"),
+                });
             }
         }
     }
@@ -500,12 +531,16 @@ pub fn select_volumes(set: &VolumeSet, sel: PartitionSel) -> Result<Vec<FsInfo>>
 }
 
 fn no_volume_message(set: &VolumeSet) -> String {
-    let mut msg = String::from("no FAT32/NTFS filesystem found in the partition table");
-    if !set.errors.is_empty() {
-        msg.push_str(":\n  - ");
-        msg.push_str(&set.errors.join("\n  - "));
+    if set.errors.is_empty() {
+        return String::from("no FAT32/NTFS filesystem found in the partition table");
     }
-    msg
+    let details = set
+        .errors
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join("; ");
+    format!("filesystem metadata could not be parsed: {details}")
 }
 
 /// Image byte ranges that lie outside every partition (A-07 `regions[]`).
@@ -562,7 +597,8 @@ pub fn probe(
     };
 
     if boot.get(3..7) == Some(b"NTFS") && boot.get(510..512) == Some(&[0x55, 0xAA]) {
-        let fs = ntfs::parse(&ctx, &boot)?;
+        let fs = ntfs::parse(&ctx, &boot)
+            .with_context(|| format!("NTFS boot sector at byte {offset} but $MFT unreadable"))?;
         return Ok(Some(fs));
     }
 
@@ -585,7 +621,9 @@ pub fn probe(
                     boot.get(0x27).copied().unwrap_or(0),
                 ]) > 0));
     if is_fat32 {
-        let fs = fat32::parse(&ctx, &boot)?;
+        let fs = fat32::parse(&ctx, &boot).with_context(|| {
+            format!("FAT32 boot sector at byte {offset} but metadata unreadable")
+        })?;
         return Ok(Some(fs));
     }
 

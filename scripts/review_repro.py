@@ -1252,11 +1252,44 @@ def case_x19(carvex: Path, work: Path, corpus: Path, ntfs: Path | None) -> str:
     img.write_bytes(full)
     out = work/"out"; out.mkdir()
     res = run_cmd([str(carvex), "scan", str(img), "-o", str(out), "--quiet", "--json-report", str(out/"report.json")], timeout=120)
+    if res.proc.returncode != 3:
+        return f"exit {res.proc.returncode}, expected 3 (stderr={res.proc.stderr!r})"
     report = json.loads((out/"report.json").read_text()) if (out/"report.json").exists() else {}
-    warnings = report.get("warnings", [])
-    codes = {w.get("code") for w in warnings if isinstance(w, dict)}
-    if res.proc.returncode == 0 and "VOLUME_PARSE_FAILED" not in codes and "FS_DETECTION_FAILED" not in codes:
-        return f"exit 0 with no parse-failure warning (codes={codes})"
+    parse = next((w for w in report.get("warnings", []) if w.get("code") == "VOLUME_PARSE_FAILED"), None)
+    if not isinstance(parse, dict):
+        return f"missing VOLUME_PARSE_FAILED warning: {report.get('warnings')!r}"
+    message = parse.get("message", "")
+    for needle in ("partition 2", f"byte {p2off}", "$MFT"):
+        if needle not in message:
+            return f"warning omits {needle!r}: {message!r}"
+    console = res.proc.stderr
+    if "warning[VOLUME_PARSE_FAILED]" not in console or "$MFT" not in console:
+        return f"console omitted the parse failure: {console!r}"
+    region = next((r for r in report.get("regions", []) if r.get("partition_index") == 2 and r.get("kind") == "unsupported"), None)
+    if not isinstance(region, dict):
+        return f"missing unsupported fallback region: {report.get('regions')!r}"
+    if not region.get("scanned"):
+        return f"fallback region was not scanned: {region!r}"
+    if not region.get("may_contain_allocated"):
+        return f"fallback region does not flag allocated content: {region!r}"
+    # S8b: with no healthy companion volume, `info` must fail with the cause.
+    single_off = 2048 * 512
+    single = bytearray(size)
+    entry = bytearray(16)
+    entry[4] = 0x07
+    struct.pack_into("<I", entry, 8, 2048)
+    struct.pack_into("<I", entry, 12, 65536)
+    single[446:462] = entry
+    single[510] = 0x55
+    single[511] = 0xAA
+    single[single_off:single_off + len(nd)] = nd
+    single_img = work / "x19_single.img"
+    single_img.write_bytes(single)
+    info = run_cmd([str(carvex), "info", str(single_img)], timeout=60)
+    if info.proc.returncode != 1:
+        return f"info exit {info.proc.returncode}, expected 1"
+    if f"NTFS boot sector at byte {single_off}" not in info.proc.stderr or "$MFT" not in info.proc.stderr:
+        return f"info omitted the specific cause: {info.proc.stderr!r}"
     return ""
 
 

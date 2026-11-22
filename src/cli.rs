@@ -476,106 +476,123 @@ fn scan(args: ScanArgs) -> Result<i32> {
                     format!("filesystem detection failed; used raw scan: {e:#}"),
                 ));
             }
-            Ok(set) => match fs::select_volumes(&set, selection) {
-                Err(e) => {
-                    if explicit || needs_fs {
-                        return Err(e).context("filesystem detection failed");
-                    }
+            Ok(set) => {
+                // H-26: a recognised but unparsable volume is a degraded run,
+                // even when another volume parsed and the scan can continue.
+                for error in &set.errors {
                     warnings.push(Warning::new(
-                        "FS_DETECTION_FAILED",
-                        format!("filesystem detection failed; used raw scan: {e:#}"),
+                        "VOLUME_PARSE_FAILED",
+                        format!(
+                            "partition {} at byte {} could not be parsed: {}",
+                            error.partition_index, error.offset, error.reason
+                        ),
                     ));
-                    // The fallback reads the whole image, so every region of
-                    // the failed detection is still scanned.
-                    volume_rows = set
-                        .volumes
-                        .iter()
-                        .enumerate()
-                        .map(|(i, v)| VolumeSummary::from_fs(i + 1, v, true))
-                        .collect();
-                    regions = set.regions(&[], true, false, false, include_gaps);
                 }
-                Ok(selected) => {
-                    volumes = selected;
-                    for f in &volumes {
-                        announce_fs(&args, f);
-                    }
-                    if include_gaps {
-                        extra = set.unscanned_extents();
-                    }
-                    let whole_image = args.mode == ScanMode::Raw;
-                    let scans_free = matches!(args.mode, ScanMode::Auto | ScanMode::Unallocated);
-                    let scans_alloc = args.mode == ScanMode::Allocated;
-                    volume_rows = set
-                        .volumes
-                        .iter()
-                        .enumerate()
-                        .map(|(i, v)| {
-                            let chosen = volumes
-                                .iter()
-                                .any(|s| s.offset == v.offset && s.length == v.length);
-                            VolumeSummary::from_fs(i + 1, v, whole_image || chosen)
-                        })
-                        .collect();
-                    regions =
-                        set.regions(&volumes, whole_image, scans_free, scans_alloc, include_gaps);
-
-                    // A-07: say out loud what this run does not read.
-                    if !whole_image {
-                        for v in &set.volumes {
-                            let chosen = volumes
-                                .iter()
-                                .any(|s| s.offset == v.offset && s.length == v.length);
-                            if !chosen {
-                                warnings.push(Warning::new(
-                                    "VOLUME_NOT_SCANNED",
-                                    format!(
-                                        "{} at byte {} ({}) was not scanned; \
-                                         use --partition all to scan every volume",
-                                        v.partition_index
-                                            .map(|i| format!("partition {i}"))
-                                            .unwrap_or_else(|| "volume".into()),
-                                        v.offset,
-                                        human_size(v.length)
-                                    ),
-                                ));
-                            }
+                match fs::select_volumes(&set, selection) {
+                    Err(e) => {
+                        if explicit || needs_fs {
+                            return Err(e).context("filesystem detection failed");
                         }
-                        if !include_gaps {
-                            for p in &set.unsupported {
-                                let detail = set
-                                    .errors
+                        warnings.push(Warning::new(
+                            "FS_DETECTION_FAILED",
+                            format!("filesystem detection failed; used raw scan: {e:#}"),
+                        ));
+                        // The fallback reads the whole image, so every region of
+                        // the failed detection is still scanned.
+                        volume_rows = set
+                            .volumes
+                            .iter()
+                            .enumerate()
+                            .map(|(i, v)| VolumeSummary::from_fs(i + 1, v, true))
+                            .collect();
+                        regions = set.regions(&[], true, false, false, include_gaps);
+                    }
+                    Ok(selected) => {
+                        volumes = selected;
+                        for f in &volumes {
+                            announce_fs(&args, f);
+                        }
+                        if include_gaps {
+                            extra = set.unscanned_extents();
+                        }
+                        let whole_image = args.mode == ScanMode::Raw;
+                        let scans_free =
+                            matches!(args.mode, ScanMode::Auto | ScanMode::Unallocated);
+                        let scans_alloc = args.mode == ScanMode::Allocated;
+                        volume_rows = set
+                            .volumes
+                            .iter()
+                            .enumerate()
+                            .map(|(i, v)| {
+                                let chosen = volumes
                                     .iter()
-                                    .find(|e| e.starts_with(&format!("partition {}:", p.index)));
-                                warnings.push(Warning::new(
-                                    "VOLUME_UNSUPPORTED",
-                                    format!(
-                                        "partition {} (type {}, byte {}) was not scanned: \
+                                    .any(|s| s.offset == v.offset && s.length == v.length);
+                                VolumeSummary::from_fs(i + 1, v, whole_image || chosen)
+                            })
+                            .collect();
+                        regions = set.regions(
+                            &volumes,
+                            whole_image,
+                            scans_free,
+                            scans_alloc,
+                            include_gaps,
+                        );
+
+                        // A-07: say out loud what this run does not read.
+                        if !whole_image {
+                            for v in &set.volumes {
+                                let chosen = volumes
+                                    .iter()
+                                    .any(|s| s.offset == v.offset && s.length == v.length);
+                                if !chosen {
+                                    warnings.push(Warning::new(
+                                        "VOLUME_NOT_SCANNED",
+                                        format!(
+                                            "{} at byte {} ({}) was not scanned; \
+                                         use --partition all to scan every volume",
+                                            v.partition_index
+                                                .map(|i| format!("partition {i}"))
+                                                .unwrap_or_else(|| "volume".into()),
+                                            v.offset,
+                                            human_size(v.length)
+                                        ),
+                                    ));
+                                }
+                            }
+                            if !include_gaps {
+                                for p in &set.unsupported {
+                                    let detail =
+                                        set.errors.iter().find(|e| e.partition_index == p.index);
+                                    warnings.push(Warning::new(
+                                        "VOLUME_UNSUPPORTED",
+                                        format!(
+                                            "partition {} (type {}, byte {}) was not scanned: \
                                          no supported FAT32/NTFS filesystem{}; \
                                          use --include-gaps to scan it raw",
-                                        p.index,
-                                        p.type_name,
-                                        p.byte_offset(512),
-                                        detail.map(|d| format!(" ({d})")).unwrap_or_default()
-                                    ),
-                                ));
-                            }
-                            if !set.gaps.is_empty() {
-                                let total: u64 = set.gaps.iter().map(|g| g.len).sum();
-                                warnings.push(Warning::new(
-                                    "GAP_NOT_SCANNED",
-                                    format!(
-                                        "{} image region(s) outside every partition \
+                                            p.index,
+                                            p.type_name,
+                                            p.byte_offset(512),
+                                            detail.map(|d| format!(" ({d})")).unwrap_or_default()
+                                        ),
+                                    ));
+                                }
+                                if !set.gaps.is_empty() {
+                                    let total: u64 = set.gaps.iter().map(|g| g.len).sum();
+                                    warnings.push(Warning::new(
+                                        "GAP_NOT_SCANNED",
+                                        format!(
+                                            "{} image region(s) outside every partition \
                                          ({} in total) were not scanned; use --include-gaps",
-                                        set.gaps.len(),
-                                        human_size(total)
-                                    ),
-                                ));
+                                            set.gaps.len(),
+                                            human_size(total)
+                                        ),
+                                    ));
+                                }
                             }
                         }
                     }
                 }
-            },
+            }
         }
     }
 

@@ -655,6 +655,7 @@ impl Warning {
             "VOLUME_NOT_SCANNED"
                 | "GAP_NOT_SCANNED"
                 | "VOLUME_UNSUPPORTED"
+                | "VOLUME_PARSE_FAILED"
                 | "FS_DETECTION_FAILED"
                 | "IMAGE_MODIFIED"
                 | "UNREADABLE_REGION"

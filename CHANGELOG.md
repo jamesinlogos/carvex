@@ -57,6 +57,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - H-25: report schema 2 adds `input.logical_size`, `logical_size_after`,
   `physical_size`, `physical_size_after`, `format` and `files[]`. Legacy `size`,
   `size_after` and schema 1 are unchanged.
+- H-26: unparsable partitions emit `VOLUME_PARSE_FAILED` with the partition
+  index, byte offset and parser reason. Schema-2 `regions[]` adds
+  `may_contain_allocated`, true for the raw fallback region of a parse failure.
 
 ### Changed
 
@@ -73,7 +76,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - H-25: stdin reports `input.unchanged: null` instead of `true`; disk-backed
   sources keep the boolean value. No carve behavior, score, emission or output
   name changed.
-- Updated test count to 125. Re-measured line coverage after R-01/R-02 is
+- H-26: a degraded scan now exits 3 instead of silently finishing with exit 0;
+  `info` still exits 1 when no volume can be selected but names the recognised
+  boot sector and failed metadata. S8/S8b still do not abort.
+- Updated test count to 128. Re-measured line coverage after R-01/R-02 is
   4456/6391 lines = 69.72%; the honest CI/local floor remains 60%.
 - E01 read errors now follow `--on-read-error`; the default changed from
   failing the whole run to zero-filling the affected chunk and recording it.

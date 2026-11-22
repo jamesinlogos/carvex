@@ -1,6 +1,5 @@
 # Known-failing review scenarios (one ID per line).
 # Phase 0: X scenarios below reproduced on 0.3.0-dev baseline; remove when fixed.
-X19
 X15
 X20
 X21

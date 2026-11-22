@@ -91,7 +91,7 @@ according to the degree of completeness of the evidence.
 - Unrecoverable programming/user errors → `anyhow::Error` → `main` prints
   `error: …` → **exit 1**; clap syntax errors → **exit 2**.
 - Completed but evidence was missed (coded warnings `*_NOT_SCANNED`,
-  `IMAGE_MODIFIED`, `FS_DETECTION_FAILED`…) → **exit 3**
+  `IMAGE_MODIFIED`, `FS_DETECTION_FAILED`, `VOLUME_PARSE_FAILED`…) → **exit 3**
   (`Warning::incomplete()` in `scan.rs`).
 - Interrupted (SIGINT) → **exit 4**.
 - Informational warning (`RAW_SCANS_ALLOCATED`) does not change the exit code (D-20).

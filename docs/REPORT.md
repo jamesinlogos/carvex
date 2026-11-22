@@ -504,7 +504,31 @@ object. The executed controls use a compressed E01, a monolithicSparse VMDK
 and a stdin PNG; real libewf-made multi-segment E01/.E02 containers are
 SKIPPED because `ewfacquire` is unavailable.
 
-### 3.11. CLI and reporting
+### 3.11. Unparsable volumes (H-26)
+
+`VolumeSet.errors` now stores a structured `VolumeParseError` for each
+partition whose boot sector was recognised but whose filesystem metadata could
+not be parsed: the 1-based partition index, the absolute byte offset and the
+underlying parser reason. `probe()` adds context such as `NTFS boot sector at
+byte 1048576 but $MFT unreadable`, so the report no longer claims that no
+filesystem was found when one was recognised and failed later.
+
+`scan` emits one `VOLUME_PARSE_FAILED` warning per parse error in both
+`warnings[]` and stderr. The code is incomplete, so a scan that finishes with
+such a warning exits 3; it does not abort and other healthy volumes are still
+scanned. Each `regions[]` row gains an additive `may_contain_allocated` boolean.
+For a fallback `unsupported` region backed by a parse error it is true,
+declaring that the raw scan mixes allocated and unallocated bytes. Other region
+kinds keep `false`.
+
+With no selectable volume, `info` keeps its documented exit 1 but reports the
+specific boot-sector offset and failed metadata instead of the previous
+generic "no FAT32/NTFS filesystem found" text. Explicit `--partition` and
+`--offset` views retain their existing error paths. No filesystem
+reconstruction, backup boot sector, `$MFTMirr` fallback or scoring change was
+added.
+
+### 3.12. CLI and reporting
 
 - Three commands: `info`, `scan`, `signatures`.
 - `--json-report` outputs all metadata and the file list.

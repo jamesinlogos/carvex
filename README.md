@@ -197,8 +197,9 @@ For images with a partition table, CarveX 0.2.0 does not skip any volume or imag
 
 - By default (A-07 step 2), scan the free space of **all** FAT32/NTFS volumes and raw-scan every gap/unsupported partition; no region is skipped, so exit 0.
 - To restore the historical 0.1.0 behavior, use `--partition largest --no-gaps`: every unscanned volume/gap is reported with a **coded warning** on stderr and in `warnings[]` (`VOLUME_NOT_SCANNED`, `GAP_NOT_SCANNED`, `VOLUME_UNSUPPORTED`, `FS_DETECTION_FAILED`, `IMAGE_MODIFIED`), and the program exits 3.
+- A recognised but unparsable partition always emits `VOLUME_PARSE_FAILED` with its index, byte offset and underlying reason, even when another volume parses. The scan exits 3 but is not aborted (H-26).
 - To skip only gaps but still scan all volumes: `--no-gaps` (can be used with `--partition all`). `--include-gaps` remains accepted for compatibility with old scripts.
-- Report schema 2 always lists `volumes[]` in full (which volumes were/were not scanned) and `regions[]` (`free`/`allocated`/`gap`/`unsupported` with a `scanned` flag), so readers can see exactly which regions were read.
+- Report schema 2 always lists `volumes[]` in full (which volumes were/were not scanned) and `regions[]` (`free`/`allocated`/`gap`/`unsupported` with a `scanned` flag). Each region also carries `may_contain_allocated`; it is true for an `unsupported` fallback region where a filesystem parse failed, so readers know raw carving mixes allocated and deleted bytes (H-26).
 
 | Exit code | Meaning |
 |---|---|
@@ -315,7 +316,7 @@ The JSON report (schema 2, default) has these main fields:
   `format`, and backing `files[]` (`path`, `size`, `modified_unix`). `unchanged`
   is a boolean for disk-backed images and `null` for stdin;
 - `stats`: candidate count, carved file count, filtering reasons, extent count, bytes scanned;
-- `volumes[]` and `regions[]`: every detected volume/partition/gap and the `scanned` flag for this run (A-07);
+- `volumes[]` and `regions[]`: every detected volume/partition/gap, the `scanned` flag and the additive `may_contain_allocated` flag for this run (A-07/H-26);
 - `warnings[]`: a list of `{code, message}`; `*_NOT_SCANNED`-style codes correspond to exit code 3, while `READ_ABORTED` accompanies an exit-1 partial report;
 - `unreadable_regions[]`: `{offset, len, reason}` for each failed source range (H-22);
 - `files[]`: `seq`, `type`, `offset`, `size`, `carved_size`, `sha256`, `status` (`complete`/`truncated`/`repaired`), `score`, `width`, `height`, `notes`, `path`, `validation`, `validity`, `checks[]`, and optional `sha256_original` after a revalidated repair.

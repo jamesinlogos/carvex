@@ -828,3 +828,37 @@ decision, and the consequences.
 - **Evidence:** compressed E01, monolithicSparse VMDK and stdin are exercised
   by the Rust fixture tests and X22. Real libewf-made multi-segment E01/.E02
   containers remain SKIPPED because `ewfacquire` is unavailable.
+
+## D-50. Unparsable volumes are explicit (H-26)
+
+- **Context:** `VolumeSet` already collected one parse error per unrecognised
+  or broken partition, but `scan` ignored those errors when another volume
+  parsed. The S8 disk therefore exited 0, printed no warning, and reported the
+  damaged NTFS range as `unsupported, scanned=true` without saying that raw
+  carving there mixes allocated and deleted bytes. With no healthy companion
+  volume, the warning and `info` error said only "no FAT32/NTFS filesystem
+  found" even though an NTFS boot sector had been recognised.
+- **Decision:** store parse failures as structured `VolumeParseError` values
+  with `partition_index`, byte `offset` and the underlying `reason`. Wrap
+  recognised FAT32/NTFS parse failures with the boot-sector offset and the
+  affected metadata, e.g. `NTFS boot sector at byte 1048576 but $MFT
+  unreadable`. Every detected parse error becomes a `VOLUME_PARSE_FAILED`
+  warning in the report and on stderr; the code is incomplete, so a finished
+  scan exits 3 even when other volumes are healthy.
+- **Regions:** append an additive `may_contain_allocated` boolean to every
+  `regions[]` row. It is true only for an `unsupported` fallback region backed
+  by a parse error. The kind, offset, length and scanned flag keep their
+  existing meanings; no region is removed or merged.
+- **Info:** `info` continues to exit 1 when no supported volume can be selected
+  (guide S8b), but `no_volume_message` now uses the structured parse errors
+  instead of the misleading generic text. Explicit `--partition` and
+  `--offset` views keep their existing error paths.
+- **Compatibility:** S8/S8b do not abort. No new filesystem reconstruction,
+  backup-boot-sector fallback, score, emission rule, output name, CSV column
+  or published benchmark changed. The new warning code and region field are
+  additive schema-2 details; schema 1 removes `warnings` and `regions`
+  entirely.
+- **Evidence:** three red-first CLI tests in `tests/volume_parse_errors.rs`
+  and the strengthened X19 control. X19 uses real `mkfs.vfat`/`mkntfs`
+  fixtures; the deterministic tests use an in-memory NTFS boot sector whose
+  `$MFT` record cannot be parsed.
