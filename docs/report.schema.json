@@ -28,6 +28,7 @@
     "regions",
     "unreadable_regions",
     "warnings",
+    "nondeterministic_stop",
     "files"
   ],
   "additionalProperties": false,
@@ -105,6 +106,7 @@
         }
       }
     },
+    "nondeterministic_stop": { "type": "boolean", "description": "True when a wall-clock budget stopped the scan" },
     "files": { "type": "array", "items": { "$ref": "#/$defs/file" } }
   },
   "$defs": {
@@ -149,7 +151,7 @@
         "max_memory", "max_decode_bytes", "chunk_size", "threads", "min_score", "repair",
         "complete_only", "pdf_eof", "dedupe_hashes", "suppress_nested",
         "validate", "align", "partition", "include_gaps",
-        "max_candidates", "time_budget_ms"
+        "max_candidates", "max_work_per_candidate", "max_output", "time_budget_ms"
       ],
       "additionalProperties": false,
       "properties": {
@@ -174,6 +176,8 @@
         "partition": { "type": "string", "description": "'largest', 'all' or a 1-based partition number" },
         "include_gaps": { "type": "boolean" },
         "max_candidates": { "type": "integer", "minimum": 0, "description": "Candidate bound (0 = default limit)" },
+        "max_work_per_candidate": { "type": "integer", "minimum": 0, "description": "Analyzer + validator byte budget per candidate (0 = unlimited)" },
+        "max_output": { "type": "integer", "minimum": 0, "description": "Cap on bytes written by the scan (0 = unlimited)" },
         "time_budget_ms": { "type": "integer", "minimum": 0, "description": "Overall scan time budget in milliseconds (0 = unlimited)" },
         "fragment_recovery": { "type": "boolean", "description": "B-06 was enabled (omitted otherwise)" },
         "max_gap": { "type": "integer", "minimum": 1, "description": "B-06 maximum gap in clusters" },

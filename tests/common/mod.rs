@@ -70,6 +70,8 @@ pub fn scan_options(types: Vec<FileType>, mode: ScanMode) -> ScanOptions {
         partition: "largest".to_string(),
         include_gaps: false,
         max_candidates: carvex::scan::DEFAULT_MAX_CANDIDATES,
+        max_work_per_candidate: carvex::scan::DEFAULT_MAX_WORK_PER_CANDIDATE,
+        max_output: carvex::scan::DEFAULT_MAX_OUTPUT,
         time_budget: std::time::Duration::from_secs(carvex::scan::DEFAULT_TIME_BUDGET_SECS),
         fragment_recovery: false,
         max_gap: carvex::scan::DEFAULT_MAX_GAP_CLUSTERS,

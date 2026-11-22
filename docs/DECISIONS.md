@@ -564,3 +564,35 @@ decision, and the consequences.
   source-change event is a coded warning in the JSON report and makes the CLI
   exit 3. The double-read cost is measured under G8 rather than hidden behind
   a hybrid retain/stream path.
+
+## D-39. Work-unit and wall-clock budgets (H-09)
+
+- **Context:** the old `--max-candidates` and `--time-budget` aborted with
+  exit 1 and no report, and there were no limits on per-candidate analyzer /
+  validator work or cumulative output. Reviews require deterministic work-unit
+  limits, a flagged wall-clock safety net, coded warnings and a partial report.
+- **Decision:** `--max-candidates` (default 1,000,000) uses a two-pass
+  deterministic allocation: fixed tasks from `--chunk-size` (never `--threads`)
+  are counted in a cheap lexical pass, then the exact global budget is handed
+  out in task order before candidate records are built. An over-budget image
+  therefore keeps the same prefix regardless of scheduling, while a limit at
+  or above the true candidate count never drops candidates spuriously.
+  `--max-work-per-candidate`
+  (default 256 MiB; `0` = unlimited) counts bytes handed to analyzers and deep
+  validators. `--max-output` (default 4 GiB; `0` = unlimited) stops before the
+  next output that would exceed the cap. These limits are deterministic and
+  emit `CANDIDATE_LIMIT`, `WORK_LIMIT` and `OUTPUT_LIMIT`. `--time-budget SECS`
+  remains wall-clock (`0` = unlimited by design); expiry is latched across all
+  stages, emits `TIME_LIMIT` and sets `nondeterministic_stop: true`. Every
+  event writes a report and exits 3.
+- **Measurements (release build, 2026-11-21):** D0 `bench/images` cases used
+  27–41 candidates and wrote 6,327,552–14,259,990 bytes; the lowest
+  `--max-work-per-candidate` that avoided `WORK_LIMIT` on the largest raw D0
+  case was 8,323,072 bytes. S9-4M flood16 produced 262,144 candidates, 0 bytes
+  written and needed at least 65,536 bytes of per-candidate work; S10
+  flood512/64 MiB produced 129,804 candidates, 0 bytes written and also needed
+  65,536 bytes. No default limit triggered on any measured scenario.
+- **Residual evidence gap:** CFReDS RM#2 artefacts are not present in the tree
+  and were not re-run for this decision; the defaults leave roughly 30× headroom
+  over the largest measured per-candidate work and 280× over the largest
+  measured candidate count, but no claim is made about that unavailable data.

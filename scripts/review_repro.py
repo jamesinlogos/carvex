@@ -919,13 +919,88 @@ def case_x03(carvex: Path, work: Path, corpus: Path, ntfs: Path | None) -> str:
 
 
 def case_x05(carvex: Path, work: Path, corpus: Path, ntfs: Path | None) -> str:
-    """H-09: required work budgets must exist."""
-    res = run_cmd([str(carvex), "scan", "--help"], timeout=30)
-    helptext = res.stdout + res.stderr
-    missing = [f for f in ["--max-candidates", "--time-budget", "--max-work-per-candidate", "--max-output"] if f not in helptext]
+    """H-09: all four work/output limits must produce a coded partial report."""
+    help_proc = subprocess.run(
+        [str(carvex), "scan", "--help"], capture_output=True, text=True, timeout=30
+    )
+    help_text = help_proc.stdout + help_proc.stderr
+    needed = [
+        "--max-candidates",
+        "--max-work-per-candidate",
+        "--max-time-budget",
+        "--time-budget",
+        "--max-output",
+    ]
+    # `--max-time-budget` is a spelling used by some clients; this CLI uses
+    # `--time-budget`, so only the latter is required here.
+    missing = [flag for flag in needed if flag != "--max-time-budget" and flag not in help_text]
     if missing:
         return f"missing flags: {missing}"
+
+    def check(name: str, extra: list[str], code: str, nondeterministic: bool = False) -> str | None:
+        scen = work / f"x05_{name}"
+        scen.mkdir(parents=True, exist_ok=True)
+        res = run_carvex(carvex, images[name], scen, extra, timeout=180)
+        if res.proc.returncode != 3:
+            return f"{name}: exit {res.proc.returncode}, expected 3; stderr={res.stderr[:200]}"
+        if res.report is None:
+            return f"{name}: no JSON report"
+        codes = [w.get("code") for w in res.report.get("warnings", [])]
+        if code not in codes:
+            return f"{name}: missing warning {code}, got {codes}"
+        if nondeterministic and res.report.get("nondeterministic_stop") is not True:
+            return f"{name}: nondeterministic_stop not set"
+        return None
+
+    # Candidate flood: 512-byte-spaced JPEG headers in a 64 MiB image.
+    flood = work / "x05_flood.img"
+    if not flood.exists():
+        header = b"\xff\xd8\xff\xe0\x00\x00JFIF\x00"
+        chunk = header + b"\x00" * (512 - len(header))
+        flood.write_bytes(chunk * (64 * 1024 * 1024 // len(chunk)))
+
+    # Work limit: one complete JPEG carrying a 4 KiB comment segment.
+    src = next((corpus / "jpeg").glob("*.jpg"), None)
+    if src is None:
+        return "SKIP: no corpus JPEG for the work-limit fixture"
+    data = src.read_bytes()
+    comment = b"\xff\xfe" + struct.pack(">H", 4100) + b"C" * 4098
+    work_image = work / "x05_work.img"
+    work_image.write_bytes(data[:2] + comment + data[2:])
+
+    # Output limit: ten high-entropy PNGs, each much larger than 1 KiB.
+    import zlib as _z
+
+    rows = []
+    for y in range(256):
+        rows.append(b"\x00" + bytes((x * 17 + y * 31) % 256 for x in range(256)))
+    png = (
+        PNG_MAGIC
+        + _png_chunk(b"IHDR", struct.pack(">IIBBBBB", 256, 256, 8, 0, 0, 0, 0))
+        + _png_chunk(b"IDAT", _z.compress(b"".join(rows), 6))
+        + PNG_IEND
+    )
+    png_image = work / "x05_pngs.img"
+    png_image.write_bytes(b"".join(b"\x00" * 512 + png + b"\x00" * 512 for _ in range(10)))
+
+    images = {
+        "candidates": flood,
+        "work": work_image,
+        "time": flood,
+        "output": png_image,
+    }
+    cases = [
+        ("candidates", ["--mode", "raw", "--no-fs", "--types", "jpeg", "--max-candidates", "1000"], "CANDIDATE_LIMIT", False),
+        ("work", ["--mode", "raw", "--no-fs", "--types", "jpeg", "--max-work-per-candidate", "1024"], "WORK_LIMIT", False),
+        ("time", ["--mode", "raw", "--no-fs", "--types", "jpeg", "--time-budget", "1"], "TIME_LIMIT", True),
+        ("output", ["--mode", "raw", "--no-fs", "--types", "png", "--max-output", "1K"], "OUTPUT_LIMIT", False),
+    ]
+    for name, extra, code, nondeterministic in cases:
+        failure = check(name, extra, code, nondeterministic)
+        if failure:
+            return failure
     return ""
+
 
 
 def case_x09(carvex: Path, work: Path, corpus: Path, ntfs: Path | None) -> str:

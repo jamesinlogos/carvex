@@ -172,8 +172,8 @@ Windows**.
 | P0.7 | - | 2026-11-21 source | DONE | - | scripts/perf_gate.py | Perf baseline recorded (s9_4m median ~0.39s, rand64m ~0.03s); thresholds.toml committed; x04 marked xfail in thresholds. |
 
 | H-06 | CRIT | 2026-11-21 source / 2026-11-21 release build | CLOSED | 3534717 | tests/jpeg_frame_budget.rs; scripts/review_repro.py X03 | Red test proved the decoder ran without a budget check. After: 20,000² and 65,535² SOF claims → `unverified`, 0.010 s / 8.9 MiB and 0.009 s / 9.0 MiB RSS. |
-| H-08 | CRIT | 2026-11-21 source / 2026-11-21 release build | CLOSED | 5acb50e | tests/memory_budget.rs; scripts/review_repro.py X01 | Red test: 300 x ~60 KiB JPEGs (18 MiB output) with `--max-memory 16M` failed before the fix. After: all 300 written with bounded RSS; `SOURCE_CHANGED` verified by a changing-source test; G8 s9_4m 0.476s before vs 0.164s after. |
-| H-09 | HIGH | 2026-11-21 source | REPRODUCED (partial) | - | scripts/review_repro.py X05 | Missing `--max-work-per-candidate`, `--max-output`; `--max-candidates` and `--time-budget` already present. |
+| H-08 | CRIT | 2026-11-21 source / 2026-11-21 release build | CLOSED | e69e68b | tests/memory_budget.rs; scripts/review_repro.py X01 | Red test: 300 x ~60 KiB JPEGs (18 MiB output) with `--max-memory 16M` failed before the fix. After: all 300 written with bounded RSS; `SOURCE_CHANGED` verified by a changing-source test; G8 s9_4m 0.476s before vs 0.164s after. |
+| H-09 | HIGH | 2026-11-21 source / 2026-11-21 release build | CLOSED | 1ef43f7 | tests/work_budgets.rs; scripts/review_repro.py X05 | Red X05 (missing flags) before the fix; after: all four limits trip with coded warning, report and exit 3; time case sets `nondeterministic_stop`. D-39 defaults measured on D0/S9/S10. |
 | H-14 | HIGH | - | OPEN | - | - | No new fuzz targets for image parsers yet. |
 | H-15 | MED | 2026-11-21 source / 0.2.0 `dist/` | MEASURED (musl-only) | - | scripts/review_repro.py X23; conflict C5 | Source build: 1 thread 0.542 s, default 0.364 s. Packaged musl build: 1 thread 0.764 s, default 2.491 s (3.26x slower). No allocator change without STOP-AND-ASK; measured, not tuned. |
 | H-18 | HIGH | 2026-11-21 source | IN_PROGRESS | 3724a06 | scripts/review_repro.py X12; scripts/jpeg_splice_property.py | Baseline splice rate 0.2180 [0.1935,0.2446] at a7a5c08; current rate 0.0010 [0.0002,0.0056]. Strict-scan unsupported variants are Unverified; step 2 is still needed because the current upper CI exceeds 0.1%. |
@@ -185,6 +185,30 @@ Windows**.
 | H-23 | MED | 2026-11-21 source | CLOSED | 080b76a | tests/regress_vmdk_safety.rs | Missing grain table returned "index out of range"; now reads zeros like qemu-img. |
 
 ### Per-task reports
+
+Task: H-09 — Required work budgets
+Reviews: v5:F-04, v2 RT, v1/v3 R-01
+Repro: REPRODUCED red before the fix: X05 reported missing flags
+  `--max-work-per-candidate` and `--max-output`; `--max-candidates` and
+  `--time-budget` aborted rather than producing a partial report.
+Change: added a two-pass deterministic candidate budget (count per fixed
+  chunk task, then allocate the exact global prefix), a per-candidate
+  analyzer/validator work counter, a cumulative output cap and a latched
+  wall-clock stop. Limit events emit CANDIDATE_LIMIT, WORK_LIMIT, OUTPUT_LIMIT
+  or TIME_LIMIT, write a partial report and exit 3. Only TIME_LIMIT sets
+  `nondeterministic_stop: true`. Report schema 2 records the new limits and
+  stop flag; schema 1 strips them (D-39).
+New tests: `tests/work_budgets.rs` covers all four limits, including the
+  nondeterministic flag and warning incompleteness. X05 was removed from the
+  expected-failure list.
+Gate: green (fmt/clippy/tests/doc/MSRV/repro/golden/smoke).
+Measurement: D0 used 27–41 candidates and wrote 6.3–14.3 MiB; S9-4M flood16
+  used 262,144 candidates; S10 flood512/64 MiB used 129,804 candidates. Lowest
+  non-triggering work limit was 8,323,072 bytes on D0 and 65,536 on the floods.
+  Chosen defaults (1M candidates, 256 MiB work, 4 GiB output) did not trigger.
+  G8 after the second lexical pass: s9_4m median 0.162 s, rand64m 0.031 s.
+Residual risk / next: CFReDS RM#2 was not available; no claim is made for it.
+  Wall-clock results are explicitly flagged as nondeterministic.
 
 Task: H-08 — `--max-memory` must bound working memory, not output
 Reviews: v1:R-01, v2:R-01, v3:R-01, v4:F-01, v5:F-01

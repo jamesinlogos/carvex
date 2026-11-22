@@ -32,6 +32,10 @@ pub const DEFAULT_MAX_FRAG_CANDIDATES: usize = 1024;
 pub const DEFAULT_FRAG_TIME_LIMIT_MS: u64 = 5_000;
 /// Default hard limit on header candidates evaluated in one run.
 pub const DEFAULT_MAX_CANDIDATES: u64 = 1_000_000;
+/// Default work limit for one candidate (analyzer + validator bytes).
+pub const DEFAULT_MAX_WORK_PER_CANDIDATE: u64 = 256 * 1024 * 1024;
+/// Default cap on bytes written by one scan.
+pub const DEFAULT_MAX_OUTPUT: u64 = 4 * 1024 * 1024 * 1024;
 /// Default overall scan wall-clock budget in seconds (0 = unlimited).
 pub const DEFAULT_TIME_BUDGET_SECS: u64 = 0;
 
@@ -43,23 +47,78 @@ fn effective_max_candidates(opts: &ScanOptions) -> u64 {
     }
 }
 
-/// Shared counter used to stop candidate discovery at its hard limit.
-#[derive(Debug)]
-struct CandidateBudget {
-    found: AtomicU64,
-    max: u64,
+fn effective_max_work(opts: &ScanOptions) -> u64 {
+    if opts.max_work_per_candidate == 0 {
+        u64::MAX
+    } else {
+        opts.max_work_per_candidate
+    }
 }
 
-impl CandidateBudget {
-    fn new(max: u64) -> Self {
+fn effective_max_output(opts: &ScanOptions) -> u64 {
+    if opts.max_output == 0 {
+        u64::MAX
+    } else {
+        opts.max_output
+    }
+}
+
+/// Wall-clock safety net. Expiry is latched so every stage sees the same stop
+/// decision; `--time-budget` results are flagged as nondeterministic.
+#[derive(Debug, Clone)]
+struct TimeBudget {
+    started: Instant,
+    limit: Duration,
+    expired: Arc<AtomicBool>,
+}
+
+impl TimeBudget {
+    fn new(started: Instant, limit: Duration) -> Self {
         Self {
-            found: AtomicU64::new(0),
-            max,
+            started,
+            limit,
+            expired: Arc::new(AtomicBool::new(false)),
         }
     }
 
-    fn try_add(&self) -> bool {
-        self.found.fetch_add(1, Ordering::Relaxed) < self.max
+    fn check(&self) -> bool {
+        if !self.limit.is_zero()
+            && !self.expired.load(Ordering::Relaxed)
+            && self.started.elapsed() > self.limit
+        {
+            self.expired.store(true, Ordering::Relaxed);
+        }
+        self.expired.load(Ordering::Relaxed)
+    }
+
+    fn expired(&self) -> bool {
+        self.expired.load(Ordering::Relaxed)
+    }
+}
+
+/// Bytes examined by one candidate's analyzers and validators.
+#[derive(Debug)]
+struct WorkCounter {
+    limit: u64,
+    used: u64,
+}
+
+impl WorkCounter {
+    fn new(limit: u64) -> Self {
+        Self { limit, used: 0 }
+    }
+
+    fn add(&mut self, bytes: u64) -> bool {
+        if bytes > self.limit.saturating_sub(self.used) {
+            false
+        } else {
+            self.used = self.used.saturating_add(bytes);
+            true
+        }
+    }
+
+    fn used(&self) -> u64 {
+        self.used
     }
 }
 
@@ -225,6 +284,10 @@ pub struct ScanOptions {
     pub include_gaps: bool,
     /// Hard limit on header candidates evaluated (0 = use the default limit).
     pub max_candidates: u64,
+    /// Analyzer + validator bytes allowed for one candidate (0 = unlimited).
+    pub max_work_per_candidate: u64,
+    /// Cap on bytes written by one scan (0 = unlimited).
+    pub max_output: u64,
     /// Overall scan wall-clock budget (0 = unlimited).
     pub time_budget: Duration,
     /// Opt in to bounded bifragment gap carving (B-06).
@@ -264,6 +327,8 @@ impl ScanOptions {
             partition: self.partition.clone(),
             include_gaps: self.include_gaps,
             max_candidates,
+            max_work_per_candidate: self.max_work_per_candidate,
+            max_output: self.max_output,
             time_budget_ms: self.time_budget.as_millis() as u64,
             // B-06 fields are omitted entirely when the stage is disabled so
             // the default report remains byte-for-byte compatible.
@@ -331,6 +396,8 @@ pub struct ReportOptions {
     pub partition: String,
     pub include_gaps: bool,
     pub max_candidates: u64,
+    pub max_work_per_candidate: u64,
+    pub max_output: u64,
     pub time_budget_ms: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fragment_recovery: Option<bool>,
@@ -380,6 +447,10 @@ impl Warning {
                 | "CANDIDATE_SKIPPED_UNREADABLE"
                 | "CANDIDATE_SKIPPED_BUDGET"
                 | "SOURCE_CHANGED"
+                | "CANDIDATE_LIMIT"
+                | "WORK_LIMIT"
+                | "TIME_LIMIT"
+                | "OUTPUT_LIMIT"
         )
     }
 }
@@ -495,6 +566,9 @@ pub struct ScanReport {
     /// Byte ranges that could not be read from the source (H-22).
     pub unreadable_regions: Vec<UnreadableRegion>,
     pub warnings: Vec<Warning>,
+    /// True when a wall-clock budget stopped the scan; work-unit limits do
+    /// not set this flag because their results are deterministic.
+    pub nondeterministic_stop: bool,
     pub files: Vec<CarvedFile>,
 }
 
@@ -574,6 +648,13 @@ enum CarveOutcome {
         kind: FileType,
         needed: u64,
     },
+    WorkLimit {
+        offset: u64,
+        kind: FileType,
+        examined: u64,
+        limit: u64,
+    },
+    TimeLimit,
     TooSmall(u64),
     LowScore(u8),
     NotComplete,
@@ -651,6 +732,8 @@ pub fn run_scan(
     }
     let started = unix_timestamp();
     let t0 = Instant::now();
+    let time = TimeBudget::new(t0, opts.time_budget);
+    let mut warnings = Vec::new();
 
     prepare_output_dir(out_dir, opts.force)?;
 
@@ -674,7 +757,7 @@ pub fn run_scan(
         .build()
         .context("cannot build worker pool")?;
 
-    let mut candidates = find_candidates(
+    let (mut candidates, candidate_limit_hit) = find_candidates(
         source,
         &tasks,
         &opts.types,
@@ -682,17 +765,18 @@ pub fn run_scan(
         volumes,
         &scan_progress,
         &pool,
-        t0,
+        &time,
     )?;
     candidates.sort_by_key(|c| (c.offset, c.kind as u8));
     candidates.dedup_by(|a, b| a.offset == b.offset && a.kind == b.kind);
-    let max_candidates = effective_max_candidates(opts);
-    if candidates.len() as u64 > max_candidates {
-        bail!(
-            "found {} candidates which exceeds --max-candidates {}",
-            candidates.len(),
-            max_candidates
-        );
+    if candidate_limit_hit {
+        warnings.push(Warning::new(
+            "CANDIDATE_LIMIT",
+            format!(
+                "candidate work limit {} reached; additional header candidates were not evaluated",
+                effective_max_candidates(opts)
+            ),
+        ));
     }
 
     if let Some(h) = scan_thread {
@@ -708,7 +792,6 @@ pub fn run_scan(
         ..Default::default()
     };
 
-    let mut warnings = Vec::new();
     let carve_progress = Arc::new(Progress::new(candidates.len() as u64));
     let carve_thread = start_progress(carve_progress.clone(), opts.quiet, "Carving");
     let budget = Arc::new(MemoryBudget::new(opts.max_memory));
@@ -718,10 +801,11 @@ pub fn run_scan(
     // order deterministic (`par_iter().collect()` preserves input order).
     let batch_size = thread_count.max(1).saturating_mul(4);
     for batch in candidates.chunks(batch_size.max(1)) {
-        if !opts.time_budget.is_zero() && t0.elapsed() > opts.time_budget {
-            bail!("scan exceeded --time-budget");
+        if time.check() {
+            break;
         }
-        let mut batch_out = carve_batch(source, batch, opts, &budget, &pool, &carve_progress)?;
+        let mut batch_out =
+            carve_batch(source, batch, opts, &budget, &pool, &carve_progress, &time)?;
         outcomes.append(&mut batch_out);
     }
     if let Some(h) = carve_thread {
@@ -742,6 +826,7 @@ pub fn run_scan(
             opts,
             &budget,
             &mut warnings,
+            &time,
         )?;
     }
     let unreadable_snapshot = match unreadable_regions.lock() {
@@ -811,7 +896,7 @@ pub fn run_scan(
     }
 
     let (files, write_warnings) = write_outputs(
-        source, out_dir, &kept, volumes, mode, &mut stats, opts, &budget,
+        source, out_dir, &kept, volumes, mode, &mut stats, opts, &budget, &time,
     )?;
     warnings.extend(write_warnings);
     stats.carved = files.len();
@@ -824,6 +909,13 @@ pub fn run_scan(
     if opts.manifest {
         write_manifest(out_dir, &files)?;
     }
+    if time.expired() && !warnings.iter().any(|w| w.code == "TIME_LIMIT") {
+        warnings.push(Warning::new(
+            "TIME_LIMIT",
+            "scan exceeded --time-budget; stopped early with a partial report",
+        ));
+    }
+    let nondeterministic_stop = warnings.iter().any(|w| w.code == "TIME_LIMIT");
 
     let elapsed = t0.elapsed();
     let bytes_scanned = total_to_scan;
@@ -893,6 +985,7 @@ pub fn run_scan(
         regions: Vec::new(),
         unreadable_regions: unreadable_snapshot,
         warnings,
+        nondeterministic_stop,
         files,
     })
 }
@@ -1000,34 +1093,89 @@ fn find_candidates(
     volumes: &[FsInfo],
     progress: &Progress,
     pool: &rayon::ThreadPool,
-    started: Instant,
-) -> Result<Vec<Candidate>> {
-    if !opts.time_budget.is_zero() && started.elapsed() > opts.time_budget {
-        bail!("scan exceeded --time-budget");
+    time: &TimeBudget,
+) -> Result<(Vec<Candidate>, bool)> {
+    if time.check() {
+        return Ok((Vec::new(), false));
     }
-    let candidate_budget = CandidateBudget::new(effective_max_candidates(opts));
+    // First pass: count plausible headers per fixed task. This is a cheap
+    // lexical scan; it lets us hand out an exact deterministic global budget
+    // without an atomic reservation whose winner would depend on scheduling.
+    let counts: Vec<usize> = pool.install(|| {
+        tasks
+            .par_iter()
+            .map(|task| count_task(source, task, types, opts, volumes, time))
+            .collect::<Result<Vec<_>>>()
+    })?;
+    if time.check() {
+        return Ok((Vec::new(), false));
+    }
+    let total: usize = counts.iter().fold(0usize, |sum, &n| sum.saturating_add(n));
+    let max = usize::try_from(effective_max_candidates(opts)).unwrap_or(usize::MAX);
+    let hit = total > max;
+    let mut remaining = total.min(max);
+    let quotas: Vec<usize> = counts
+        .iter()
+        .map(|&count| {
+            let quota = count.min(remaining);
+            remaining = remaining.saturating_sub(quota);
+            quota
+        })
+        .collect();
+
     let found: Vec<Vec<Candidate>> = pool.install(|| {
         tasks
             .par_iter()
-            .map(|task| {
-                if !opts.time_budget.is_zero() && started.elapsed() > opts.time_budget {
-                    bail!("scan exceeded --time-budget");
+            .zip(quotas)
+            .map(|(task, quota)| {
+                if time.check() || quota == 0 {
+                    return Ok(Vec::new());
                 }
-                scan_task(
-                    source,
-                    task,
-                    types,
-                    opts,
-                    volumes,
-                    progress,
-                    &candidate_budget,
-                )
+                scan_task(source, task, types, opts, volumes, progress, quota, time)
             })
             .collect::<Result<Vec<_>>>()
     })?;
-    Ok(found.into_iter().flatten().collect())
+    let mut out = Vec::with_capacity(total.min(max));
+    for candidates in found {
+        out.extend(candidates);
+    }
+    Ok((out, hit))
 }
 
+#[allow(clippy::too_many_arguments)]
+fn count_task(
+    source: &dyn ImageSource,
+    task: &Task,
+    types: &[FileType],
+    opts: &ScanOptions,
+    volumes: &[FsInfo],
+    time: &TimeBudget,
+) -> Result<usize> {
+    if time.check() {
+        return Ok(0);
+    }
+    let mut buf = vec![0u8; task.read_len as usize];
+    read_exact_at(source, &mut buf, task.start)
+        .with_context(|| format!("cannot read scan chunk at offset {}", task.start))?;
+    let mut count = 0usize;
+    for &kind in types {
+        for rel in memchr::memmem::find_iter(&buf, kind.header()) {
+            if time.check() {
+                return Ok(count);
+            }
+            if rel as u64 >= task.scan_len || !plausible_header(kind, &buf, rel) {
+                continue;
+            }
+            let offset = task.start + rel as u64;
+            if aligned(offset, opts.align, volumes) {
+                count = count.saturating_add(1);
+            }
+        }
+    }
+    Ok(count)
+}
+
+#[allow(clippy::too_many_arguments)]
 fn scan_task(
     source: &dyn ImageSource,
     task: &Task,
@@ -1035,32 +1183,27 @@ fn scan_task(
     opts: &ScanOptions,
     volumes: &[FsInfo],
     progress: &Progress,
-    candidate_budget: &CandidateBudget,
+    quota: usize,
+    time: &TimeBudget,
 ) -> Result<Vec<Candidate>> {
     let mut buf = vec![0u8; task.read_len as usize];
     read_exact_at(source, &mut buf, task.start)
         .with_context(|| format!("cannot read scan chunk at offset {}", task.start))?;
-    let mut out = Vec::new();
-    for &kind in types {
-        let needle = kind.header();
-        for rel in memchr::memmem::find_iter(&buf, needle) {
-            if rel as u64 >= task.scan_len {
-                continue;
+    let mut out = Vec::with_capacity(quota);
+    'types: for &kind in types {
+        for rel in memchr::memmem::find_iter(&buf, kind.header()) {
+            if time.check() {
+                break 'types;
             }
-            if !plausible_header(kind, &buf, rel) {
+            if rel as u64 >= task.scan_len || !plausible_header(kind, &buf, rel) {
                 continue;
             }
             let offset = task.start + rel as u64;
             if !aligned(offset, opts.align, volumes) {
                 continue;
             }
-            // Stop the candidate list while it is being built, not only after
-            // a hostile image has filled memory with header records.
-            if !candidate_budget.try_add() {
-                bail!(
-                    "found more than --max-candidates {} header candidates",
-                    candidate_budget.max
-                );
+            if out.len() >= quota {
+                break 'types;
             }
             out.push(Candidate {
                 offset,
@@ -1121,14 +1264,18 @@ fn carve_batch(
     budget: &MemoryBudget,
     pool: &rayon::ThreadPool,
     progress: &Progress,
+    time: &TimeBudget,
 ) -> Result<Vec<CarveOutcome>> {
     pool.install(|| {
         batch
             .par_iter()
             .map(|cand| {
-                let out = carve_one(source, cand, opts, budget);
+                if time.check() {
+                    return Ok(CarveOutcome::TimeLimit);
+                }
+                let out = carve_one(source, cand, opts, budget, time)?;
                 progress.done.fetch_add(1, Ordering::Relaxed);
-                out
+                Ok(out)
             })
             .collect()
     })
@@ -1139,7 +1286,11 @@ fn carve_one(
     cand: &Candidate,
     opts: &ScanOptions,
     budget: &MemoryBudget,
+    time: &TimeBudget,
 ) -> Result<CarveOutcome> {
+    if time.check() {
+        return Ok(CarveOutcome::TimeLimit);
+    }
     let available = cand.extent_end.saturating_sub(cand.offset);
     let hard_limit = available.min(opts.max_size);
     if hard_limit < 16 {
@@ -1160,8 +1311,13 @@ fn carve_one(
     };
     let mut buf = vec![0u8; initial_len as usize];
     let mut buf_len = initial_len;
+    let work_limit = effective_max_work(opts);
+    let mut work = WorkCounter::new(work_limit);
 
     loop {
+        if time.check() {
+            return Ok(CarveOutcome::TimeLimit);
+        }
         // Every growth step re-reads the full prefix after dropping the old
         // buffer and its permit. Waiting threads therefore hold no permit and
         // cannot deadlock each other.
@@ -1170,6 +1326,14 @@ fn carve_one(
         }
         let at_limit = buf_len >= hard_limit;
         let read_len = buf_len as usize;
+        if !work.add(read_len as u64) {
+            return Ok(CarveOutcome::WorkLimit {
+                offset: cand.offset,
+                kind: cand.kind,
+                examined: work.used().saturating_add(read_len as u64),
+                limit: work_limit,
+            });
+        }
         match analyze(cand.kind, &buf[..read_len], at_limit, opts.pdf_eof) {
             Need::Analyzed(mut analysis) => {
                 if analysis.end == 0 || analysis.end > read_len {
@@ -1209,6 +1373,20 @@ fn carve_one(
                 // Validator scratch is bounded by its own flag and, for this
                 // scan, can never raise the shared working-memory ceiling.
                 let limits = ValidationLimits::new(opts.max_validator_memory.min(budget.limit()));
+                let validate_bytes = if opts.validate == ValidationMode::Decode && analysis.complete
+                {
+                    end as u64
+                } else {
+                    0
+                };
+                if validate_bytes > 0 && !work.add(validate_bytes) {
+                    return Ok(CarveOutcome::WorkLimit {
+                        offset: cand.offset,
+                        kind: cand.kind,
+                        examined: work.used().saturating_add(validate_bytes),
+                        limit: work_limit,
+                    });
+                }
                 let (validation, mut validation_notes) = if opts.validate == ValidationMode::Decode
                 {
                     if analysis.complete {
@@ -1319,6 +1497,7 @@ struct JoinAttempt {
     data: Option<CarvedData>,
     deep_checked: bool,
     skipped_budget: Option<(u64, u64)>,
+    work_limit: Option<(u64, FileType, u64, u64)>,
 }
 
 fn footer_needle(kind: FileType) -> &'static [u8] {
@@ -1489,6 +1668,7 @@ fn try_fragment_join(
         data: None,
         deep_checked: false,
         skipped_budget: None,
+        work_limit: None,
     };
     let head_len = join.cut.saturating_sub(cand.offset);
     let tail_len = join.footer_end.saturating_sub(join.tail_start);
@@ -1506,9 +1686,25 @@ fn try_fragment_join(
                 data: None,
                 deep_checked: false,
                 skipped_budget: Some((cand.offset, total)),
+                work_limit: None,
             })
         }
     };
+    let work_limit = effective_max_work(opts);
+    let mut work = WorkCounter::new(work_limit);
+    if !work.add(total) {
+        return Ok(JoinAttempt {
+            data: None,
+            deep_checked: false,
+            skipped_budget: None,
+            work_limit: Some((
+                cand.offset,
+                cand.kind,
+                work.used().saturating_add(total),
+                work_limit,
+            )),
+        });
+    }
     let capacity = usize::try_from(total).unwrap_or(usize::MAX);
     let mut bytes = vec![0u8; capacity];
     read_exact_at(source, &mut bytes[..head_len as usize], cand.offset)
@@ -1535,6 +1731,20 @@ fn try_fragment_join(
         _ => return Ok(none()),
     };
 
+    let validated = analysis.end as u64;
+    if !work.add(validated) {
+        return Ok(JoinAttempt {
+            data: None,
+            deep_checked: true,
+            skipped_budget: None,
+            work_limit: Some((
+                cand.offset,
+                cand.kind,
+                work.used().saturating_add(validated),
+                work_limit,
+            )),
+        });
+    }
     let limits = ValidationLimits::new(opts.max_validator_memory.min(budget.limit()));
     let (validation, validation_notes) =
         validate_deep_with_limits(cand.kind, &bytes, &analysis, limits);
@@ -1554,6 +1764,7 @@ fn try_fragment_join(
             data: None,
             deep_checked: true,
             skipped_budget: None,
+            work_limit: None,
         });
     }
 
@@ -1592,6 +1803,7 @@ fn try_fragment_join(
         }),
         deep_checked: true,
         skipped_budget: None,
+        work_limit: None,
     })
 }
 
@@ -1605,6 +1817,7 @@ fn recover_fragments(
     opts: &ScanOptions,
     budget: &Arc<MemoryBudget>,
     warnings: &mut Vec<Warning>,
+    time: &TimeBudget,
 ) -> Result<Vec<CarvedData>> {
     let started = Instant::now();
     if volumes.is_empty() {
@@ -1636,8 +1849,12 @@ fn recover_fragments(
     let mut attempts = 0usize;
     let mut candidate_limit = false;
     let mut time_limit = false;
+    let mut join_work_limits: Vec<(u64, FileType, u64, u64)> = Vec::new();
 
     for cand in candidates {
+        if time.check() {
+            break;
+        }
         if attempts >= opts.max_frag_candidates {
             candidate_limit = true;
             break;
@@ -1656,6 +1873,9 @@ fn recover_fragments(
         let mut checks = 0u64;
 
         for join in joins {
+            if time.check() {
+                break;
+            }
             if attempts >= opts.max_frag_candidates {
                 candidate_limit = true;
                 break;
@@ -1680,6 +1900,9 @@ fn recover_fragments(
             };
             if attempt.deep_checked {
                 checks += 1;
+            }
+            if let Some((offset, kind, examined, limit)) = attempt.work_limit {
+                join_work_limits.push((offset, kind, examined, limit));
             }
             if let Some((offset, needed)) = attempt.skipped_budget {
                 warnings.push(Warning::new(
@@ -1707,6 +1930,19 @@ fn recover_fragments(
         }
     }
 
+    if let Some(&(offset, kind, examined, limit)) = join_work_limits.first() {
+        warnings.push(Warning::new(
+            "WORK_LIMIT",
+            format!(
+                "{} B-06 join(s) exceeded --max-work-per-candidate {} bytes;                  first at byte {} ({}) examined {} bytes",
+                join_work_limits.len(),
+                limit,
+                offset,
+                kind.label(),
+                examined
+            ),
+        ));
+    }
     if candidate_limit {
         warnings.push(Warning::new(
             "FRAGMENT_CANDIDATE_LIMIT",
@@ -1736,6 +1972,7 @@ fn postfilter(
     warnings: &mut Vec<Warning>,
 ) -> Vec<CarvedData> {
     let mut candidates: Vec<CarvedData> = Vec::new();
+    let mut work_limited: Vec<(u64, FileType, u64, u64)> = Vec::new();
     for outcome in outcomes {
         match outcome {
             CarveOutcome::Carved(data) => candidates.push(*data),
@@ -1754,6 +1991,13 @@ fn postfilter(
                     ),
                 ));
             }
+            CarveOutcome::WorkLimit {
+                offset,
+                kind,
+                examined,
+                limit,
+            } => work_limited.push((offset, kind, examined, limit)),
+            CarveOutcome::TimeLimit => {}
             CarveOutcome::Rejected(reason) => {
                 stats.rejected += 1;
                 if opts.verbose {
@@ -1867,8 +2111,19 @@ fn postfilter(
         }
         candidates = kept;
     }
-    // Kept results remain charged to the budget until the scan ends; only
-    // results discarded above have their reservations released.
+    if let Some(&(offset, kind, examined, limit)) = work_limited.first() {
+        warnings.push(Warning::new(
+            "WORK_LIMIT",
+            format!(
+                "{} candidate(s) exceeded --max-work-per-candidate {} bytes;                  first at byte {} ({}) examined {} bytes",
+                work_limited.len(),
+                limit,
+                offset,
+                kind.label(),
+                examined
+            ),
+        ));
+    }
     candidates
 }
 
@@ -1909,6 +2164,7 @@ fn write_outputs(
     stats: &mut ScanStats,
     opts: &ScanOptions,
     budget: &MemoryBudget,
+    time: &TimeBudget,
 ) -> Result<(Vec<CarvedFile>, Vec<Warning>)> {
     // With more than one scanned volume each file goes into its own
     // `part<N>/` sub-directory so outputs of different partitions cannot be
@@ -1919,8 +2175,18 @@ fn write_outputs(
     let mut scratch = vec![0u8; write_buf_len as usize];
     let mut records = Vec::with_capacity(files.len());
     let mut warnings = Vec::new();
+    let output_limit = effective_max_output(opts);
+    let mut written = 0u64;
+    let mut skipped_output = 0usize;
 
     for (idx, data) in files.iter().enumerate() {
+        if time.check() {
+            break;
+        }
+        if written.saturating_add(data.output_len) > output_limit {
+            skipped_output = files.len().saturating_sub(idx);
+            break;
+        }
         let seq = idx as u64 + 1;
         let filename = format!(
             "{:05}_{}_{:016x}.{}",
@@ -2017,6 +2283,7 @@ fn write_outputs(
             });
         }
 
+        written = written.saturating_add(data.output_len);
         stats.bytes_written = stats.bytes_written.saturating_add(data.output_len);
         let mut notes = data.analysis.notes.clone();
         notes.extend(data.validation_notes.iter().cloned());
@@ -2071,6 +2338,16 @@ fn write_outputs(
             );
         }
         records.push(record);
+    }
+    if skipped_output > 0 {
+        warnings.push(Warning::new(
+            "OUTPUT_LIMIT",
+            format!(
+                "--max-output {} reached after {} byte(s); {skipped_output} candidate(s) were not written",
+                human_size(output_limit),
+                written
+            ),
+        ));
     }
     Ok((records, warnings))
 }

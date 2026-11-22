@@ -58,15 +58,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
-- R-01: `--max-memory` is now enforced as a hard scan-time budget before
-  carve-buffer allocation/growth and before retaining carved or B-06 stitched
-  results, instead of only as a post-hoc sum of kept output. Carving uses
-  budget-aware batching, and retained outputs stay charged until they are
-  filtered out (kept outputs remain charged until the scan completes).
-- Added `--max-candidates` and `--time-budget` to bound dense-header and
-  long-running scans; `--max-memory` CLI/report/schema semantics were updated
-  accordingly. Three `tests/memory_budget.rs` checks cover early budget and
-  candidate enforcement.
+- R-01: `--max-memory` is now enforced as a blocking budget on concurrent
+  carve, B-06 join and write buffers. Carving keeps source ranges, analysis and
+  digests; the write stage re-reads and verifies each output. See the H-08
+  entry below for the final semantics.
+- Added `--max-candidates`, `--max-work-per-candidate`, `--max-output` and
+  `--time-budget` to bound header floods, per-candidate analyzer/validator
+  work, cumulative output and wall-clock time. Work-unit excess emits
+  `CANDIDATE_LIMIT`/`WORK_LIMIT`/`OUTPUT_LIMIT`; the wall-clock safety net
+  emits `TIME_LIMIT` and sets `nondeterministic_stop: true`. All produce a
+  partial report and exit 3. Report schema 2 records the new limits and stop
+  flag; schema 1 strips them.
 - H-11/H-22: hostile E01 chunk sizes are rejected with a typed error before
   allocation; stdin spooling accepts an explicit byte limit and spool directory;
   short final E01 chunks are read at their logical length; checksum/inflate

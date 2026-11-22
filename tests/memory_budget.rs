@@ -26,9 +26,9 @@ fn vm_hwm_kib() -> Option<u64> {
     None
 }
 
-/// Returns correct bytes for discovery and carving, then corrupted bytes for
-/// the write stage's re-read (the third full-source read), exercising H-08's
-/// SOURCE_CHANGED path.
+/// Returns correct bytes for the count, discovery and carving reads, then
+/// corrupted bytes for the write stage's re-read (the fourth full-source
+/// read), exercising H-08's SOURCE_CHANGED path.
 struct SecondReadChanges {
     data: Vec<u8>,
     full_reads: Arc<AtomicUsize>,
@@ -45,7 +45,7 @@ impl ImageSource for SecondReadChanges {
             return Ok(0);
         }
         let count = self.full_reads.fetch_add(1, Ordering::SeqCst) + 1;
-        let source = if start == 0 && buf.len() >= self.data.len() && count == 3 {
+        let source = if start == 0 && buf.len() >= self.data.len() && count == 4 {
             let mut changed = self.data.clone();
             if let Some(last) = changed.last_mut() {
                 *last ^= 0x01;
@@ -176,8 +176,8 @@ fn changed_source_is_detected_before_a_file_is_written() {
 
 #[test]
 fn candidate_count_is_bounded_before_carving() {
-    // Many plausible JPEG headers; with a tiny candidate cap the scan must fail
-    // before evaluating them all.
+    // H-09: many plausible JPEG headers with a tiny deterministic cap must
+    // produce a partial report, not exit 1 with no output.
     let count = 4096usize;
     let mut image = vec![0u8; count * 512 + 64];
     for i in 0..count {
@@ -190,12 +190,17 @@ fn candidate_count_is_bounded_before_carving() {
     // Keep memory ample so the candidate bound is the enforced limit.
     opts.max_memory = 256 * 1024 * 1024;
 
-    let err = run_raw(image, &opts).expect_err("candidate bound must be enforced");
-    let msg = err.to_string();
+    let report = run_raw(image, &opts).expect("candidate bound must complete");
+    assert_eq!(report.stats.candidates, 128);
     assert!(
-        msg.contains("--max-candidates") || msg.contains("candidates"),
-        "expected candidate-bound error, got: {msg}"
+        report
+            .warnings
+            .iter()
+            .any(|w| w.code == "CANDIDATE_LIMIT" && w.incomplete()),
+        "warnings: {:?}",
+        report.warnings
     );
+    assert!(!report.nondeterministic_stop);
 }
 
 #[test]

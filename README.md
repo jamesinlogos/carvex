@@ -127,8 +127,10 @@ Main options:
 | `--max-truncated-size SIZE` | `16M` | Maximum size of a truncated file written without `--repair` (`0` = unlimited) |
 | `--max-memory SIZE` | `1G` | Maximum concurrent working memory for carve, B-06 join and write buffers; output is not retained in RAM |
 | `--max-validator-memory SIZE` | `256M` | Working-memory limit for one decode validator; legacy alias `--max-decode-bytes` (`0` = default bound) |
-| `--max-candidates N` | `1000000` | Hard limit on header candidates evaluated before aborting (`0` = default limit) |
-| `--time-budget SEC` | `0` | Overall scan wall-clock budget in seconds (`0` = unlimited) |
+| `--max-candidates N` | `1000000` | Deterministic work limit on header candidates; excess writes a partial report and exits 3 (`0` = default limit) |
+| `--max-work-per-candidate SIZE` | `256M` | Analyzer + validator byte budget for one candidate; excess emits `WORK_LIMIT` and exits 3 (`0` = unlimited) |
+| `--max-output SIZE` | `4G` | Cap on bytes written by one scan; excess emits `OUTPUT_LIMIT` and exits 3 (`0` = unlimited) |
+| `--time-budget SEC` | `0` | Wall-clock safety net in seconds; sets `nondeterministic_stop` and exits 3 when exceeded (`0` = unlimited) |
 | `--chunk-size SIZE` | `4M` | Read chunk size for parallel scanning (minimum 64 KiB) |
 | `--threads N` | `0` | Number of threads; `0` = available CPU count |
 | `--min-score N` | `50` | Minimum structural score (0–100) |
@@ -429,7 +431,7 @@ not supported, so those still require conversion with another forensic tool.
 7. **Performance** depends on cache, disk, and CPU count. The figures in the report are from a 4-CPU machine, 64 MiB images, and a warm cache.
 8. **No real-world Windows testing.** The PE binary was built and format-checked but has not been run on Windows in the development environment.
 9. **Fixture-level container coverage.** The B-04 readers were verified with generated images, not `ewfacquire`/`ewfexport` output. The dynamic VHD reader uses the block allocation table but does not interpret the per-sector presence bitmap inside an allocated block.
-10. **Resource-budget scope.** `--max-memory` bounds concurrent carve, B-06 join and write buffers, not total process RSS or the cumulative size of output files. Carved bytes are re-read from the read-only source and verified by SHA-256 before an output is renamed into place. Decode validation has its own `--max-validator-memory` bound and streams PNG inflation; JPEG/PDF decoder internals are not fully instrumented.
+10. **Resource-budget scope.** `--max-memory` bounds concurrent carve, B-06 join and write buffers, not total process RSS. `--max-candidates`, `--max-work-per-candidate` and `--max-output` are deterministic work-unit limits; `--time-budget` is a wall-clock safety net and flags its partial report as `nondeterministic_stop: true`. All four emit coded warnings and exit 3 on excess. Carved bytes are re-read from the read-only source and verified by SHA-256 before an output is renamed into place. Decode validation has its own `--max-validator-memory` bound and streams PNG inflation; JPEG/PDF decoder internals are not fully instrumented.
 
 ## Project structure
 

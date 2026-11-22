@@ -134,10 +134,16 @@ struct ScanArgs {
     /// Maximum working memory for one decode validator (0 = default)
     #[arg(long, visible_alias = "max-decode-bytes", value_parser = parse_size, default_value = "256M")]
     max_validator_memory: u64,
-    /// Maximum header candidates evaluated before aborting (0 = default limit)
+    /// Deterministic limit on header candidates evaluated (0 = default limit)
     #[arg(long, value_parser = clap::value_parser!(u64), default_value_t = scan::DEFAULT_MAX_CANDIDATES)]
     max_candidates: u64,
-    /// Overall scan wall-clock budget in seconds (0 = unlimited)
+    /// Deterministic analyzer + validator byte budget for one candidate (0 = unlimited)
+    #[arg(long, value_parser = parse_size, default_value = "256M")]
+    max_work_per_candidate: u64,
+    /// Cap on bytes written by one scan (0 = unlimited)
+    #[arg(long, value_parser = parse_size, default_value = "4G")]
+    max_output: u64,
+    /// Overall scan wall-clock budget in seconds (0 = unlimited); stops with a partial report
     #[arg(long, value_parser = clap::value_parser!(u64), default_value_t = scan::DEFAULT_TIME_BUDGET_SECS)]
     time_budget: u64,
     /// Read chunk size for parallel scanning
@@ -606,6 +612,8 @@ fn scan(args: ScanArgs) -> Result<i32> {
         partition: args.partition.unwrap_or(PartitionSel::All).to_string(),
         include_gaps,
         max_candidates: args.max_candidates,
+        max_work_per_candidate: args.max_work_per_candidate,
+        max_output: args.max_output,
         time_budget: std::time::Duration::from_secs(args.time_budget),
         fragment_recovery: args.fragment_recovery,
         max_gap: args.max_gap,
