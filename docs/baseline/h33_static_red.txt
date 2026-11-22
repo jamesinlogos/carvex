@@ -1,0 +1,79 @@
+H-33 static red evidence (before fix)
+--- README overstatements / drift ---
+416:- CarveX is significantly faster in the unallocated configuration because it reads only about 61–62 MiB instead of 64 MiB per image, while also using parallel scanning.
+460:- 318/318 files `complete`, successfully opened and verified with Pillow; 276 unique SHA-256 values (42 duplicate pairs).
+--- flags that already exist (NOT-REPRODUCED) ---
+132:| `--max-truncated-size <MAX_TRUNCATED_SIZE>` | `16M` | Maximum size of a truncated file written without --repair (0 = unlimited) |
+133:| `--max-memory <MAX_MEMORY>` | `1G` | Maximum concurrent working memory for carve, join and write buffers; carved output is streamed from the source, not retained in RAM |
+--- CRC limitation already corrected (NOT-REPRODUCED) ---
+468:4. **Limited payload decoding.** By default, JPEG is checked for marker structure, PNG for chunk CRCs, and PDF structurally rather than by rendering. A PNG chunk-CRC mismatch is now an integrity failure: the file is still written with its unchanged score, but `validation=partial`, `validity=suspect` and a `chunk_crc` check name the chunk and offset. Decode mode recomputes every CRC and sets `validated_bytes` to the contiguous prefix ending at the last good chunk. `--validate decode` and B-06 stitches invoke the deep validator. PNG inflation streams IDAT through a fixed buffer and downgrades a declared image above `--max-decode-bytes` (default 256 MiB) to `partial` before inflating; JPEG and PDF decoder internals are not fully instrumented. A byte-aligned baseline JPEG tail swap between files with identical headers can still pass every implemented check and receive `validity=verified`; the measured residual rate is disclosed in `docs/baseline/jpeg_splice_v0.2.0.txt`. PDF decode mode now verifies bounded xref/trailer/catalog structure and stream lengths, but unsupported or budget-limited checks are `unverified`/`structural`, and no PDF rendering or content verification is performed.
+--- fragment tree entry already present (NOT-REPRODUCED) ---
+502:│   ├── fragment_recovery.rs # B-06 S12 fixtures
+--- fuzz tree entry absent ---
+ABSENT
+--- absolute /home/kali paths in tracked paths (frozen results; not edited) ---
+bench/images/all-deleted_fat32.json
+bench/images/all-deleted_ntfs.json
+bench/images/mixed_fat32.json
+bench/images/mixed_ntfs.json
+bench/lockbox.py
+bench/results/baseline-v0.1/reports/all-deleted_fat32/carvex-raw-rep1.json
+bench/results/baseline-v0.1/reports/all-deleted_fat32/carvex-raw-rep2.json
+bench/results/baseline-v0.1/reports/all-deleted_fat32/carvex-raw-rep3.json
+bench/results/baseline-v0.1/reports/all-deleted_fat32/carvex-unallocated-rep1.json
+bench/results/baseline-v0.1/reports/all-deleted_fat32/carvex-unallocated-rep2.json
+bench/results/baseline-v0.1/reports/all-deleted_fat32/carvex-unallocated-rep3.json
+bench/results/baseline-v0.1/reports/all-deleted_ntfs/carvex-raw-rep1.json
+bench/results/baseline-v0.1/reports/all-deleted_ntfs/carvex-raw-rep2.json
+bench/results/baseline-v0.1/reports/all-deleted_ntfs/carvex-raw-rep3.json
+bench/results/baseline-v0.1/reports/all-deleted_ntfs/carvex-unallocated-rep1.json
+bench/results/baseline-v0.1/reports/all-deleted_ntfs/carvex-unallocated-rep2.json
+bench/results/baseline-v0.1/reports/all-deleted_ntfs/carvex-unallocated-rep3.json
+bench/results/baseline-v0.1/reports/mixed_fat32/carvex-raw-rep1.json
+bench/results/baseline-v0.1/reports/mixed_fat32/carvex-raw-rep2.json
+bench/results/baseline-v0.1/reports/mixed_fat32/carvex-raw-rep3.json
+bench/results/baseline-v0.1/reports/mixed_fat32/carvex-unallocated-rep1.json
+bench/results/baseline-v0.1/reports/mixed_fat32/carvex-unallocated-rep2.json
+bench/results/baseline-v0.1/reports/mixed_fat32/carvex-unallocated-rep3.json
+bench/results/baseline-v0.1/reports/mixed_ntfs/carvex-raw-rep1.json
+bench/results/baseline-v0.1/reports/mixed_ntfs/carvex-raw-rep2.json
+bench/results/baseline-v0.1/reports/mixed_ntfs/carvex-raw-rep3.json
+bench/results/baseline-v0.1/reports/mixed_ntfs/carvex-unallocated-rep1.json
+bench/results/baseline-v0.1/reports/mixed_ntfs/carvex-unallocated-rep2.json
+bench/results/baseline-v0.1/reports/mixed_ntfs/carvex-unallocated-rep3.json
+bench/results/baseline-v0.1/results.json
+bench/results/cfreds/cfreds-raw-report.json
+bench/results/cfreds/cfreds-report.json
+bench/results/final/reports/all-deleted_fat32/carvex-raw-rep1.json
+bench/results/final/reports/all-deleted_fat32/carvex-raw-rep2.json
+bench/results/final/reports/all-deleted_fat32/carvex-raw-rep3.json
+bench/results/final/reports/all-deleted_fat32/carvex-unallocated-rep1.json
+bench/results/final/reports/all-deleted_fat32/carvex-unallocated-rep2.json
+bench/results/final/reports/all-deleted_fat32/carvex-unallocated-rep3.json
+bench/results/final/reports/all-deleted_ntfs/carvex-raw-rep1.json
+bench/results/final/reports/all-deleted_ntfs/carvex-raw-rep2.json
+bench/results/final/reports/all-deleted_ntfs/carvex-raw-rep3.json
+bench/results/final/reports/all-deleted_ntfs/carvex-unallocated-rep1.json
+bench/results/final/reports/all-deleted_ntfs/carvex-unallocated-rep2.json
+bench/results/final/reports/all-deleted_ntfs/carvex-unallocated-rep3.json
+bench/results/final/reports/mixed_fat32/carvex-raw-rep1.json
+bench/results/final/reports/mixed_fat32/carvex-raw-rep2.json
+bench/results/final/reports/mixed_fat32/carvex-raw-rep3.json
+bench/results/final/reports/mixed_fat32/carvex-unallocated-rep1.json
+bench/results/final/reports/mixed_fat32/carvex-unallocated-rep2.json
+bench/results/final/reports/mixed_fat32/carvex-unallocated-rep3.json
+bench/results/final/reports/mixed_ntfs/carvex-raw-rep1.json
+bench/results/final/reports/mixed_ntfs/carvex-raw-rep2.json
+bench/results/final/reports/mixed_ntfs/carvex-raw-rep3.json
+bench/results/final/reports/mixed_ntfs/carvex-unallocated-rep1.json
+bench/results/final/reports/mixed_ntfs/carvex-unallocated-rep2.json
+bench/results/final/reports/mixed_ntfs/carvex-unallocated-rep3.json
+bench/results/final/results.json
+docs/PROGRESS.md
+harness.md
+--- count ---
+4879
+--- F-17 validation level already emitted (NOT-REPRODUCED) ---
+57:                "validation",
+305:        "validity", "validated_bytes", "checks", "lba", "cluster",
+324:        "validity": { "enum": ["verified", "structural", "suspect", "partial", "repaired"], "description": "Authoritative honesty label; legacy validation/status keep their historical meaning" },

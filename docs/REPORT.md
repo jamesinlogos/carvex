@@ -851,6 +851,7 @@ In addition to the synthetic benchmark, CarveX was run on the public DD image of
 | raw | 3.73 GiB | 3.418 s | 1,117.2 MiB/s | 113 | 205 | 0 | 318 |
 
 - 318/318 files `complete`, score 100; Pillow successfully opened and verified all 318; 276 unique SHA-256 values.
+  - Honesty note (H-33): the published "verified" wording records a historical structural check, not pixel decoding or a ground-truth precision/recall result. The current report field `validity` and the README state the distinction; this note does not change any published figure or hash.
 - 73 JPEG candidates rejected; 38 JPEG images embedded in metadata blocked; no false PNG.
 - Raw and unallocated outputs are identical because the 1 GiB partition was quick-formatted (261,119/261,120 free clusters).
 - At least 178/318 files are media embedded in DOCX/PPTX (`word/media/`, `ppt/media/`), not standalone images. With no per-file ground truth, precision/recall cannot be computed; for details and limitations see [`CFREDS.md`](CFREDS.md).

@@ -150,7 +150,7 @@ Windows**.
 | C-09 | PARTIAL | - | Median time/throughput table present; full 4-image/3-rep 0.2.0 re-run completed in `bench/results/full-0.2.0` with all checksums verified. No 1–16 GiB scale images, no cold cache + IQR ≥10 repetitions. |
 | D-01 | PARTIAL | n/a | Removed absolute paths like `/home/…` (REPORT/CFREDS/README → `$CARVEX`/`$HOME`); fixed "Pillow/ReportLab"; "100%" in the abstract tied to n/CI/conditions; 16 tables numbered `Table 1…16`; SHA-256 of tools (foremost/scalpel/photorec) + explicit note that benchmark binary hashes were not recorded; §6.2 explains the evidenced FP 40/44 and 40/54; README "Rust 1.74" → 1.85; "fairness" conclusion limited; F-16 confound in §6.4; Windows `.exe` noted as untested. |
 | D-02 | DONE | n/a | REPORT §1.4 Related Work (5 branches + comparison table); references [11]–[16] had their DOI/publisher pages opened before insertion. |
-| D-03 | PARTIAL | n/a | `CHANGELOG.md` (0.2.0), `SECURITY.md`, `CONTRIBUTING.md`, `docs/ARCHITECTURE.md`, `docs/DECISIONS.md` (D-01…D-32), `docs/DEPENDENCIES.md`, `docs/REVIEW_RESPONSE.md` (38 IDs), `docs/REPORT.md`, `docs/VALIDATION.md` (execution evidence only). Evidence manifest and documentation drift (H-32/H-33) and quality limits (H-34) are still OPEN. |
+| D-03 | PARTIAL | n/a | `CHANGELOG.md` (0.2.0), `SECURITY.md`, `CONTRIBUTING.md`, `docs/ARCHITECTURE.md`, `docs/DECISIONS.md` (D-01…D-57), `docs/DEPENDENCIES.md`, `docs/REVIEW_RESPONSE.md` (38 IDs), `docs/REPORT.md`, `docs/VALIDATION.md` (execution evidence only). Quality limits (H-34) are still OPEN; the evidence manifest and documentation drift are closed. |
 
 ## Earlier summary rows (not guide IDs)
 
@@ -210,7 +210,7 @@ Windows**.
 | H-30 | HIGH | 2026-11-22 source/CI config | CLOSED (local; CI run failed) | b9c40d3 | scripts/gate.sh; scripts/render_docs.py; scripts/perf_gate.py; scripts/sbom.py; .github/workflows/ci.yml | Red efficacy test: reintroducing H-05, H-07, H-08 and H-17 each turned the gate red. Gate now runs G0-G9 at 70% coverage with 13 fuzz targets. GitHub run `45035152791` on `d9dcac3` completed failure (8 success / 18 failure); logs unavailable and not guessed. |
 | H-31 | MED | 2026-11-22 source/docs | CLOSED | efd6d9f | scripts/check_status.py; scripts/gate.sh; .github/workflows/ci.yml | Static red: the checker failed with `STATUS FAIL: section heading not found` before the reconciliation; a deliberately wrong A-10 label fails after the fix. Status tables now agree across both documents. |
 | H-32 | MED | 2026-11-22 docs | CLOSED | bd9ebd0 | bench/results/EVIDENCE.md; bench/results/EVIDENCE.sha256; bench/results/evidence-bundle-0.2.0.tar.gz; bench/lockbox.log; docs/VALIDATION.md | Static red showed ignored evidence paths, no manifest and no reconstructed lockbox log. The manifest covers 47 bundled artefacts; historical figures without retained raw logs are labelled author-reported; no lockbox regeneration. |
-| H-33 | MED | 2026-11-22 docs | OPEN | - | bench/render_docs.py | Known documentation drift (speed sentence, Pillow claim, flag table limitations, stale `/home/kali` paths) remains to be fixed with grep evidence. |
+| H-33 | MED | 2026-11-22 docs | CLOSED | pending | README.md; docs/DECISIONS.md; docs/REPORT.md; docs/baseline/h33_static_red.txt; bench/render_docs.py | Static grep red found the speed and Pillow overstatements and a missing `fuzz/` tree entry. Speed sentence removed; Pillow wording corrected; `fuzz/` added; already-fixed items recorded as NOT-REPRODUCED. Frozen results and `/home/kali` paths were not edited. |
 | H-34 | LOW | 2026-11-22 source | OPEN | - | clippy.toml | The `too_many_lines` threshold and staged `missing_docs`/pedantic work have not yet been applied. |
 
 ### Phase 0 support tasks
@@ -813,6 +813,45 @@ Residual risk / next: the bundle is prepared but not published; only the user
   can attach it to a release or data repository. Remote GitHub job logs remain
   unavailable, so no failure cause is claimed. No CLI, JSON/CSV, score,
   warning code, default or frozen benchmark value changed.
+
+Task: H-33 — Documentation drift
+Reviews: v1:R-14, v2:N-10 and v5:F-17.
+Repro: a pre-fix `grep` run was committed verbatim as
+  `docs/baseline/h33_static_red.txt`. Its key lines were
+  `README.md:416: - CarveX is significantly faster in the unallocated
+  configuration ...`, `README.md:460: - 318/318 files 'complete', successfully
+  opened and verified with Pillow ...`, and `--- fuzz tree entry absent ---
+  ABSENT`. It also recorded `git grep -n "/home/kali" ... | wc -l` as 4879 lines
+  in generated ground truth, frozen results and working documents.
+Change: the speed sentence was deleted and replaced with a reference to the
+  generated timing table; the CFReDS line now says the files were structurally
+  parsed, not verified (see `validity`), with published counts and hashes
+  unchanged; `fuzz/` was added to the README tree; `docs/REPORT.md` keeps the
+  published figure and gains an honesty note that "verified" was a historical
+  structural check, not pixel decoding; D-57 records the `/home/kali` caveat
+  without editing frozen artefacts.
+NOT-REPRODUCED: the pre-fix grep output records
+  `README.md:132 --max-truncated-size`, `README.md:133 --max-memory`,
+  `README.md:468 "A PNG chunk-CRC mismatch is now an integrity failure"`,
+  `README.md:502 fragment_recovery.rs`, and F-17 evidence at
+  `src/report.rs:57 "validation"` plus
+  `docs/report.schema.json:324 "validity"`. These review items were already
+  corrected before H-33; no further code change was made for them.
+Red evidence: `docs/baseline/h33_static_red.txt` is the unchanged pre-fix
+  output. Green evidence: `python3 bench/render_docs.py --check` reports
+  `G9 GREEN: 48 scan options match README` and `python3 scripts/check_status.py`
+  reports `STATUS GREEN` after the status rows were updated; `actionlint` exited
+  0 with no findings.
+Gate: the final H-33 tree ran `scripts/gate.sh` with the default 60 s fuzz
+  budget: G9 GREEN, STATUS GREEN, G7 GOLDEN GREEN, 70% coverage, 13 fuzz targets
+  with 17,365,967 executions, 34 scenarios with 0 failures/2 SKIPs/0 XPASS and
+  **GATE GREEN** (`/tmp/opencode/gate_h33_final.log`). G8 reported s9_4m
+  0.164 s / 0.419x baseline and rand64m 0.046 s / advisory 1.531x; no threshold
+  was changed.
+Residual risk / next: the historical `/home/kali` paths remain as provenance by
+  decision D-57; regenerating them would change frozen hashes, so no edit was
+  made. H-34 remains open. No CLI, JSON/CSV, score, warning code, default,
+  warning meaning, emission, output name or frozen benchmark value changed.
 
 ### Conflict measurements (C1-C13)
 

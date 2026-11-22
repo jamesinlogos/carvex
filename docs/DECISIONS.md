@@ -1018,8 +1018,8 @@ decision, and the consequences.
   reports `STATUS GREEN` for 38 guide IDs and 34 harness IDs.
 - **Consequences:** no scan behavior, score, default, CLI field, CSV column,
   warning code or frozen result changed. H-01 remains BLOCKED pending the
-  user-supplied guide; H-04, H-32, H-33 and H-34 remain open until their own
-  findings are implemented.
+  user-supplied guide; H-04 and H-34 remain open until their own findings are
+  implemented.
 
 ## D-56. Publish an evidence manifest and disclose unbacked figures (H-32)
 
@@ -1042,3 +1042,32 @@ decision, and the consequences.
   CLI/JSON/CSV field or warning code changed. The bundle is prepared locally;
   publication is the user's action. Remote job logs remain unavailable, so no
   CI failure cause is claimed.
+
+## D-57. Correct README claims and retain historical paths (H-33)
+
+- **Context:** static `grep` found an unsourced speed sentence and a Pillow
+  wording that implied pixel verification. Review items about missing flags,
+  the PNG CRC limitation, the fragment-recovery test and the missing `validity`
+  field had already been fixed, and `docs/REPORT.md` line 853 still
+  carries historical Pillow wording. Generated ground truth and frozen benchmark
+  reports contain `/home/kali` absolute paths from the original author machine.
+- **Decision:** the speed sentence is replaced by a reference to the generated
+  timing table; the CFReDS wording now says the files were structurally parsed,
+  not verified (see `validity`), and preserves the published counts and hashes.
+  The README tree now lists `fuzz/`; the flag table remains generated from
+  `carvex scan --help` by `bench/render_docs.py --check`. Corrected or
+  `NOT-REPRODUCED` review items are recorded with their grep output in
+  `docs/baseline/h33_static_red.txt` and `docs/PROGRESS.md`.
+- **Evidence:** the pre-fix grep output is committed as
+  `docs/baseline/h33_static_red.txt`. After the change,
+  `python3 bench/render_docs.py --check` is green and the full gate remains
+  green. No generated result, benchmark figure, score, warning code, CLI field
+  or output name was changed.
+- **Consequences:** `/home/kali` paths in committed ground truth, logs, reports
+  and historical documentation are provenance, not required local paths. They
+  are deliberately not rewritten: doing so would alter frozen 0.1.0/0.2.0
+  artefacts and their SHA-256 values. Portable rebuild scripts create new
+  fixtures with their own paths; frozen results stay byte-identical. The
+  historical Pillow sentence in `docs/REPORT.md` is retained as a published
+  figure, with an added honesty note that it records a structural check rather
+  than pixel verification; no count, hash or conclusion changed.

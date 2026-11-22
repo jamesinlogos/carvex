@@ -413,7 +413,7 @@ The CSV report has one row per file, suitable for import into a spreadsheet.
 - CarveX `raw` still achieves 100% recall but produces exactly 20 FPs, corresponding to the 20 kept files in the two mixed images. This is quantitative evidence of the benefit of the filesystem-aware approach.
 - Foremost and Scalpel have high usable recall but many FPs and drop sharply on exact. For PDFs, the exact-vs-usable gap is due to padding bytes after `%%EOF`; the `unknown_fp` portion (44 for Foremost, 54 for Scalpel — re-verified by re-running the commands) is mainly **JPEGs embedded in the corpus PDFs** and thumbnail sub-spans, not accidental footer errors (`docs/REPORT.md §6.2`).
 - PhotoRec produces no extraneous FPs on this corpus but misses 6 usable files; it also recovers the 20 kept files in the mixed images.
-- CarveX is significantly faster in the unallocated configuration because it reads only about 61–62 MiB instead of 64 MiB per image, while also using parallel scanning.
+- The generated timing table above is the only speed claim: it records the measured runs for this small corpus and does not establish a general speed advantage. No unsourced cross-tool speed statement is made.
 
 > This is a benchmark on a **small, synthetic corpus**. It should not be extrapolated into a 100% guarantee for every real-world disk image. Full per-image results are at [`bench/results/final/BENCHMARK.md`](bench/results/final/BENCHMARK.md).
 
@@ -457,7 +457,7 @@ not supported, so those still require conversion with another forensic tool.
 - The image is 3.73 GiB long and contains one quick-formatted 1 GiB FAT32 partition (label `NO NAME`, 261,119/261,120 free clusters).
 - `unallocated` scan of 1,020 MiB: 318 files (113 JPEG, 205 PNG), 73 candidates rejected, 38 nested objects blocked, 1.6 s.
 - `raw` scan of the whole 3.73 GiB image: the same 318 files in 3.4 s; output identical to unallocated mode.
-- 318/318 files `complete`, successfully opened and verified with Pillow; 276 unique SHA-256 values (42 duplicate pairs).
+- 318/318 files are reported `complete`; a historical Pillow check only confirms that the files were structurally parsed, not verified (see `validity`) — Pillow's `Image.verify()` does not decode pixels. The 276 unique SHA-256 values (42 duplicate pairs) are unchanged published figures.
 - At least 178/318 files are media embedded in `word/media/` or `ppt/media/` of DOCX/PPTX, not standalone deleted images. There are no PDFs. Since there is no ground truth, this is a structural verification rather than a precision/recall measurement.
 
 ## Limitations and notes
@@ -505,6 +505,7 @@ carvex/
 │   ├── png_decode_budget.rs # R-02 PNG decode bomb fixtures
 │   ├── properties.rs
 │   └── scan_integration.rs
+├── fuzz/                   # libFuzzer targets and committed seeds
 ├── bench/
 │   ├── make_corpus.py
 │   ├── make_images.py
@@ -522,6 +523,19 @@ carvex/
 └── scripts/
     └── fetch_cfreds.sh
 ```
+
+### Documentation provenance (H-33)
+
+The scan flag table above is generated from `carvex scan --help` by
+`bench/render_docs.py --check`; numbers in this README come from generated
+results, not hand-entered estimates. Review items that were already fixed
+(`--max-memory`, `--max-truncated-size`, the PNG CRC limitation,
+`tests/fragment_recovery.rs` and the `validity` field) were verified by `grep`
+and are recorded as `NOT-REPRODUCED` in `docs/PROGRESS.md`. Absolute
+`/home/kali` paths remain in committed ground truth, logs and reports as
+original-author provenance; they are not required input paths and are preserved
+so the frozen artefacts and their hashes stay unchanged (see `docs/DECISIONS.md`
+D-57).
 
 ## Testing
 

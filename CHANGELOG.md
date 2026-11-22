@@ -84,6 +84,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- H-33: the unsourced README speed sentence was replaced by a reference to the
+  generated timing table; the CFReDS Pillow wording now says the files were
+  structurally parsed, not verified (see `validity`); the README tree lists
+  `fuzz/`; `docs/REPORT.md` retains its published figure with an honesty note.
 - H-32: `docs/VALIDATION.md` cites the evidence manifest and labels historical
   figures without retained raw artefacts as author-reported; no lockbox result
   or published benchmark was regenerated.
