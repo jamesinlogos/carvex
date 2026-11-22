@@ -134,7 +134,7 @@ Main options:
 | `--chunk-size SIZE` | `4M` | Read chunk size for parallel scanning (minimum 64 KiB) |
 | `--threads N` | `0` | Number of threads; `0` = available CPU count |
 | `--min-score N` | `50` | Minimum structural score (0–100) |
-| `--repair` | off | Append `FF D9`, IEND, or `%%EOF` to truncated files |
+| `--repair` | off | Rebuild a truncated file footer (JPEG EOI, PNG IEND, PDF xref/trailer) and label it `repaired` only after revalidation |
 | `--complete-only` | off | Only write files where a footer was found |
 | `--pdf-eof MODE` | `smart` | `first`, `last`, `smart` — strategy for choosing the `%%EOF` of a PDF |
 | `--dedupe-hashes` | off | Discard files with duplicate SHA-256 |
@@ -282,7 +282,14 @@ Candidates scoring below `--min-score` are discarded. This eliminates most accid
 - PNG: an IEND chunk with length 0 and a correct CRC.
 - PDF: the nearest `%%EOF` whose `startxref` points to an xref/object; `smart` prefers the last valid revision. For PDFs with multiple revisions, `--pdf-eof first/last` allows changing the strategy.
 
-When `--repair` is enabled, if the parser determines that a file is truncated but structurally valid, CarveX appends the standard footer and marks it `repaired`. The official benchmark does **not** enable this option.
+When `--repair` is enabled, CarveX reconstructs a candidate suffix: `FF D9` for
+JPEG, a real IEND chunk for PNG, or a bounded classic xref table and trailer for
+PDF. The result is marked `repaired` only if it passes revalidation; otherwise
+the original bytes are written with `status=truncated`, `validity=partial` and
+the note `repair attempted, not validated`. A successful repair records
+`sha256_original` (the bytes read) alongside `sha256` (the bytes written), and
+never counts as an exact recovery. The official benchmark does **not** enable
+this option.
 
 ### 5. Nested file removal
 
@@ -305,9 +312,9 @@ The JSON report (schema 2, default) has these main fields:
 - `stats`: candidate count, carved file count, filtering reasons, extent count, bytes scanned;
 - `volumes[]` and `regions[]`: every detected volume/partition/gap and the `scanned` flag for this run (A-07);
 - `warnings[]`: a list of `{code, message}`; `*_NOT_SCANNED`-style codes correspond to exit code 3;
-- `files[]`: `seq`, `type`, `offset`, `size`, `sha256`, `status` (`complete`/`truncated`/`repaired`), `score`, `width`, `height`, `notes`, `path`.
+- `files[]`: `seq`, `type`, `offset`, `size`, `carved_size`, `sha256`, `status` (`complete`/`truncated`/`repaired`), `score`, `width`, `height`, `notes`, `path`, `validation`, `validity`, `checks[]`, and optional `sha256_original` after a revalidated repair.
 
-`--report-schema 1` emits the legacy 0.1.0 format (omitting v2 fields). The published JSON Schema is at [`docs/report.schema.json`](docs/report.schema.json).
+`--report-schema 1` emits the legacy 0.1.0 format (omitting v2 fields, including `sha256_original`). The published JSON Schema is at [`docs/report.schema.json`](docs/report.schema.json).
 
 The CSV report has one row per file, suitable for import into a spreadsheet.
 

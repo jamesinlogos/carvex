@@ -46,6 +46,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   classic xref tables, xref streams, `/ObjStm` catalogs, `/Prev` chains,
   `/Size`, `/Encrypt` and direct stream lengths. Results are exposed through
   the existing `checks[]` array.
+- H-21: report schema 2 adds optional per-file `sha256_original`, the hash of
+  the bytes read before a revalidated repair changed the output. CSV appends it
+  after `validity`; schema 1 omits it.
 
 ### Changed
 
@@ -59,7 +62,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Auto-detection selects a container from magic bytes and segment naming;
   explicit `--input-format raw` remains available. Ordinary raw images still
   use the unchanged `RawFile` path, so frozen benchmark behavior is preserved.
-- Updated test count to 80. Re-measured line coverage after R-01/R-02 is
+- Updated test count to 120. Re-measured line coverage after R-01/R-02 is
   4456/6391 lines = 69.72%; the honest CI/local floor remains 60%.
 - E01 read errors now follow `--on-read-error`; the default changed from
   failing the whole run to zero-filling the affected chunk and recording it.
@@ -86,6 +89,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `unverified`/`structural`. `validated_bytes` stays zero for PDF because the
   checks are structural, not a contiguous payload decode. Scores, emission,
   output names and report schema are unchanged.
+- H-21: `--repair` now rebuilds a bounded classic xref/trailer for truncated
+  PDFs and appends the real footer for JPEG/PNG, then revalidates the result.
+  Only a revalidated output is `repaired`; a failed attempt keeps the original
+  bytes with `truncated`/`partial` and the exact note
+  `repair attempted, not validated`. A `repair` check records the outcome, and
+  a repaired row never counts as exact.
 
 ### Fixed
 

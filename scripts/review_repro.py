@@ -1122,25 +1122,88 @@ def case_x12(carvex: Path, work: Path, corpus: Path, ntfs: Path | None) -> str:
     return ""
 
 
+def _pypdf_opens_pdf(path: Path) -> bool | None:
+    """Return True/False, or None when pypdf is unavailable."""
+    try:
+        from pypdf import PdfReader
+    except ImportError:
+        return None
+    try:
+        reader = PdfReader(str(path), strict=False)
+        len(reader.pages)
+        return True
+    except Exception:
+        return False
+
+
 def case_x14(carvex: Path, work: Path, corpus: Path, ntfs: Path | None) -> str:
     """H-21: repaired PDF must be validated and carry sha256_original."""
     src = corpus / "pdf" / "pdf_03_text_2pages.pdf"
     if not src.exists():
         return "SKIP: corpus pdf missing"
     data = src.read_bytes()
-    cut = data[: int(len(data)*0.7)]
+    cut = data[: int(len(data) * 0.7)]
+    original_hash = sha256(cut)
     img = work / "x14.img"
-    img.write_bytes(b"\x00"*4096 + cut + b"\x00"*(1024*1024))
-    res = run_carvex(carvex, img, work/"out", ["--mode","raw","--no-fs","--types","pdf","--validate","decode","--min-score","0","--repair"])
+    img.write_bytes(b"\x00" * 4096 + cut + b"\x00" * (1024 * 1024))
+    res = run_carvex(
+        carvex,
+        img,
+        work,
+        [
+            "--mode", "raw", "--no-fs", "--types", "pdf",
+            "--validate", "decode", "--min-score", "0", "--repair",
+        ],
+    )
     if res.proc.returncode != 0:
-        return f"exit {res.proc.returncode}"
-    files = (res.report or {}).get("files", [])
-    for f in files:
-        if f.get("type") == "pdf" and f.get("status") == "repaired":
-            if f.get("validity") != "repaired":
-                return f"repaired PDF validity={f.get('validity')!r}, expected repaired"
-            if "sha256_original" not in f:
-                return "repaired PDF missing sha256_original"
+        return f"exit {res.proc.returncode}: {res.stderr.strip()}"
+    files = [f for f in (res.report or {}).get("files", []) if f.get("type") == "pdf"]
+    if len(files) != 1:
+        return f"expected one PDF output, got {len(files)}"
+    f = files[0]
+    out_path = res.out_dir / str(f.get("path", ""))
+    if not out_path.is_file():
+        return f"missing carved output: {out_path}"
+    carved = out_path.read_bytes()
+    if f.get("sha256") != sha256(carved):
+        return "repaired PDF report hash does not match output bytes"
+
+    changed = carved != cut
+    if changed:
+        if f.get("sha256_original") != original_hash:
+            return f"sha256_original={f.get('sha256_original')!r}, expected {original_hash!r}"
+    elif f.get("sha256_original") not in (None, ""):
+        return "sha256_original present although output bytes are unchanged"
+
+    checks = {c.get("name"): c.get("ok") for c in f.get("checks", [])}
+    validator_ok = (
+        f.get("validation") == "decoded"
+        and f.get("validity") in ("repaired", "verified")
+        and checks.get("repair") is True
+        and checks.get("xref_entries") is True
+        and checks.get("root_catalog") is True
+    )
+    pypdf_ok = _pypdf_opens_pdf(out_path)
+    repaired = (
+        f.get("status") == "repaired"
+        and f.get("repaired") is True
+        and f.get("validity") == "repaired"
+    )
+    if repaired != (pypdf_ok is True or validator_ok):
+        return (
+            f"repaired={repaired!r} but pypdf={pypdf_ok!r} "
+            f"and validator_ok={validator_ok!r}"
+        )
+    if repaired:
+        if not changed:
+            return "repaired PDF output bytes are unchanged"
+        if f.get("validity") != "repaired":
+            return f"repaired PDF validity={f.get('validity')!r}, expected repaired"
+    else:
+        if any(n == "repair attempted, not validated" for n in f.get("notes", [])) is False:
+            return "unrepaired PDF missing 'repair attempted, not validated' note"
+        if checks.get("repair") is not False:
+            return f"unrepaired PDF repair check={checks.get('repair')!r}, expected false"
     return ""
 
 

@@ -64,16 +64,16 @@ scripts/coverage.sh 60                                OK (4456/6391 lines = 69.7
 scripts/fuzz.sh 60                                   7 targets x 60 s, 18,520,025 runs, no crashes/artifacts
 ```
 
-Current gate after H-19 stage 2 (2026-11-22): **GATE GREEN**, 117 tests
+Current gate after H-21 (2026-11-22): **GATE GREEN**, 120 tests
 (41 unit + 13 cli_contract + 5 evidence_formats + 2 fragment_recovery +
 8 fs_detect + 2 jpeg_frame_budget + 4 memory_budget + 3 panic_containment +
 2 png_crc_validity + 4 png_decode_budget + 2 png_validator_budget +
 8 pdf_structure_validation + 5 properties + 3 regress_e01_safety +
-4 regress_vmdk_safety + 6 scan_integration + 1 validity_model +
-4 work_budgets), 34 repro scenarios with 0 failures/2 SKIPs/0 XPASS,
-G7 and benchmark smoke green. `scripts/perf_gate.py --carvex
-target/release/carvex` reported **PERF GREEN**: s9_4m median 0.185 s
-(limit 3.0 s), rand64m median 0.032 s.
+4 regress_vmdk_safety + 3 repair_validation + 6 scan_integration +
+1 validity_model + 4 work_budgets), 34 repro scenarios with 0 failures/
+2 SKIPs/0 XPASS, G7 and benchmark smoke green. `scripts/perf_gate.py
+--carvex target/release/carvex` reported **PERF GREEN**: s9_4m median 0.155 s
+(limit 3.0 s), rand64m median 0.034 s.
 
 ### Pre-execution protocol correction (protocol-v1.1)
 
@@ -122,7 +122,7 @@ Windows**.
 | A-08 | PARTIAL | green | `trait ImageSource {len, read_at}` + unchanged `RawFile` default; `seek(End)` fallback when metadata len = 0. B-04 adds split raw, E01, VHD, VMDK and stdin sources under `src/image/`. `--on-read-error` and report `unreadable_regions[]` are now present (H-22); no `BlockDevice`/`--sector-size` yet and real device/Windows not tested. |
 | A-09 | PARTIAL | green | Fixed the NTFS sector off-by-one (`field+1`, D-21, unit test `volume_sector_count_includes_the_backup_boot_sector`); FS errors → `FS_DETECTION_FAILED`. No `$ATTRIBUTE_LIST`/multi-extent `$MFT`/`$MFTMirr`/backup boot/FAT #2 yet. |
 | A-10 | DONE | green | Lib crate + thin `main.rs`; pipeline `plan_extents → build_tasks → scan_task → carve_batch → postfilter → write_outputs`; format registry; `ScanInput<'a>` groups the input parameters for `run_scan`, with targeted `too_many_arguments` allows only on the two R-01/R-02 helpers that take explicit budget/deadline state; `cargo doc -D warnings` passes. |
-| A-11 | PARTIAL | green | **117 tests** in the current gate (41 unit + 13 cli_contract + 5 evidence_formats + 2 fragment_recovery + 8 fs_detect + 2 jpeg_frame_budget + 4 memory_budget + 3 panic_containment + 2 png_crc_validity + 4 png_decode_budget + 2 png_validator_budget + 8 pdf_structure_validation + 5 properties + 3 regress_e01_safety + 4 regress_vmdk_safety + 6 scan_integration + 1 validity_model + 4 work_budgets); `scripts/review_repro.py --assert/--xfail --carvex` 34 scenarios, 0 failures, 2 SKIPs, 0 XPASS; red baseline `docs/baseline/repro_v0.1.0.txt`. Post-R-01/R-02 `cargo-llvm-cov 0.9.1` measured 4456/6391 lines = **69.72%**; CI/local floor set to 60%, not the earlier aspirational 80%. No new coverage run after H-14/H-16/H-17/H-18/H-19. |
+| A-11 | PARTIAL | green | **120 tests** in the current gate (41 unit + 13 cli_contract + 5 evidence_formats + 2 fragment_recovery + 8 fs_detect + 2 jpeg_frame_budget + 4 memory_budget + 3 panic_containment + 2 png_crc_validity + 4 png_decode_budget + 2 png_validator_budget + 8 pdf_structure_validation + 5 properties + 3 regress_e01_safety + 4 regress_vmdk_safety + 3 repair_validation + 6 scan_integration + 1 validity_model + 4 work_budgets); `scripts/review_repro.py --assert/--xfail --carvex` 34 scenarios, 0 failures, 2 SKIPs, 0 XPASS; red baseline `docs/baseline/repro_v0.1.0.txt`. Post-R-01/R-02 `cargo-llvm-cov 0.9.1` measured 4456/6391 lines = **69.72%**; CI/local floor set to 60%, not the earlier aspirational 80%. No new coverage run after H-14/H-16/H-17/H-18/H-19/H-21. |
 | A-12 | PARTIAL | green | MSRV 1.85 (`rust-version`, README corrected from "Rust 1.74"); `cargo +1.85 check` in the gate; `.github/workflows/ci.yml` adds actionlint + coverage and uses a pinned direct actionlint install; `rustfmt.toml`/`clippy.toml`/`deny.toml`; dist 0.2.0 + `SHA256SUMS`. Local `cargo deny check`, `cargo audit` and `actionlint 1.7.12` pass. Real GitHub run `44548142275` on commit `42376a9` succeeded (all jobs; push-event fuzz matrix skipped), but it predates B-04, B-06 and R-01/R-02. Distributed Windows binary not executed; no SBOM/signatures yet; removing binaries from `dist/` is STOP-AND-ASK (kept). |
 | A-13 | PARTIAL | green | Exit 0/1/2/3/4 documented + CLI contract tests; coded warnings; `RAW_SCANS_ALLOCATED` informational (D-20). No `thiserror`/leveled logger/`ProgressSink`/partial report on interrupt yet. |
 | A-14 | DONE | green | Report schema v2: `schema_version`, `argv`, `options`, `tool_info`, `input` (before–after SHA-256), ISO-8601, `case_id`, `examiner`, `warnings[]` object, `volumes[]`, `regions[]`, `lba`, real `cluster`, `partition_index`, `extent_id`, `allocated`, `source`, `fragments`. `docs/report.schema.json` + key-matching test; atomic write; `--manifest` generates `SHA256SUMS`; `--report-schema 1`. `unreadable_regions[]` belongs to A-08 (not present). |
@@ -133,7 +133,7 @@ Windows**.
 | B-04 | MITIGATED | green | `src/image/` supplies read-only split raw, classic E01 (compressed/uncompressed), fixed/dynamic VHD, flat/sparse VMDK and stdin sources; `open_image()`/`--input-format` select them. Five `evidence_formats` fixture tests verify byte-for-byte reads and stdin report identity (D-29). The raw default, frozen benchmark, figures, lockbox results and dist binaries are unchanged. Recognized EWF2/Ex01, L01/Lx01, LVF, differencing VHD, ESX/COWD and compressed streamOptimized VMDK variants are rejected explicitly; encrypted E01 has no decryption and is not guaranteed to be detected before parsing. |
 | B-05 | DONE | green | `--align none\|auto\|cluster\|sector`; default `none` keeps the old behavior; test `alignment_restricts_candidate_starts_without_changing_results_on_aligned_data`; golden TP unchanged. No per-file `aligned` flag recorded, no measurement of candidate reduction (D5). |
 | B-06 | MITIGATED | green | Opt-in `--fragment-recovery` adds bounded two-fragment gap carving at cluster boundaries (`--max-gap`, `--max-frag-candidates`, `--frag-time-limit`). Accepted stitches pass the deep validator and record `source="bgc"`, `fragments[]`, `checks` and `confidence`; S12-style JPEG/PNG/PDF fixture recovers both files byte-exactly. Default raw/benchmark path untouched | No D1 recall/splice-rate measurement, no n-fragment path, no metadata hybrid, and no claim that published figures include B-06. |
-| B-07 | PARTIAL | green | JPEG/PNG prefix salvage; `status=truncated` + `validated_bytes`; no `--salvage` flag yet; `repaired` does not yet require the validator to reopen the file. |
+| B-07 | PARTIAL | green | JPEG/PNG prefix salvage; `status=truncated` + `validated_bytes`; H-21 now rebuilds PDF xref/trailer, appends real JPEG/PNG footers, and labels `repaired` only after revalidation. No `--salvage` flag; generic marker/chunk truncation is a disclosed `[SHOULD]` skip (D-47). |
 | B-08 | PARTIAL | green | `--manifest`, `--hash-image`, `--case-id`/`--examiner`, full exit codes. No carve-phase progress/`--resume`/`--dry-run`/`verify`/`check`/`extract`/`--json-lines`/completions/man. |
 | B-09 | OPEN | - | Per-file `notes[]` present; no fixture + test per variant (APNG, xref stream, `/Encrypt`…); no format support table. |
 | B-10 | OPEN | - | No custom signatures/`--signatures`; the registry (A-10) is the ready foundation. |
@@ -190,13 +190,41 @@ Windows**.
 | H-15 | MED | 2026-11-22 source / 0.2.0 `dist/` | CLOSED (measured; musl/dist-only) | 1c28e2e | scripts/review_repro.py X23; direct X23 timing | Current glibc source: 1 thread median 0.489 s, default 0.156 s (0.32x). Stale 0.2.0 musl dist: 1 thread median 0.694 s, default 2.436 s (3.51x). Only the stale packaged release is slow; buffer reuse already landed in H-08. No allocator change without STOP-AND-ASK; no tuning or dist rebuild in this finding. |
 | H-18 | HIGH | 2026-11-22 source | CLOSED | 01ea6b3 | src/signatures/jpeg.rs unit tests; scripts/review_repro.py X12; scripts/jpeg_splice_property.py | Baseline 0.2180 [0.1935,0.2446] at a7a5c08; final 4,000-pair rate 0.0013 [0.0005,0.0029]. Unsupported variants are Unverified; RSTn/MCU/EOI checks verified by unit tests. D-45 records the disclosed residual accepted cases and decision not to add a false-positive-prone detector. |
 | H-19 | HIGH | 2026-11-22 source | CLOSED | cb591a3 | tests/pdf_structure_validation.rs; tests/fragment_recovery.rs; tests/scan_integration.rs; scripts/review_repro.py X11 | Stage 1 removed the false Decoded label; stage 2 adds bounded classic/xref-stream/ObjStm/trailer/catalog/length checking. Clean PDFs are `decoded`/`verified`; mismatches are `partial`/`suspect`; unsupported or budget-limited checks are `unverified`/`structural`. All 10 corpus PDFs were verified with no suspect result; qpdf/pdftoppm controls SKIPPED. |
-| H-21 | HIGH | 2026-11-21 source | REPRODUCED | - | scripts/review_repro.py X14 | Repaired PDF missing `sha256_original`. |
+| H-21 | HIGH | 2026-11-22 source | CLOSED | - | tests/repair_validation.rs; scripts/review_repro.py X14 | Red tests proved the static footer produced an invalid PDF labelled `repaired` with no `sha256_original`. Now PDF repair rebuilds classic xref/trailer; JPEG/PNG append real footers; every repair is revalidated before `repaired`. Failed repair stays `truncated`/`partial` with `repair attempted, not validated`; `sha256_original` is emitted whenever output bytes change. X14 passes with pypdf 6.9.2 and validator checks. Generic `--salvage` is a disclosed `[SHOULD]` skip (D-47). |
 | H-22 | CRIT | 2026-11-21 in-memory fixture | IN_PROGRESS | 4b86f2d+97b2b04 | tests/regress_e01_safety.rs::{partial_final_chunk_is_tolerated, damaged_chunk_is_reported_and_outputs_are_not_verified}; X16 (real libewf SKIPPED) | Short final chunks are accepted; damaged chunks follow `--on-read-error`; `unreadable_regions[]`, `UNREADABLE_REGION` and overlap downgrade are reported. Remaining: `abort` must still write a partial report, and real libewf fixtures are unavailable; X16 is now present in the Python harness. |
 | H-25 | LOW | 2026-11-21 source | REPRODUCED | - | scripts/review_repro.py X22 | stdin report has `unchanged=true` with null `modified_unix`; missing `logical_size`. |
 | H-26 | MED | 2026-11-21 source | REPRODUCED | - | scripts/review_repro.py X19 | Corrupted NTFS in multi-volume disk: exit 0, no parse-failure warning. |
 | H-23 | MED | 2026-11-21 source | CLOSED | 080b76a | tests/regress_vmdk_safety.rs | Missing grain table returned "index out of range"; now reads zeros like qemu-img. |
 
 ### Per-task reports
+
+Task: H-21 — `--repair` labelled unreadable PDFs `repaired`
+Reviews: v5:F-15 (RT: `pdf_03_text_2pages.pdf` cut at 70% → `repaired/partial/60`, 4,354 B, pypdf "startxref not found"), guide S15/B-07, v1/v2/v3.
+Repro: `tests/repair_validation.rs` was added first against the unmodified
+  scanner. All three tests failed on the missing CSV `sha256_original` column
+  (`/tmp/opencode/h21_red.log`); the invalid-catalog case also exposed the
+  unconditional `repaired` label. X14 reproduced the same real-corpus failure.
+Change: `src/signatures/repair.rs` builds a bounded classic xref/trailer from
+  `N G obj` headers and `/Root` or `/Type /Catalog`; JPEG gets EOI and PNG
+  gets the real IEND chunk. `validate_repair` runs the same deep validator as
+  an intact file, with PDF structural checks even in default mode. The scanner
+  writes the dynamic suffix only after revalidation, keeps the original score
+  and `carved_size`, adds a `repair` check, and emits optional
+  `sha256_original` in JSON and CSV. Failed repair keeps `truncated`/`partial`,
+  unchanged bytes, and the exact note `repair attempted, not validated`.
+Tests: three integration tests cover valid PDF repair, invalid-PDF failed
+  repair, and JPEG/PNG footer repair, including hash/CSV/JSON equivalence.
+  X14 now asserts the repaired PDF opens in pypdf 6.9.2 non-strict, passes the
+  xref/root/repair checks, has a different output hash from the source bytes,
+  and carries `sha256_original`. It was removed from `scripts/repro_xfail.txt`.
+Gate: green (fmt/clippy/tests/doc/actionlint/deny/audit/MSRV/release/repro/golden/smoke),
+  120 tests, 34 repro scenarios, 0 failures/2 SKIPs/0 XPASS, G7 green;
+  G8 PERF GREEN (s9_4m median 0.155 s, rand64m median 0.034 s).
+Residual risk / next: `--salvage` is not implemented because it is `[SHOULD]`
+  and would add a new partial-file policy beyond the accepted X14 contract;
+  D-47 records the explicit skip. PDF page content is still not rendered, and
+  PDF repair is limited to classic xref reconstruction from surviving object
+  headers.
 
 Task: H-19 — PDF `decoded` is a lexical check
 Reviews: v1:R-04, v2:R-04, v3:R-04, v4:F-04, v5:F-07.
@@ -222,8 +250,8 @@ Gate: green (fmt/clippy/tests/doc/actionlint/deny/audit/MSRV/release/repro/golde
   117 tests, 34 repro scenarios, 0 failures/2 SKIPs/0 XPASS, G7 green;
   G8 PERF GREEN (s9_4m median 0.185 s, rand64m median 0.032 s).
 Residual risk / next: PDF page content is not rendered or semantically
-  verified; encrypted content is flagged but not decoded. H-21 repair
-  revalidation and the external qpdf/pdftoppm oracle remain open.
+  verified; encrypted content is flagged but not decoded. H-21 added repair
+  revalidation; the external qpdf/pdftoppm oracle remains SKIPPED.
 
 Task: H-18 — JPEG strict-scan validity and splice rate
 Reviews: v1:R-05, v2:R-05, v3:R-05, v4:F-05, v5:F-08

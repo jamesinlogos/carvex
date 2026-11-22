@@ -60,13 +60,14 @@ decode budget, a 50,335,744-byte expansion with a peak-RSS assertion, and an
 invalid filter byte. Smoke output remained metric-identical to the frozen 0.2.0
 behavior.
 
-The gate was re-run after H-14, H-16, H-17, H-18 and H-19 stage 2 on
+The gate was re-run after H-14, H-16, H-17, H-18, H-19 stage 2 and H-21 on
 2026-11-22 and remained green.
-The current test count is 117: 41 unit, 13 CLI contract, 5 evidence-format,
+The current test count is 120: 41 unit, 13 CLI contract, 5 evidence-format,
 2 fragment recovery, 8 filesystem detection, 2 JPEG frame budget, 4 memory
 budget, 3 panic containment, 2 PNG CRC validity, 4 PNG decode budget,
 2 PNG validator budget, 8 PDF structure validation, 5 property, 3 E01 safety,
-4 VMDK safety, 6 scan integration, 1 validity-model and 4 work-budget tests.
+4 VMDK safety, 3 repair validation, 6 scan integration, 1 validity-model and
+4 work-budget tests.
 The H-16 red test
 `tests/validity_model.rs::default_structure_rows_are_labeled_content_not_checked`
 failed before the fix with `left: Null` for `validity`; the H-17 red test
@@ -80,12 +81,20 @@ D-45. H-19 stage 2 added eight red-first tests in
 fixtures reported `unverified` before the structural validator was wired in.
 All ten corpus PDFs now scan `verified`/100 with no suspect result. `qpdf` and
 `pdftoppm` are unavailable, so the X11 external-oracle control matrix is
-SKIPPED; `pypdf` 6.9.2 was used only to open generated fixtures. The repro
-harness ran 34 scenarios with 0 failures, 2 SKIPs and 0 XPASS; G7 and the
-benchmark smoke were green. `scripts/perf_gate.py --carvex
-target/release/carvex` reported **PERF GREEN**: s9_4m median 0.185 s and
-rand64m median 0.032 s. No new coverage measurement was made for
-H-14/H-16/H-17/H-18/H-19.
+SKIPPED; `pypdf` 6.9.2 opened generated fixtures for H-19 and is the X14
+non-strict oracle for a real corpus PDF cut. H-21 added three red-first tests
+in `tests/repair_validation.rs`: before the fix all three failed on the missing
+CSV `sha256_original` column, and the invalid-catalog case was also mislabelled
+`repaired`. After the fix, valid PDF/JPEG/PNG repairs revalidate and emit the
+source hash; an invalid PDF keeps its original bytes and reports
+`repair attempted, not validated`. X14 now passes against
+`pdf_03_text_2pages.pdf` cut at 70%: pypdf opens the rebuilt output, the xref,
+root and repair checks pass, and `sha256_original` differs from `sha256`. X14
+was removed from `scripts/repro_xfail.txt`. The repro harness ran 34 scenarios
+with 0 failures, 2 SKIPs and 0 XPASS; G7 and the benchmark smoke were green.
+`scripts/perf_gate.py --carvex target/release/carvex` reported **PERF GREEN**:
+s9_4m median 0.155 s and rand64m median 0.034 s. No new coverage measurement
+was made for H-14/H-16/H-17/H-18/H-19/H-21.
 
 ## 3. GitHub Actions
 

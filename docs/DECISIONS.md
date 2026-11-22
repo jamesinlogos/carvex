@@ -749,3 +749,33 @@ decision, and the consequences.
   warning codes and the default raw path are unchanged. B-06 still requires
   deep validation and now accepts complete stitched PDFs as `Decoded`; the
   stage-1 `Unverified` lexical case is still accepted when present.
+
+## D-47. Repair revalidation and original-byte hash (H-21)
+
+- **Context:** `--repair` appended a static PDF `%%EOF` and labelled the result
+  `repaired` without re-opening it. X14's 70%-cut PDF still failed pypdf with
+  "startxref not found", and no report field distinguished the repaired bytes
+  from the bytes read from the source.
+- **Decision:** a candidate is `repaired` only if the reconstructed bytes pass
+  revalidation. PDF repair rebuilds a bounded classic xref table and trailer
+  from scanned `N G obj` headers plus `/Root` or `/Type /Catalog`; JPEG repair
+  appends `FF D9`; PNG repair appends the real length-zero IEND chunk with its
+  CRC. PDF revalidation runs the H-19 structural validator even in default
+  mode, because a bare `%%EOF` is exactly the false repair being corrected.
+  The original score, `carved_size`, output naming and bytes read are
+  preserved; only the footer/status changes after successful revalidation.
+- **Failure path:** if reconstruction or revalidation cannot prove the repair,
+  no suffix is written. The row keeps `status=truncated`, `validation=partial`,
+  `validity=partial`, unchanged bytes and the exact note
+  `repair attempted, not validated`. A `repair` check records the outcome.
+- **Reporting:** optional `sha256_original` is additive in JSON and is appended
+  as the final CSV column after `validity`. It is present when output bytes
+  differ from bytes read (a successful repair) and absent otherwise. Schema 1
+  strips it with the other additive v2 fields. A repaired file never counts as
+  exact in the benchmark, and the published figures are untouched.
+- **Salvage `[SHOULD]`:** no generic `--salvage` flag was added. The already
+  accepted prefix-salvage behavior in B-07/A-05 remains, but cutting arbitrary
+  files at the last valid marker/chunk and introducing a new partial-file
+  policy is outside X14's contract. The `[SHOULD]` is therefore explicitly
+  skipped rather than silently ignored; it should be revisited as a separate
+  finding with its own acceptance cases.

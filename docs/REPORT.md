@@ -322,6 +322,10 @@ model:
 | `partial` | `partial` | `truncated` | truncated, salvaged or prefix-only |
 | `repaired` | `partial`/`decoded` | `repaired` | repair applied and the result re-validates |
 
+A `repaired` row is produced only after the reconstructed bytes pass
+revalidation (§3.8); an unvalidated suffix is not represented by this label.
+The optional `sha256_original` field records the source bytes when repair
+changed the output, so the repaired and original hashes remain distinguishable.
 Only `verified` may be presented as complete or verified in a summary, count,
 console line or benchmark. Default `--validate structure` output is therefore
 `structural` and is printed as **content not checked**, even when its legacy
@@ -350,7 +354,9 @@ checks visit scattered offsets rather than a contiguous decoded payload,
 `validated_bytes` remains zero for PDF even when `validation=decoded`. The
 10-file PDF corpus all reached `verified`/100 with no suspect result. External
 `qpdf`/`pdftoppm` oracles were unavailable, so that control matrix is SKIPPED;
-`pypdf` was used only to open generated fixtures, not as a verdict oracle.
+`pypdf` 6.9.2 opened generated fixtures for H-19 and was used as the X14
+non-strict oracle for a real corpus PDF cut at 70%; `qpdf`/`pdftoppm` remain
+unavailable.
 
 ### 3.5. Scoring
 
@@ -437,13 +443,27 @@ Nested suppression applies only when the parent file has `status = complete` and
 
 ### 3.8. Repairing truncated files
 
-With `--repair`:
+With `--repair`, CarveX first reconstructs candidate suffix bytes and then
+revalidates the complete result:
 
 - Truncated JPEG: append `FF D9`.
-- Truncated PNG: append a standard IEND chunk (`00 00 00 00 49 45 4E 44 AE 42 60 82`).
-- Truncated PDF: append `\n%%EOF\n`.
+- Truncated PNG: append the real length-zero IEND chunk
+  (`00 00 00 00 49 45 4E 44 AE 42 60 82`).
+- Truncated PDF: scan the surviving prefix for `N G obj` headers and `/Root`
+  or `/Type /Catalog`, rebuild a bounded classic xref table and trailer with
+  `startxref` pointing at the rebuilt table, then append `%%EOF`.
 
-The file is marked `repaired`; the hash is recomputed after appending. Use this option only when the goal is to open the file, not when byte-exact evidence is required.
+Only a result that passes revalidation is labelled `repaired`. For PDF this
+means the H-19 structural validator passes even in default `structure` mode; a
+bare `%%EOF` without a resolvable xref/catalog is not sufficient. Revalidation
+does not change the original score or `carved_size`. If it fails, no suffix is
+written: the row remains `truncated`/`partial`, its bytes are unchanged, and it
+carries the note `repair attempted, not validated` plus a failed `repair` check.
+A successful repair emits `sha256_original`, the hash of the bytes read from
+the source, alongside the normal `sha256` of the written output. The legacy
+validation label becomes `decoded` for a decoded-mode repair; emitted scores,
+output names and the benchmark's exact metric are unchanged. Use `--repair`
+only when opening the file matters more than byte-exact evidence.
 
 ### 3.9. CLI and reporting
 
@@ -763,6 +783,14 @@ Reporting both avoids misjudging tools that append padding bytes. However, usabl
    64 KiB buffer. Images above that bound are reported as `validation=partial`
    without being inflated. The default benchmark path does not use decode
    validation, so the frozen figures are unaffected.
+12. **Repair scope (H-21).** PDF reconstruction is limited to classic xref
+    tables whose object headers and `/Root` or `/Type /Catalog` survive in the
+    salvaged prefix; xref-stream-only or heavily damaged documents may remain
+    `truncated` rather than be repaired. JPEG/PNG repair proves only that the
+    appended footer restores the same structural/decode result as an intact
+    file of that type; it does not prove that missing payload bytes were
+    recovered. Repaired outputs are excluded from exactness claims and the
+    published benchmark does not enable `--repair`.
 
 ---
 

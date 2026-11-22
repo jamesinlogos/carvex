@@ -89,7 +89,7 @@ fn successful_raw_scan_returns_zero_and_leaves_the_source_untouched() {
     assert_eq!(
         header,
         format!(
-            "{legacy},validation,validated_bytes,lba,cluster,partition_index,extent_id,allocated,source,fragments,validity"
+            "{legacy},validation,validated_bytes,lba,cluster,partition_index,extent_id,allocated,source,fragments,validity,sha256_original"
         )
     );
     assert_eq!(csv.lines().count(), 4);

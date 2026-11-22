@@ -94,11 +94,11 @@ fn default_structure_rows_are_labeled_content_not_checked() {
     let csv = fs::read_to_string(&csv_path).unwrap();
     let header = csv.lines().next().unwrap();
     assert!(
-        header.ends_with(",validity"),
-        "CSV must append validity: {header}"
+        header.ends_with(",validity,sha256_original"),
+        "CSV must append validity and sha256_original: {header}"
     );
     assert_eq!(csv.lines().count(), 2);
-    assert!(csv.lines().nth(1).unwrap().ends_with(",structural"));
+    assert!(csv.lines().nth(1).unwrap().ends_with(",structural,"));
 
     let manifest = fs::read_to_string(out_dir.join("SHA256SUMS")).unwrap();
     assert!(

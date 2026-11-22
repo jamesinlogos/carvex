@@ -6,8 +6,8 @@ use std::path::Path;
 
 /// Write the JSON report atomically.
 ///
-/// `schema` 1 removes the additive v2 fields so existing consumers keep the
-/// exact v0.1 shape; `schema` 2 is the default.
+/// `schema` 1 removes the additive v2 fields (including `sha256_original`) so
+/// existing consumers keep the exact v0.1 shape; `schema` 2 is the default.
 pub fn write_json(report: &ScanReport, path: &Path, schema: u8) -> Result<()> {
     ensure_parent(path)?;
     let mut value = serde_json::to_value(report)
@@ -65,6 +65,7 @@ fn strip_v2_fields(value: &mut serde_json::Value) {
                 "allocated",
                 "source",
                 "fragments",
+                "sha256_original",
             ] {
                 file.remove(key);
             }
@@ -83,12 +84,12 @@ pub fn write_csv(report: &ScanReport, path: &Path) -> Result<()> {
         w,
         "seq,type,offset,size,carved_size,sha256,status,score,width,height,repaired,path,notes,\
          validation,validated_bytes,lba,cluster,partition_index,extent_id,allocated,source,fragments,\
-         validity"
+         validity,sha256_original"
     )?;
     for f in &report.files {
         writeln!(
             w,
-            "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+            "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
             f.seq,
             f.file_type.ext(),
             f.offset,
@@ -117,7 +118,8 @@ pub fn write_csv(report: &ScanReport, path: &Path) -> Result<()> {
                     .collect::<Vec<_>>()
                     .join(";")
             ),
-            f.validity.as_str()
+            f.validity.as_str(),
+            f.sha256_original.as_deref().unwrap_or_default()
         )?;
     }
     w.flush()?;

@@ -280,7 +280,7 @@ fn truncated(end: usize, at_limit: bool, prefix: &[u8], version: &str, why: &str
         width: None,
         height: None,
         notes: vec![format!(
-            "truncated PDF {version} ({why}); {objects} object(s); repair appends %%EOF"
+            "truncated PDF {version} ({why}); {objects} object(s); repair rebuilds xref/trailer when possible"
         )],
         repair_suffix: EOF_SUFFIX,
         integrity_checks: Vec::new(),

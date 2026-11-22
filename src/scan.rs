@@ -1,9 +1,9 @@
 use crate::fs::FsInfo;
 use crate::io::{read_exact_at, ImageSource, RegionLog, UnreadableRegion};
 use crate::signatures::{
-    analyze, base_validity_checks, validate_deep_detail, Analysis, FileType, Need, PdfEofMode,
-    Status, Validation, ValidationCheck, ValidationDetail, ValidationLimits, ValidationMode,
-    Validity,
+    analyze, base_validity_checks, build_suffix, validate_deep_detail, validate_repair, Analysis,
+    FileType, Need, PdfEofMode, Status, ValidatedRepair, Validation, ValidationCheck,
+    ValidationDetail, ValidationLimits, ValidationMode, Validity,
 };
 use crate::util::{
     complement_extents, hex, human_size, merge_extents, sha256_hex, sha256_hex_with_suffix,
@@ -660,6 +660,10 @@ pub struct CarvedFile {
     /// Confidence in a B-06 stitch (the structural score of the accepted join).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub confidence: Option<u8>,
+    /// SHA-256 of the bytes read before a repair changed the output.
+    /// Absent whenever output bytes are identical to the source bytes.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sha256_original: Option<String>,
 }
 
 #[derive(Debug, Default, Clone, Serialize)]
@@ -780,7 +784,10 @@ struct CarvedData {
     output_len: u64,
     analysis: Analysis,
     sha256: String,
+    sha256_original: Option<String>,
     repaired: bool,
+    /// Dynamic repair bytes appended by the write stage (empty when unchanged).
+    repair_suffix: Vec<u8>,
     validation: Validation,
     validity: Validity,
     validation_notes: Vec<String>,
@@ -1560,21 +1567,111 @@ fn carve_one(
                 if opts.complete_only && !analysis.complete {
                     return Ok(CarveOutcome::NotComplete);
                 }
-                let repaired = opts.repair && !analysis.complete;
-                let suffix: &[u8] = if repaired {
-                    analysis.repair_suffix
-                } else {
-                    &[]
-                };
-                let output_len = (end as u64).saturating_add(suffix.len() as u64);
+                let repair_attempted = opts.repair && !analysis.complete;
+                // Validator scratch is bounded by its own flag and, for this
+                // scan, can never raise the shared working-memory ceiling.
+                let limits = ValidationLimits::new(opts.max_validator_memory.min(budget.limit()));
+                let mut repair_suffix: Vec<u8> = Vec::new();
+                let mut repaired = false;
+                let mut sha256_original: Option<String> = None;
+                let mut repair_detail: Option<ValidationDetail> = None;
+                let mut repair_note: Option<String> = None;
+                let mut repair_reason: Option<String> = None;
+
+                // H-21: rebuild and revalidate before claiming `repaired`.
+                if repair_attempted {
+                    match build_suffix(cand.kind, &buf[..end], limits) {
+                        Ok(suffix) => {
+                            let rebuilt_len = (end as u64).saturating_add(suffix.len() as u64);
+                            match usize::try_from(rebuilt_len) {
+                                Ok(rebuilt_len) => {
+                                    match BudgetGuard::reserve(
+                                        budget,
+                                        rebuilt_len as u64,
+                                        "validating a repaired file",
+                                    ) {
+                                        Ok(mut guard) => {
+                                            let mut rebuilt = Vec::new();
+                                            if rebuilt.try_reserve_exact(rebuilt_len).is_err() {
+                                                repair_reason = Some(
+                                                    "cannot reserve repair validation memory"
+                                                        .into(),
+                                                );
+                                            } else {
+                                                rebuilt.extend_from_slice(&buf[..end]);
+                                                rebuilt.extend_from_slice(&suffix);
+                                                if !work.add(rebuilt_len as u64) {
+                                                    return Ok(CarveOutcome::WorkLimit {
+                                                        offset: cand.offset,
+                                                        kind: cand.kind,
+                                                        examined: work
+                                                            .used()
+                                                            .saturating_add(rebuilt_len as u64),
+                                                        limit: work_limit,
+                                                    });
+                                                }
+                                                test_panic_probe(cand.offset, "validate");
+                                                match validate_repair(
+                                                    cand.kind,
+                                                    &rebuilt,
+                                                    limits,
+                                                    opts.validate,
+                                                    opts.pdf_eof,
+                                                ) {
+                                                    Ok(ValidatedRepair {
+                                                        analysis: rebuilt_analysis,
+                                                        detail,
+                                                        note,
+                                                    }) => {
+                                                        repaired = true;
+                                                        repair_suffix = suffix;
+                                                        repair_detail = Some(detail);
+                                                        repair_note = Some(note.clone());
+                                                        sha256_original =
+                                                            Some(sha256_hex(&buf[..end]));
+                                                        // Keep the original score, length and
+                                                        // provenance notes; only the footer status
+                                                        // becomes complete after revalidation.
+                                                        analysis.complete = true;
+                                                        analysis
+                                                            .notes
+                                                            .extend(rebuilt_analysis.notes);
+                                                        analysis.notes.push(note);
+                                                    }
+                                                    Err(reason) => repair_reason = Some(reason),
+                                                }
+                                            }
+                                            guard.release();
+                                        }
+                                        Err(e) => repair_reason = Some(e.to_string()),
+                                    }
+                                }
+                                Err(_) => {
+                                    repair_reason =
+                                        Some("repaired length is not addressable".into());
+                                }
+                            }
+                        }
+                        Err(reason) => repair_reason = Some(reason),
+                    }
+                    if !repaired {
+                        analysis
+                            .notes
+                            .push("repair attempted, not validated".into());
+                        if let Some(reason) = repair_reason.as_ref() {
+                            analysis.notes.push(format!("repair reason: {reason}"));
+                        }
+                    }
+                }
+
+                let output_len = (end as u64).saturating_add(repair_suffix.len() as u64);
                 if output_len < opts.min_size {
                     return Ok(CarveOutcome::TooSmall(output_len));
                 }
 
-                // Validator scratch is bounded by its own flag and, for this
-                // scan, can never raise the shared working-memory ceiling.
-                let limits = ValidationLimits::new(opts.max_validator_memory.min(budget.limit()));
-                let validate_bytes = if opts.validate == ValidationMode::Decode && analysis.complete
+                let validate_bytes = if repair_detail.is_none()
+                    && opts.validate == ValidationMode::Decode
+                    && analysis.complete
                 {
                     end as u64
                 } else {
@@ -1589,7 +1686,9 @@ fn carve_one(
                         limit: work_limit,
                     });
                 }
-                let detail = if opts.validate == ValidationMode::Decode {
+                let detail = if let Some(detail) = repair_detail {
+                    detail
+                } else if opts.validate == ValidationMode::Decode {
                     if analysis.complete {
                         validate_deep_detail(cand.kind, &buf[..end], &analysis, limits)
                     } else {
@@ -1626,11 +1725,29 @@ fn carve_one(
                     checks: detail_checks,
                     validated_bytes,
                 } = detail;
+                // `carved_size` describes bytes read; never claim more checked
+                // bytes than were read just because a suffix was appended.
+                let validated_bytes = validated_bytes.min(end as u64);
                 let status = analysis.status(repaired);
                 let validity = Validity::from_legacy(validation, status);
                 let mut validation_checks =
                     base_validity_checks(cand.kind, validation, status, &validation_notes);
                 validation_checks.extend(detail_checks);
+                if repair_attempted {
+                    let (ok, note) = if repaired {
+                        (
+                            Some(true),
+                            repair_note.unwrap_or_else(|| "repair revalidated".to_string()),
+                        )
+                    } else {
+                        (
+                            Some(false),
+                            repair_reason
+                                .unwrap_or_else(|| "repair attempted, not validated".to_string()),
+                        )
+                    };
+                    validation_checks.push(ValidationCheck::new("repair", ok, note));
+                }
                 if analysis.complete && validation == Validation::Partial {
                     if opts.validate == ValidationMode::Decode {
                         analysis.score = analysis.score.saturating_sub(20);
@@ -1640,11 +1757,7 @@ fn carve_one(
                         return Ok(CarveOutcome::LowScore(analysis.score));
                     }
                 }
-                let sha256 = if suffix.is_empty() {
-                    sha256_hex(&buf[..end])
-                } else {
-                    sha256_hex_with_suffix(&buf[..end], suffix)
-                };
+                let sha256 = sha256_hex_with_suffix(&buf[..end], &repair_suffix);
                 return Ok(CarveOutcome::Carved(Box::new(CarvedData {
                     candidate: cand.clone(),
                     payload: PayloadSpec::Range {
@@ -1654,7 +1767,9 @@ fn carve_one(
                     output_len,
                     analysis,
                     sha256,
+                    sha256_original,
                     repaired,
+                    repair_suffix,
                     validation,
                     validity,
                     validation_notes,
@@ -2032,7 +2147,9 @@ fn try_fragment_join(
             output_len,
             analysis,
             sha256,
+            sha256_original: None,
             repaired: false,
+            repair_suffix: Vec::new(),
             validation,
             validity,
             validation_notes,
@@ -2504,11 +2621,10 @@ fn write_outputs(
                     }
                 }
             }
-            if data.repaired {
-                let suffix = data.analysis.repair_suffix;
-                file.write_all(suffix)
+            if !data.repair_suffix.is_empty() {
+                file.write_all(&data.repair_suffix)
                     .with_context(|| "cannot append repair suffix")?;
-                hasher.update(suffix);
+                hasher.update(&data.repair_suffix);
             }
             file.sync_all()
                 .with_context(|| format!("cannot flush temporary file '{}'", tmp.display()))?;
@@ -2549,9 +2665,6 @@ fn write_outputs(
         stats.bytes_written = stats.bytes_written.saturating_add(data.output_len);
         let mut notes = data.analysis.notes.clone();
         notes.extend(data.validation_notes.iter().cloned());
-        if data.repaired {
-            notes.push("repaired by appending the signature footer".into());
-        }
         let (lba, cluster, allocated, partition_index) =
             allocation_metadata(data.candidate.offset, volumes, mode);
         let record = CarvedFile {
@@ -2585,6 +2698,7 @@ fn write_outputs(
             validation_checks: data.validation_checks.clone(),
             checks: data.checks,
             confidence: data.confidence,
+            sha256_original: data.sha256_original.clone(),
         };
         if !opts.quiet && (opts.verbose || idx < 20) {
             eprintln!(

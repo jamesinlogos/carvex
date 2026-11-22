@@ -1,7 +1,7 @@
 #![deny(clippy::indexing_slicing, clippy::unwrap_used, clippy::expect_used)]
 use super::{Analysis, Need};
 
-const EOI: &[u8] = &[0xFF, 0xD9];
+pub(crate) const EOI: &[u8] = &[0xFF, 0xD9];
 
 pub fn analyze(data: &[u8], at_limit: bool) -> Need {
     if data.len() < 4 {

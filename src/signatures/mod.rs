@@ -9,6 +9,9 @@ pub mod jpeg;
 pub mod pdf;
 mod pdf_validate;
 pub mod png;
+mod repair;
+
+pub(crate) use repair::{build_suffix, validate as validate_repair, ValidatedRepair};
 
 use clap::ValueEnum;
 use flate2::{Decompress, FlushDecompress, Status as InflateStatus};
@@ -307,7 +310,7 @@ pub fn base_validity_checks(
         Status::Repaired => vec![ValidationCheck::new(
             "footer",
             Some(false),
-            "footer was absent; a repair suffix was appended",
+            "footer was absent; a revalidated repair suffix was appended",
         )],
     };
 
@@ -381,10 +384,10 @@ impl Analysis {
     }
 
     pub fn status(&self, repaired: bool) -> Status {
-        if self.complete {
-            Status::Complete
-        } else if repaired {
+        if repaired {
             Status::Repaired
+        } else if self.complete {
+            Status::Complete
         } else {
             Status::Truncated
         }

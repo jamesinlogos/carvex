@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://example.invalid/carvex/report-v2.schema.json",
   "title": "CarveX scan report",
-  "description": "Schema 2 (CarveX 0.2.0 plus additive H-16/H-22 fields). Schema 1 is the legacy shape produced by --report-schema 1: it omits schema_version, tool_info, input, argv, options, case_id, examiner, started_at, warnings, volumes, regions and unreadable_regions, and removes the validation/validity/checks/allocated-source fields from files.",
+  "description": "Schema 2 (CarveX 0.2.0 plus additive H-16/H-21/H-22 fields). Schema 1 is the legacy shape produced by --report-schema 1: it omits schema_version, tool_info, input, argv, options, case_id, examiner, started_at, warnings, volumes, regions and unreadable_regions, and removes the validation/validity/checks/allocated-source/sha256_original fields from files.",
   "type": "object",
   "required": [
     "schema_version",
@@ -309,7 +309,8 @@
         "fragments": { "type": "array", "items": { "$ref": "#/$defs/extent" } },
         "checks": { "type": "array", "items": { "$ref": "#/$defs/validation_check" }, "description": "Structured checks actually performed for this file" },
         "fragment_checks": { "type": "integer", "minimum": 0, "description": "Deep-validation checks made for a B-06 stitch" },
-        "confidence": { "type": "integer", "minimum": 0, "maximum": 100, "description": "Structural score of an accepted B-06 stitch" }
+        "confidence": { "type": "integer", "minimum": 0, "maximum": 100, "description": "Structural score of an accepted B-06 stitch" },
+        "sha256_original": { "type": "string", "pattern": "^[0-9a-f]{64}$", "description": "SHA-256 of the bytes read before a revalidated repair changed the output (H-21); absent when output bytes are unchanged" }
       }
     }
   }
