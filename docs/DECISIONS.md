@@ -392,16 +392,20 @@ decision, and the consequences.
 - **Decision:** add `--fragment-recovery` (off by default) plus `--max-gap`,
   `--max-frag-candidates` and `--frag-time-limit`. A stitch is attempted only
   between two cluster-aligned fragments inside a detected volume. Head and tail
-  boundaries are enumerated under the stated bounds, ordered by increasing gap,
-  and a join is accepted only when `validate_deep` returns `Decoded`. Stitched
-  records use `source="bgc"` and add optional `fragments[]`, `checks` and
-  `confidence`; those JSON fields are omitted when the stage is disabled.
+  boundaries are enumerated under the stated bounds; candidate joins are scored
+  by explained filler/header evidence and bounded by a work-unit budget. A
+  stitch is written only when the authoritative `validity` is `verified`.
+  Stitched records use `source="bgc"` and add optional `fragments[]`, `checks`,
+  `confidence` and `alternatives`; those JSON fields are omitted when the stage
+  is disabled. D-53 supersedes the original increasing-gap ordering and
+  `validate_deep == Decoded` acceptance rule after H-29.
 - **Consequences:** S12-style interleaved JPEG, PNG and PDF fixtures recover both
-  source files byte-exactly and no stitched file is reported as deep-validated
-  without the validator. The implementation is limited to two fragments and has
-  no D1 recall/splice-rate measurement, so B-06 is MITIGATED rather than FIXED.
-  The default scan, frozen results, protocol text and dist binaries are
-  unchanged.
+  source files byte-exactly, and no stitched file is reported as verified
+  without the validator. The implementation is limited to two fragments, has no
+  metadata/runlist-assisted reassembly, and remains opt-in. A D1-style
+  development profile now supplies recall, splice-rate and junk-FP evidence;
+  see D-53. The default scan, frozen results, protocol text and dist binaries
+  are unchanged.
 
 ## D-31. Enforce `--max-memory` before allocation and retention (R-01)
 
@@ -486,8 +490,9 @@ decision, and the consequences.
   note; JPEG/PNG still assert `Decoded`. No PDF carve is labeled Decoded.
 - **Consequences:** B-06 PDF recovery remained possible with an honest label
   during stage 1. D-46 supersedes the stage-1 label for PDFs that pass the new
-  structural checks while retaining the lexical-validated `Unverified` B-06
-  acceptance path as a compatibility case (E-1).
+  structural checks. D-53 later removes the lexical-validated `Unverified`
+  B-06 acceptance path entirely: stage 2 permits a clean PDF to be `verified`,
+  but a B-06 stitch must still be `verified` after deep validation.
 
 ## D-35. E01 chunk cap and read-error policy (H-11, H-22)
 
@@ -923,3 +928,44 @@ decision, and the consequences.
   schema 2, `interrupted: true`, an `INTERRUPTED` warning and no `.tmp` files.
   A direct two-signal control exited 130 without writing a report. X21 was
   removed from `scripts/repro_xfail.txt`.
+
+## D-53. Measured, bounded B-06 fragment recovery (H-29)
+
+- **Context:** the original B-06 acceptance fixtures used one-byte-different
+  copies in tiny images. On a realistic 64 MiB FAT32 image with three real
+  corpus files split in half and separated by three-cluster gaps, 0/3 files
+  were stitched and the 5 s wall-clock budget was consumed. The same budget was
+  burned on ordinary non-fragmented images, and a near-footer join could accept
+  a plausible but incorrect PDF splice. The stage also accepted a lexical PDF
+  label that was weaker than the authoritative `validity` model.
+- **Heads and joins:** a contiguous, gap-free carve is not deep-probed; a
+  truncated carve, a carve containing filler, or a PDF carve with more than one
+  footer is probed. Footer indexing is deferred until a head actually needs a
+  join. Skipped clusters are classified once per head as filler or another
+  file's header; joins are ranked by unexplained gap, then evidence strength,
+  gap size and tail position. Head/tail filler-boundary checks exempt the
+  head's own first cluster and short zero-padded tails so compact fixtures
+  still work. The contiguous filler scan inspects the same cluster samples
+  with bounded block reads instead of one syscall per cluster. At most 32 join
+  attempts per head and 16 validated alternatives are counted.
+- **Budgets:** `--max-frag-candidates` is authoritative work units across head
+  probes and join attempts; reaching it emits `FRAGMENT_CANDIDATE_LIMIT`,
+  writes a partial report and exits 3 deterministically. `--frag-time-limit` is
+  only a wall-clock safety net; reaching it emits `FRAGMENT_TIME_LIMIT`, sets
+  `nondeterministic_stop: true`, writes a partial report and exits 3. Every
+  probe and join runs inside the H-10 panic boundary and the H-05/H-06
+  validator budgets.
+- **Acceptance:** a stitch is emitted only when `validity == verified`; D-34's
+  lexical `Unverified` PDF exception is rejected here. Accepted records gain
+  the additive `alternatives` count in JSON and CSV; schema 1 strips it and the
+  published CSV prefix is preserved.
+- **Evidence:** red tests first failed with the missing schema property, the
+  CSV header mismatch, S12 `file A not recovered exactly` and X15
+  `realistic: 1 stitched output(s) are not the source files`. After the fix the
+  D1-style profile measured recall 4/6 (Wilson 95% [0.3000, 0.9032]), splice
+  rate 0/4 (Wilson 95% [0, 0.4899]) and junk-FP 0/24 (Wilson 95%
+  [0, 0.1380]) in `bench/results/d1_fragment_profile.json`. X15 passes: bait
+  produced 0 stitches, the ordinary image had no `FRAGMENT_*` warning, output
+  hashes matched the plain scan, runtime stayed within 10%, the realistic
+  layout recalled 3/3 exact source files, and `--threads 1` matched the
+  default. The profile is development evidence, not the frozen lockbox.

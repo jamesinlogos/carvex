@@ -144,8 +144,8 @@ Main options:
 | `--align MODE` | `none` | Align candidates: `none`, `auto`, `cluster`, `sector` |
 | `--fragment-recovery` | off | Opt in to bounded two-fragment gap carving (B-06; needs a detected volume) |
 | `--max-gap N` | `16` | Maximum gap between joined fragments, in clusters (requires `--fragment-recovery`) |
-| `--max-frag-candidates N` | `1024` | Maximum joins evaluated by B-06 (requires `--fragment-recovery`) |
-| `--frag-time-limit MS` | `5000` | Wall-clock budget for B-06 (requires `--fragment-recovery`) |
+| `--max-frag-candidates N` | `1024` | Authoritative work-unit budget for B-06 head probes and join attempts (requires `--fragment-recovery`) |
+| `--frag-time-limit MS` | `5000` | Wall-clock safety net for B-06; flags a partial report as nondeterministic (requires `--fragment-recovery`) |
 | `--partition SEL` | `all` | `all` (default: all volumes, written to `part1/`, `part2/`, …), `largest` (0.1.0 behavior), or a 1-based partition number |
 | `--include-gaps` | on | Still accepted (not needed since it is the default); use it to state intent explicitly in scripts |
 | `--no-gaps` | off | Disable scanning of gaps/unsupported partitions; use with `--partition largest` to restore the old behavior |
@@ -182,15 +182,30 @@ but not the per-sector presence bitmap. Ordinary raw images keep the unchanged
 
 `--fragment-recovery` enables an opt-in two-fragment gap-carving stage. Inside a
 detected FAT32/NTFS volume it joins a header fragment to a later
-cluster-aligned tail fragment, bounded by `--max-gap`, `--max-frag-candidates`
-and `--frag-time-limit`. Joins are tried in increasing-gap order and accepted
-only when the deep validator decodes the stitched result. Successful records use
-`source="bgc"` and report `fragments[]`, `checks` and `confidence`; these JSON
-fields are omitted when the stage is disabled, and the CSV layout is unchanged.
-Limits without `--fragment-recovery` are a runtime error. The stage is not a
-runlist/metadata reassembler, supports at most two fragments, has no
-fragmented-profile recall measurement, and is excluded from the published
-benchmark figures.
+cluster-aligned tail fragment. A contiguous, gap-free carve is left alone; a
+truncated carve, a carve with filler inside it, or a PDF carve containing more
+than one footer is probed with the deep validator. Skipped clusters must look
+like filler or another file's header, joins with the best-explained gaps are
+tried first, and a stitch is written only when its authoritative `validity` is
+`verified` (the earlier lexical PDF exception is no longer accepted here).
+
+`--max-frag-candidates` is the authoritative budget: each head probe and each
+join attempt consumes one work unit, and reaching it emits
+`FRAGMENT_CANDIDATE_LIMIT` and exits 3 deterministically. `--frag-time-limit` is
+only a wall-clock safety net; reaching it emits `FRAGMENT_TIME_LIMIT`, sets
+`nondeterministic_stop: true` and also exits 3. Both conditions write a partial
+report. Successful records use `source="bgc"` and report `fragments[]`,
+`checks`, `confidence` and the additive `alternatives` count (JSON and CSV);
+these JSON fields are omitted when the stage is disabled. Limits without
+`--fragment-recovery` are a runtime error.
+
+The D1-style development profile in `bench/results/d1_fragment_profile.json`
+measured exact recall 4/6 = 66.7% (Wilson 95% [30.0%; 90.3%]), splice rate
+0/4 = 0% (Wilson 95% [0%; 49.0%]), and junk-FP 0/24 = 0% (Wilson 95%
+[0%; 13.8%]); the X15 realistic fixture recalled 3/3 files, and `--threads 1`
+produced identical outputs. The stage is not a runlist/metadata reassembler,
+supports at most two fragments, remains opt-in, and is excluded from the
+published benchmark figures.
 
 ### Multi-volume scanning, warnings, and exit codes
 
@@ -441,7 +456,7 @@ not supported, so those still require conversion with another forensic tool.
 
 1. **FAT32 and NTFS only.** FAT12/FAT16, exFAT, ext4, APFS, and HFS+ are not supported; when encountering them, use `--mode raw`.
 2. **No reliance on directory entries.** CarveX does not read original filenames, sizes, or paths from the MFT/directory; output names are only a sequence number + offset.
-3. **Fragmented files.** By default the carver relies on header/footer and extent bounds; a fragmented file may be truncated, structurally wrong, or skipped. `--fragment-recovery` can join two cluster-aligned fragments inside a volume, but n-fragment and runlist/metadata-assisted reassembly remain future work.
+3. **Fragmented files.** By default the carver relies on header/footer and extent bounds; a fragmented file may be truncated, structurally wrong, or skipped. The opt-in `--fragment-recovery` stage now has a measured D1-style development profile: exact recall 4/6 (66.7%, Wilson 95% [30.0%, 90.3%]), splice rate 0/4 (Wilson 95% [0%, 49.0%]) and junk false-positive rate 0/24 (Wilson 95% [0%, 13.8%]); the larger X15 control recalled 3/3 files. It is not a runlist/metadata reassembler, only two fragments are joined, and the frozen published benchmark excludes it.
 4. **Limited payload decoding.** By default, JPEG is checked for marker structure, PNG for chunk CRCs, and PDF structurally rather than by rendering. A PNG chunk-CRC mismatch is now an integrity failure: the file is still written with its unchanged score, but `validation=partial`, `validity=suspect` and a `chunk_crc` check name the chunk and offset. Decode mode recomputes every CRC and sets `validated_bytes` to the contiguous prefix ending at the last good chunk. `--validate decode` and B-06 stitches invoke the deep validator. PNG inflation streams IDAT through a fixed buffer and downgrades a declared image above `--max-decode-bytes` (default 256 MiB) to `partial` before inflating; JPEG and PDF decoder internals are not fully instrumented. A byte-aligned baseline JPEG tail swap between files with identical headers can still pass every implemented check and receive `validity=verified`; the measured residual rate is disclosed in `docs/baseline/jpeg_splice_v0.2.0.txt`. PDF decode mode now verifies bounded xref/trailer/catalog structure and stream lengths, but unsupported or budget-limited checks are `unverified`/`structural`, and no PDF rendering or content verification is performed.
 5. **Complex PDFs.** Encrypted PDFs, PDFs with severe structural errors, or fake `%%EOF` inside a stream can cause the parser to choose the wrong boundary. Try `--pdf-eof first/last` or `--keep-nested`.
 6. **Noise in free space.** Unallocated space may contain multiple old versions of the same file. The benchmark uses freshly created images, so this phenomenon is not fully simulated.
@@ -506,8 +521,8 @@ carvex/
 cargo test
 ```
 
-The current suite has 131 tests (43 unit + 13 `cli_contract` +
-7 `evidence_formats` + 2 `fragment_recovery` + 8 `fs_detect` +
+The current suite has 134 tests (43 unit + 13 `cli_contract` +
+7 `evidence_formats` + 5 `fragment_recovery` + 8 `fs_detect` +
 2 `jpeg_frame_budget` + 4 `memory_budget` + 3 `panic_containment` +
 2 `png_crc_validity` + 4 `png_decode_budget` + 2 `png_validator_budget` +
 8 `pdf_structure_validation` + 5 `properties` + 4 `regress_e01_safety` +

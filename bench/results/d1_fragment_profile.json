@@ -1,0 +1,501 @@
+{
+  "bait_cases": [
+    {
+      "carves": [
+        {
+          "sha256": "27b1b9ecc930c9d4153c0ce1ef7fe03151fcb028dad1b856c30133d635d1582f",
+          "size": 401408,
+          "source": "carve"
+        }
+      ],
+      "exit": 0,
+      "gap_kind": "zero",
+      "seed": 0,
+      "stitches": [],
+      "warnings": []
+    },
+    {
+      "carves": [
+        {
+          "sha256": "ed1e3fa952b38925c885d3c6744d0cfd1cc16012c54066567cbfd6d2f71d6497",
+          "size": 401408,
+          "source": "carve"
+        }
+      ],
+      "exit": 0,
+      "gap_kind": "letters",
+      "seed": 0,
+      "stitches": [],
+      "warnings": []
+    },
+    {
+      "carves": [
+        {
+          "sha256": "6d84012d7dd493b684342aee711b2e308193a57cece6398b205df81e5b35c49d",
+          "size": 401408,
+          "source": "carve"
+        }
+      ],
+      "exit": 0,
+      "gap_kind": "pattern",
+      "seed": 0,
+      "stitches": [],
+      "warnings": []
+    },
+    {
+      "carves": [],
+      "exit": 0,
+      "gap_kind": "sawtooth",
+      "seed": 0,
+      "stitches": [],
+      "warnings": []
+    },
+    {
+      "carves": [
+        {
+          "sha256": "27b1b9ecc930c9d4153c0ce1ef7fe03151fcb028dad1b856c30133d635d1582f",
+          "size": 401408,
+          "source": "carve"
+        }
+      ],
+      "exit": 0,
+      "gap_kind": "zero",
+      "seed": 1,
+      "stitches": [],
+      "warnings": []
+    },
+    {
+      "carves": [
+        {
+          "sha256": "9d29efee6a01a994d8a8e966eac20b50af041ca18679814f30409121a0c418d5",
+          "size": 401408,
+          "source": "carve"
+        }
+      ],
+      "exit": 0,
+      "gap_kind": "letters",
+      "seed": 1,
+      "stitches": [],
+      "warnings": []
+    },
+    {
+      "carves": [
+        {
+          "sha256": "652ed3afb67acd82aae9cac18e66dadae70da1a0a4b49ff606eff4cdbaa3d4bf",
+          "size": 401408,
+          "source": "carve"
+        }
+      ],
+      "exit": 0,
+      "gap_kind": "pattern",
+      "seed": 1,
+      "stitches": [],
+      "warnings": []
+    },
+    {
+      "carves": [
+        {
+          "sha256": "2f60dff2cbdb6c452b1324d39c94ffd85ca19652bbccf7896a01fb1d9bb54915",
+          "size": 401408,
+          "source": "carve"
+        }
+      ],
+      "exit": 0,
+      "gap_kind": "sawtooth",
+      "seed": 1,
+      "stitches": [],
+      "warnings": []
+    },
+    {
+      "carves": [
+        {
+          "sha256": "27b1b9ecc930c9d4153c0ce1ef7fe03151fcb028dad1b856c30133d635d1582f",
+          "size": 401408,
+          "source": "carve"
+        }
+      ],
+      "exit": 0,
+      "gap_kind": "zero",
+      "seed": 2,
+      "stitches": [],
+      "warnings": []
+    },
+    {
+      "carves": [
+        {
+          "sha256": "9a1d03874c66f89dd2bf489e9123865af1c7b21f9fdd6ea0071dafb9837e5106",
+          "size": 401408,
+          "source": "carve"
+        }
+      ],
+      "exit": 0,
+      "gap_kind": "letters",
+      "seed": 2,
+      "stitches": [],
+      "warnings": []
+    },
+    {
+      "carves": [
+        {
+          "sha256": "544ad9a5aa41d71175d280a007afedac2e1f784c010e08d01c7f989a467387ce",
+          "size": 401408,
+          "source": "carve"
+        }
+      ],
+      "exit": 0,
+      "gap_kind": "pattern",
+      "seed": 2,
+      "stitches": [],
+      "warnings": []
+    },
+    {
+      "carves": [
+        {
+          "sha256": "fa65591a4a90aa46be8fec75eb6b9f03bbe6120f1fe42e2acedf2e97f023c0ea",
+          "size": 401408,
+          "source": "carve"
+        }
+      ],
+      "exit": 0,
+      "gap_kind": "sawtooth",
+      "seed": 2,
+      "stitches": [],
+      "warnings": []
+    },
+    {
+      "carves": [
+        {
+          "sha256": "27b1b9ecc930c9d4153c0ce1ef7fe03151fcb028dad1b856c30133d635d1582f",
+          "size": 401408,
+          "source": "carve"
+        }
+      ],
+      "exit": 0,
+      "gap_kind": "zero",
+      "seed": 3,
+      "stitches": [],
+      "warnings": []
+    },
+    {
+      "carves": [
+        {
+          "sha256": "9d049a1080e47bd848230a277c6249f2f4a39a52b8ba5d8b667d8edceb99e954",
+          "size": 401408,
+          "source": "carve"
+        }
+      ],
+      "exit": 0,
+      "gap_kind": "letters",
+      "seed": 3,
+      "stitches": [],
+      "warnings": []
+    },
+    {
+      "carves": [
+        {
+          "sha256": "23c1c05eed954cdd75e436b11b7b632a385d0f258d9dca51f1d14fc6b9e96922",
+          "size": 401408,
+          "source": "carve"
+        }
+      ],
+      "exit": 0,
+      "gap_kind": "pattern",
+      "seed": 3,
+      "stitches": [],
+      "warnings": []
+    },
+    {
+      "carves": [
+        {
+          "sha256": "614cd45bdd34c6d27267944ca3d5f45e79c727e787c91a6f1fa2d7d936f0c5a0",
+          "size": 401408,
+          "source": "carve"
+        }
+      ],
+      "exit": 0,
+      "gap_kind": "sawtooth",
+      "seed": 3,
+      "stitches": [],
+      "warnings": []
+    },
+    {
+      "carves": [
+        {
+          "sha256": "27b1b9ecc930c9d4153c0ce1ef7fe03151fcb028dad1b856c30133d635d1582f",
+          "size": 401408,
+          "source": "carve"
+        }
+      ],
+      "exit": 0,
+      "gap_kind": "zero",
+      "seed": 4,
+      "stitches": [],
+      "warnings": []
+    },
+    {
+      "carves": [
+        {
+          "sha256": "5668487d68bee923f3c269fa7ab520a2c597bdd3e798976e168e6a1598d3efbd",
+          "size": 401408,
+          "source": "carve"
+        }
+      ],
+      "exit": 0,
+      "gap_kind": "letters",
+      "seed": 4,
+      "stitches": [],
+      "warnings": []
+    },
+    {
+      "carves": [
+        {
+          "sha256": "ee8567904a947f91720fa866a694bc63301c0e6c29f0b6ab3cf48a3befe3570f",
+          "size": 401408,
+          "source": "carve"
+        }
+      ],
+      "exit": 0,
+      "gap_kind": "pattern",
+      "seed": 4,
+      "stitches": [],
+      "warnings": []
+    },
+    {
+      "carves": [
+        {
+          "sha256": "a617665d26a11f6721ef6c30790afcae6ab992b03d1ab544cb2f7c1d530904a5",
+          "size": 401408,
+          "source": "carve"
+        }
+      ],
+      "exit": 0,
+      "gap_kind": "sawtooth",
+      "seed": 4,
+      "stitches": [],
+      "warnings": []
+    },
+    {
+      "carves": [
+        {
+          "sha256": "27b1b9ecc930c9d4153c0ce1ef7fe03151fcb028dad1b856c30133d635d1582f",
+          "size": 401408,
+          "source": "carve"
+        }
+      ],
+      "exit": 0,
+      "gap_kind": "zero",
+      "seed": 5,
+      "stitches": [],
+      "warnings": []
+    },
+    {
+      "carves": [
+        {
+          "sha256": "8923adffc12f78e42b67ace703b5222e3134c1a31d7362a94b0dd6f159871c48",
+          "size": 401408,
+          "source": "carve"
+        }
+      ],
+      "exit": 0,
+      "gap_kind": "letters",
+      "seed": 5,
+      "stitches": [],
+      "warnings": []
+    },
+    {
+      "carves": [
+        {
+          "sha256": "1b322331c7014bb1803c5ea5dd9c39d7cd7e219a42120376cfc6c0de2bdce941",
+          "size": 401408,
+          "source": "carve"
+        }
+      ],
+      "exit": 0,
+      "gap_kind": "pattern",
+      "seed": 5,
+      "stitches": [],
+      "warnings": []
+    },
+    {
+      "carves": [
+        {
+          "sha256": "056e49659253f1ffa986a26778a79c04b3ffad2076337dd8702436409959385b",
+          "size": 401408,
+          "source": "carve"
+        }
+      ],
+      "exit": 0,
+      "gap_kind": "sawtooth",
+      "seed": 5,
+      "stitches": [],
+      "warnings": []
+    }
+  ],
+  "binary_sha256": "eff6e297258a1c897e5e62411ef852e7ca1fedcc083ff166828ef1d94de58194",
+  "command_options": [
+    "--min-size",
+    "1",
+    "--fragment-recovery",
+    "--max-gap",
+    "16",
+    "--max-frag-candidates",
+    "4096",
+    "--frag-time-limit",
+    "5000"
+  ],
+  "fragmented_cases": [
+    {
+      "carves": [],
+      "exit": 0,
+      "file_size": 194042,
+      "gap_kind": "zero",
+      "head_offset": 943616,
+      "name": "jpeg/jpeg_01_baseline_640x480.jpg",
+      "recalled": true,
+      "seed": 0,
+      "source_sha256": "bcb5d9ba912bcb967740bf8a7f1fa38e7682343258b67278fbc8fab791a9d3d1",
+      "stitches": [
+        {
+          "sha256": "bcb5d9ba912bcb967740bf8a7f1fa38e7682343258b67278fbc8fab791a9d3d1",
+          "size": 194042,
+          "source": "bgc",
+          "validity": "verified"
+        }
+      ],
+      "tail_offset": 1050112,
+      "unexpected_stitches": [],
+      "warnings": []
+    },
+    {
+      "carves": [],
+      "exit": 0,
+      "file_size": 593920,
+      "gap_kind": "letters",
+      "head_offset": 943616,
+      "name": "jpeg/jpeg_02_large_1280x960.jpg",
+      "recalled": true,
+      "seed": 0,
+      "source_sha256": "e0a2259979512e5cc121df582bd2cb76b5f12ec64b83615d463504f8602b13df",
+      "stitches": [
+        {
+          "sha256": "e0a2259979512e5cc121df582bd2cb76b5f12ec64b83615d463504f8602b13df",
+          "size": 593920,
+          "source": "bgc",
+          "validity": "verified"
+        }
+      ],
+      "tail_offset": 1250816,
+      "unexpected_stitches": [],
+      "warnings": []
+    },
+    {
+      "carves": [],
+      "exit": 0,
+      "file_size": 1398788,
+      "gap_kind": "pattern",
+      "head_offset": 943616,
+      "name": "png/png_02_rgb_800x600.png",
+      "recalled": true,
+      "seed": 0,
+      "source_sha256": "6f75c22241349f25de5baf8d66b3f24259e7f36e8232b0217c555826f9528061",
+      "stitches": [
+        {
+          "sha256": "6f75c22241349f25de5baf8d66b3f24259e7f36e8232b0217c555826f9528061",
+          "size": 1398788,
+          "source": "bgc",
+          "validity": "verified"
+        }
+      ],
+      "tail_offset": 1652224,
+      "unexpected_stitches": [],
+      "warnings": []
+    },
+    {
+      "carves": [
+        {
+          "sha256": "75e0d051ebf39dd5de3e308afb67d01ecc0b34abf3104404b6a3ada9fc93b30f",
+          "size": 1442089,
+          "source": "carve"
+        }
+      ],
+      "exit": 0,
+      "file_size": 2808822,
+      "gap_kind": "sawtooth",
+      "head_offset": 943616,
+      "name": "png/png_06_large_1200x800.png",
+      "recalled": false,
+      "seed": 0,
+      "source_sha256": "3835677176b5d4eacccf014dae91b39e6dfee899ad3940603044a19ca71becbf",
+      "stitches": [],
+      "tail_offset": 2356736,
+      "unexpected_stitches": [],
+      "warnings": []
+    },
+    {
+      "carves": [
+        {
+          "sha256": "4797dc3da70789752dc9ed3e6646946a8723d9397f3940fc95a2f16385ad6a01",
+          "size": 6812,
+          "source": "carve"
+        }
+      ],
+      "exit": 0,
+      "file_size": 6812,
+      "gap_kind": "zero",
+      "head_offset": 943616,
+      "name": "pdf/pdf_04_incremental.pdf",
+      "recalled": false,
+      "seed": 1,
+      "source_sha256": "4797dc3da70789752dc9ed3e6646946a8723d9397f3940fc95a2f16385ad6a01",
+      "stitches": [],
+      "tail_offset": 955904,
+      "unexpected_stitches": [],
+      "warnings": []
+    },
+    {
+      "carves": [],
+      "exit": 0,
+      "file_size": 623620,
+      "gap_kind": "letters",
+      "head_offset": 943616,
+      "name": "pdf/pdf_05_large_scan.pdf",
+      "recalled": true,
+      "seed": 1,
+      "source_sha256": "834f84436c2f49063034f69f3649603a70936ae8d4fe4c40fc8e3652f59a7bf3",
+      "stitches": [
+        {
+          "sha256": "834f84436c2f49063034f69f3649603a70936ae8d4fe4c40fc8e3652f59a7bf3",
+          "size": 623620,
+          "source": "bgc",
+          "validity": "verified"
+        }
+      ],
+      "tail_offset": 1267200,
+      "unexpected_stitches": [],
+      "warnings": []
+    }
+  ],
+  "profile": "D1 synthetic fragmentation development profile (not the frozen lockbox)",
+  "summary": {
+    "bait_trials": 24,
+    "fragmented_trials": 6,
+    "junk_false_positives": 0,
+    "junk_fp_rate": 0.0,
+    "junk_fp_wilson95": [
+      0.0,
+      0.13797620467498017
+    ],
+    "recall": 0.6666666666666666,
+    "recall_wilson95": [
+      0.299993315138392,
+      0.9032285888942195
+    ],
+    "splice_rate": 0.0,
+    "splice_rate_wilson95": [
+      0.0,
+      0.4898908364545973
+    ],
+    "spliced_outputs": 0,
+    "stitched_outputs": 4
+  }
+}

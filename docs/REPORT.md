@@ -405,28 +405,49 @@ the published benchmark. The stage works only inside a detected FAT32/NTFS
 volume, where cluster boundaries supply the fragment geometry. A header
 candidate is treated as the first fragment; a later cluster-aligned offset is
 treated as the start of the second fragment, which ends at a format footer.
-Candidate joins are limited by `--max-gap` (clusters),
-`--max-frag-candidates` (joins evaluated) and `--frag-time-limit`
-(milliseconds), and are tried in order of increasing gap. Reads are confined to
-scanned extents.
+Reads are confined to scanned extents.
 
-A join is accepted only when the stitched byte sequence passes the same deep
-validator used by `--validate decode`. This prevents a structural splice from
-being reported as verified without content validation. Join buffers and
-accepted stitches are charged to the same `--max-memory` budget, so budget
-exhaustion aborts the scan instead of silently continuing. Each accepted record
-has `source="bgc"`, exactly two `fragments[]` entries, a `checks` count and a
-`confidence` score. These JSON fields are optional and omitted when B-06 is
-disabled; the CSV columns are unchanged. Bounded warnings are
+The stage first classifies heads. A contiguous, gap-free carve is left alone;
+a truncated carve, a carve with filler inside it, or a PDF carve with more than
+one `%%EOF` is deep-probed even if the normal validator accepts it. Footer
+indexing is deferred until a head needs a join, so ordinary intact images do
+not pay for the fragment search. For each head, filler/header markers are
+classified once per cluster with bounded block reads; candidate joins are then
+ranked by unexplained gap, strength of filler/header evidence, gap size and
+tail position. Joins with
+a head ending in filler or a tail beginning in filler are rejected, except for
+the head's own first cluster and short zero-padded tails used by compact
+fixtures. At most 32 joins per head and 16 validated alternatives are examined.
+
+`--max-frag-candidates` is the authoritative work-unit budget for both head
+probes and join attempts. Reaching it emits `FRAGMENT_CANDIDATE_LIMIT` and exits
+3 deterministically. `--frag-time-limit` is a wall-clock safety net; reaching
+it emits `FRAGMENT_TIME_LIMIT`, sets `nondeterministic_stop: true`, and also
+exits 3. Both paths write a partial report. Every probe and join is inside the
+H-10 panic boundary and the H-05/H-06 validator budgets.
+
+A join is emitted only when the authoritative `validity` is `verified`; the
+stage-1 lexical PDF exception is no longer accepted. Join buffers and accepted
+stitches are charged to the same `--max-memory` budget, so budget exhaustion
+aborts the scan instead of silently continuing. Each accepted record has
+`source="bgc"`, exactly two `fragments[]` entries, a `checks` count, a
+`confidence` score and an `alternatives` count. These JSON fields are optional
+and omitted when B-06 is disabled. Schema 1 strips `alternatives`; CSV appends
+it as an empty trailing column for non-stitches. Bounded warnings are
 `FRAGMENT_RECOVERY_SKIPPED`, `FRAGMENT_FOOTER_SCAN_FAILED`,
 `FRAGMENT_CANDIDATE_LIMIT` and `FRAGMENT_TIME_LIMIT`.
 
 The S12 acceptance case is an interleaved `[A1][B1][A2][B2]` FAT32 layout.
-Generated fixtures for JPEG, PNG and PDF recover both source files
-byte-exactly, including the PDF trailing line ending. This is a controlled
-correctness test, not a recall measurement: no fragmented-profile recall,
-splice rate or confidence interval has been measured, and no fragment count
-above two or metadata/runlist-assisted reassembly is implemented.
+Generated fixtures for JPEG, PNG and PDF recover the source files byte-exactly,
+including the PDF trailing line ending. The separate D1-style development
+profile in `bench/results/d1_fragment_profile.json` measured recall 4/6 =
+66.7% (Wilson 95% [30.0%, 90.3%]), splice rate 0/4 = 0% (Wilson 95% [0%,
+49.0%]) and junk false positives 0/24 = 0% (Wilson 95% [0%, 13.8%]). X15
+additionally recalled 3/3 larger real files with zero bait stitches, identical
+plain/B-06 outputs and no ordinary-image `FRAGMENT_*` warning; `--threads 1`
+matched the default. These are development measurements, not lockbox results or
+published benchmark claims. No fragment count above two or
+metadata/runlist-assisted reassembly is implemented.
 
 ### 3.7. Filtering and deduplication
 

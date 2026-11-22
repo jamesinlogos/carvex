@@ -89,7 +89,7 @@ fn successful_raw_scan_returns_zero_and_leaves_the_source_untouched() {
     assert_eq!(
         header,
         format!(
-            "{legacy},validation,validated_bytes,lba,cluster,partition_index,extent_id,allocated,source,fragments,validity,sha256_original"
+            "{legacy},validation,validated_bytes,lba,cluster,partition_index,extent_id,allocated,source,fragments,validity,sha256_original,alternatives"
         )
     );
     assert_eq!(csv.lines().count(), 4);
@@ -351,6 +351,12 @@ fn emitted_report_matches_the_published_schema() {
     assert_schema_keys("", &report, false);
     assert_schema_keys("/properties/tool_info", &report["tool_info"], false);
     assert_schema_keys("/properties/input", &report["input"], false);
+    assert!(
+        schema
+            .pointer("/$defs/file/properties/alternatives")
+            .is_some(),
+        "schema must describe the additive H-29 alternatives count"
+    );
     assert_schema_keys("/$defs/options", &report["options"], true);
     assert_schema_keys("/$defs/stats", &report["stats"], false);
     assert_schema_keys("/$defs/file", &report["files"][0], true);

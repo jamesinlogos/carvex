@@ -67,6 +67,7 @@ fn strip_v2_fields(value: &mut serde_json::Value) {
                 "source",
                 "fragments",
                 "sha256_original",
+                "alternatives",
             ] {
                 file.remove(key);
             }
@@ -85,12 +86,12 @@ pub fn write_csv(report: &ScanReport, path: &Path) -> Result<()> {
         w,
         "seq,type,offset,size,carved_size,sha256,status,score,width,height,repaired,path,notes,\
          validation,validated_bytes,lba,cluster,partition_index,extent_id,allocated,source,fragments,\
-         validity,sha256_original"
+         validity,sha256_original,alternatives"
     )?;
     for f in &report.files {
         writeln!(
             w,
-            "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+            "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
             f.seq,
             f.file_type.ext(),
             f.offset,
@@ -120,7 +121,8 @@ pub fn write_csv(report: &ScanReport, path: &Path) -> Result<()> {
                     .join(";")
             ),
             f.validity.as_str(),
-            f.sha256_original.as_deref().unwrap_or_default()
+            f.sha256_original.as_deref().unwrap_or_default(),
+            f.alternatives.map(|v| v.to_string()).unwrap_or_default()
         )?;
     }
     w.flush()?;

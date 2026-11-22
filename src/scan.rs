@@ -566,6 +566,7 @@ pub fn fuzz_fragment_join(data: &[u8]) {
                 tail_start,
                 footer_end,
                 gap_clusters,
+                gap_matches: 0,
             };
             let _ = try_fragment_join(&source, &candidate, &join, &opts, &budget);
         }
@@ -767,8 +768,10 @@ impl Warning {
                 | "CANDIDATE_SKIPPED_BUDGET"
                 | "SOURCE_CHANGED"
                 | "CANDIDATE_LIMIT"
+                | "FRAGMENT_CANDIDATE_LIMIT"
                 | "WORK_LIMIT"
                 | "TIME_LIMIT"
+                | "FRAGMENT_TIME_LIMIT"
                 | "OUTPUT_LIMIT"
                 | "CANDIDATE_PANIC"
         )
@@ -844,6 +847,9 @@ pub struct CarvedFile {
     /// Confidence in a B-06 stitch (the structural score of the accepted join).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub confidence: Option<u8>,
+    /// Number of joins that deep-validated for one B-06 head (H-29).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub alternatives: Option<u64>,
     /// SHA-256 of the bytes read before a repair changed the output.
     /// Absent whenever output bytes are identical to the source bytes.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -984,6 +990,15 @@ struct CarvedData {
     fragments: Vec<Fragment>,
     checks: Option<u64>,
     confidence: Option<u8>,
+    alternatives: Option<u64>,
+}
+
+/// Result of the optional B-06 stage (H-29).
+struct FragmentResult {
+    files: Vec<CarvedData>,
+    /// True only when the wall-clock safety net truncated the stage; the
+    /// deterministic work-unit budget does not make a run nondeterministic.
+    nondeterministic_stop: bool,
 }
 
 enum CarveOutcome {
@@ -1184,8 +1199,9 @@ pub fn run_scan(
         &mut warnings,
         &mut internal_errors,
     );
+    let mut fragment_nondeterministic = false;
     if opts.fragment_recovery {
-        kept = recover_fragments(
+        let fragments = recover_fragments(
             source,
             &candidates,
             kept,
@@ -1197,6 +1213,8 @@ pub fn run_scan(
             &stop,
             &mut internal_errors,
         )?;
+        kept = fragments.files;
+        fragment_nondeterministic = fragments.nondeterministic_stop;
     }
     let unreadable_snapshot = match unreadable_regions.lock() {
         Ok(regions) => regions.clone(),
@@ -1300,7 +1318,8 @@ pub fn run_scan(
             "SIGINT requested a cooperative stop; the report is partial",
         ));
     }
-    let nondeterministic_stop = warnings.iter().any(|w| w.code == "TIME_LIMIT");
+    let nondeterministic_stop =
+        fragment_nondeterministic || warnings.iter().any(|w| w.code == "TIME_LIMIT");
     stats.internal_errors = internal_errors.len();
     if !internal_errors.is_empty() {
         warnings.push(Warning::new(
@@ -2049,6 +2068,7 @@ fn carve_one(
                     fragments: Vec::new(),
                     checks: None,
                     confidence: None,
+                    alternatives: None,
                 })));
             }
             Need::More => {
@@ -2107,6 +2127,16 @@ struct FragmentJoin {
     footer_end: u64,
     /// Number of clusters skipped between the two fragments.
     gap_clusters: u64,
+    /// How many skipped clusters look like filler or another file's header.
+    gap_matches: u64,
+}
+
+impl FragmentJoin {
+    /// Clusters between the fragments with no simple filler/header signal.
+    /// Lower is better: a real split leaves filler, not ordinary file bytes.
+    fn unexplained_gap(&self) -> u64 {
+        self.gap_clusters.saturating_sub(self.gap_matches)
+    }
 }
 
 struct JoinAttempt {
@@ -2173,6 +2203,43 @@ fn find_footers(
     Ok(found)
 }
 
+/// A complete contiguous carve that contains more than one footer for its own
+/// type is likely an interleaved splice, not one intact file. This is the
+/// second cheap B-06 signal: the first is filler inside a contiguous carve.
+fn contiguous_range_has_multiple_footers(
+    source: &dyn ImageSource,
+    kind: FileType,
+    start: u64,
+    len: u64,
+) -> bool {
+    let needle = footer_needle(kind);
+    let overlap = needle.len().saturating_sub(1);
+    let mut buf = vec![0u8; 1024 * 1024];
+    let mut carry = Vec::new();
+    let mut offset = start;
+    let end = start.saturating_add(len);
+    let mut count = 0usize;
+    while offset < end {
+        let want = (buf.len() - carry.len()) as u64;
+        let take = (end - offset).min(want) as usize;
+        buf[..carry.len()].copy_from_slice(&carry);
+        if read_exact_at(source, &mut buf[carry.len()..carry.len() + take], offset).is_err() {
+            return false;
+        }
+        let filled = carry.len() + take;
+        count += memchr::memmem::find_iter(&buf[..filled], needle).count();
+        if count > 1 {
+            return true;
+        }
+        carry.clear();
+        if filled > overlap {
+            carry.extend_from_slice(&buf[filled - overlap..filled]);
+        }
+        offset += take as u64;
+    }
+    false
+}
+
 fn cluster_base(fs: &FsInfo) -> u64 {
     fs.data_start.max(fs.offset)
 }
@@ -2203,7 +2270,176 @@ fn range_covered(extents: &[Extent], start: u64, end: u64) -> bool {
         .any(|e| start >= e.offset && end <= e.end() && start < end)
 }
 
+fn starts_with_file_header(window: &[u8]) -> bool {
+    const HEADERS: [&[u8]; 3] = [
+        &[0xFF, 0xD8, 0xFF],
+        &[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A],
+        b"%PDF-",
+    ];
+    HEADERS.iter().any(|header| window.starts_with(header))
+}
+
+/// Cheap prefilter for a prospective tail fragment. A B-06 tail is the
+/// remainder of a file, not another header and not an empty gap. Rejecting
+/// those here keeps the expensive deep-validation work-unit budget focused on
+/// joins that can plausibly be real fragments (H-29).
+fn tail_window_plausible(source: &dyn ImageSource, tail_start: u64) -> bool {
+    let mut window = [0u8; 32];
+    if read_exact_at(source, &mut window, tail_start).is_err() {
+        return false;
+    }
+    !window.iter().all(|&byte| byte == 0) && !starts_with_file_header(&window)
+}
+
+/// Cheaply recognise the cluster immediately before a tail start as filler
+/// left by a split (all zero, a small repeated alphabet, or a short repeated
+/// pattern). Real compressed file bytes are not low-entropy in this way, so
+/// this rejects the many tail windows that merely sit inside one fragment.
+fn window_is_gap_like(window: &[u8]) -> bool {
+    if window.len() < 8 {
+        return false;
+    }
+    if window.iter().all(|&byte| byte == 0) {
+        return true;
+    }
+    let mut seen = [false; 256];
+    let unique = window
+        .iter()
+        .filter(|&&byte| {
+            let slot = &mut seen[byte as usize];
+            let was_seen = *slot;
+            *slot = true;
+            !was_seen
+        })
+        .count();
+    if unique <= 8 {
+        return true;
+    }
+    (1..=32).any(|period| {
+        window
+            .iter()
+            .enumerate()
+            .all(|(index, &byte)| byte == window[index % period])
+    })
+}
+
+/// Detect a filler run inside an otherwise complete contiguous carve. This is
+/// the cheap signal that a structurally complete file may actually be two
+/// fragments separated by a gap; such a candidate must be deep-validated even
+/// when `--validate` is the default structural mode (H-29).
+fn contiguous_range_has_gap(
+    source: &dyn ImageSource,
+    cluster_size: u64,
+    start: u64,
+    len: u64,
+) -> bool {
+    if cluster_size == 0 || len <= cluster_size.saturating_mul(2) {
+        return false;
+    }
+    let sample_len = cluster_size.min(64) as usize;
+    // One small read per cluster made ordinary images pay hundreds of syscalls
+    // for a stage that finds no head. Read a bounded block and inspect every
+    // cluster boundary inside it, preserving the exact same samples.
+    let clusters_per_block = (256 * 1024u64 / cluster_size).max(1);
+    let span = cluster_size.saturating_mul(clusters_per_block);
+    let mut buf = vec![0u8; span.saturating_add(sample_len as u64) as usize];
+    let step = usize::try_from(cluster_size).unwrap_or(usize::MAX);
+    let mut offset = start.saturating_add(cluster_size);
+    let end = start.saturating_add(len).saturating_sub(cluster_size);
+    while offset < end {
+        let block_end = end.min(offset.saturating_add(span));
+        let take = (block_end - offset) as usize;
+        let read_len = take + sample_len;
+        if read_exact_at(source, &mut buf[..read_len], offset).is_err() {
+            return false;
+        }
+        let mut rel = 0usize;
+        while rel < take {
+            if window_is_gap_like(&buf[rel..rel + sample_len]) {
+                return true;
+            }
+            rel = rel.saturating_add(step);
+        }
+        offset = block_end;
+    }
+    false
+}
+
+/// Precompute which clusters begin with filler (zeros, a repeated byte/pattern)
+/// or another file's header. Footer-only joins can reassemble a contiguous
+/// carve with a few bytes cut out of its tail; those gaps contain ordinary file
+/// bytes and score worse than a real split. One pass per head keeps the cheap
+/// signal cheap even when many tail/cut combinations are enumerated.
+fn gap_cluster_flags(
+    source: &dyn ImageSource,
+    base: u64,
+    cluster_size: u64,
+    extent_end: u64,
+) -> (Vec<bool>, Vec<bool>) {
+    let sample_len = cluster_size.min(64) as usize;
+    let mut window = vec![0u8; sample_len];
+    let clusters = extent_end.saturating_sub(base) / cluster_size;
+    let mut filler = Vec::with_capacity(clusters.saturating_add(1) as usize);
+    let mut header = Vec::with_capacity(clusters.saturating_add(1) as usize);
+    for index in 0..=clusters {
+        let Some(offset) = base.checked_add(index.saturating_mul(cluster_size)) else {
+            filler.push(false);
+            header.push(false);
+            continue;
+        };
+        let readable = read_exact_at(source, &mut window, offset).is_ok();
+        filler.push(readable && window_is_gap_like(&window));
+        header.push(readable && starts_with_file_header(&window));
+    }
+    (filler, header)
+}
+
+fn cluster_flag(flags: &[bool], base: u64, cluster_size: u64, offset: u64) -> bool {
+    offset
+        .checked_sub(base)
+        .map(|delta| delta / cluster_size)
+        .and_then(|index| flags.get(index as usize))
+        .copied()
+        .unwrap_or(false)
+}
+
+fn gap_cluster_matches(
+    filler: &[bool],
+    header: &[bool],
+    base: u64,
+    cluster_size: u64,
+    cut: u64,
+    tail_start: u64,
+) -> u64 {
+    if tail_start <= cut {
+        return 0;
+    }
+    let first = cut.saturating_sub(base) / cluster_size;
+    let last = tail_start.saturating_sub(base) / cluster_size;
+    (first..last)
+        .filter(|&index| {
+            filler.get(index as usize).copied().unwrap_or(false)
+                || header.get(index as usize).copied().unwrap_or(false)
+        })
+        .count() as u64
+}
+
+fn join_rank(join: &FragmentJoin) -> (u64, std::cmp::Reverse<u64>, u64, u64, u64, u64) {
+    (
+        join.unexplained_gap(),
+        // Among fully explained gaps, more filler evidence is stronger than a
+        // merely smaller gap; a three-cluster zero run is a better split than
+        // one zero cluster cut out of a contiguous file.
+        std::cmp::Reverse(join.gap_matches),
+        join.gap_clusters,
+        join.tail_start,
+        join.footer_end,
+        join.cut,
+    )
+}
+
 fn candidate_joins(
+    source: &dyn ImageSource,
     cand: &Candidate,
     fs: &FsInfo,
     footers: &[u64],
@@ -2214,63 +2450,282 @@ fn candidate_joins(
     if fs.cluster_size == 0 || !is_cluster_boundary(cand.offset, fs) {
         return joins;
     }
+    let base = cluster_base(fs);
     let available = cand.extent_end.saturating_sub(cand.offset);
     let head_span = opts.max_size.min(available);
-    let Some(mut cut) = next_cluster_boundary(cand.offset.saturating_add(1), fs) else {
-        return joins;
-    };
-    let mut cuts = Vec::new();
-    while cut <= cand.extent_end && cut - cand.offset <= head_span {
-        cuts.push(cut);
-        if cuts.len() >= opts.max_frag_candidates {
-            break;
-        }
-        let Some(next) = cut.checked_add(fs.cluster_size) else {
-            break;
-        };
-        cut = next;
-    }
+    let max_tail_clusters = (opts.max_size / fs.cluster_size).max(1);
+    let join_pool_limit = opts.max_frag_candidates.saturating_mul(4).max(1024);
+    let (gap_filler, gap_headers) =
+        gap_cluster_flags(source, base, fs.cluster_size, cand.extent_end);
 
-    'search: for cut in cuts {
-        if !range_covered(extents, cand.offset, cut) {
+    for &footer_end in footers {
+        if footer_end <= cand.offset.saturating_add(fs.cluster_size) {
             continue;
         }
-        for gap in 1..=opts.max_gap {
-            let Some(gap_bytes) = fs.cluster_size.checked_mul(gap) else {
+        let end_before_footer = footer_end.saturating_sub(1);
+        if end_before_footer < base {
+            continue;
+        }
+        let mut tail_start = base
+            .checked_add((end_before_footer - base) / fs.cluster_size * fs.cluster_size)
+            .unwrap_or(base);
+        for _tail_clusters in 1..=max_tail_clusters {
+            if tail_start <= cand.offset.saturating_add(fs.cluster_size)
+                || tail_start.saturating_sub(cand.offset) > head_span
+            {
+                break;
+            }
+            let tail_len = footer_end - tail_start;
+            if tail_len > opts.max_size {
+                break;
+            }
+            if tail_window_plausible(source, tail_start)
+                && range_covered(extents, tail_start, footer_end)
+            {
+                for gap in 1..=opts.max_gap {
+                    let Some(gap_bytes) = fs.cluster_size.checked_mul(gap) else {
+                        break;
+                    };
+                    let Some(cut) = tail_start.checked_sub(gap_bytes) else {
+                        break;
+                    };
+                    if cut <= cand.offset || cut.saturating_sub(cand.offset) > head_span {
+                        continue;
+                    }
+                    if !range_covered(extents, cand.offset, cut) {
+                        continue;
+                    }
+                    // A real split has file data on both sides of the gap. A
+                    // sub-gap of filler extends the head into zeros, and a tail
+                    // that begins with filler is not a file remainder. The
+                    // head's own first cluster and a short tail's zero padding
+                    // are exempt: compact fixtures use repeated-byte markers.
+                    let previous = cut.saturating_sub(fs.cluster_size);
+                    let head_has_room = previous >= cand.offset.saturating_add(fs.cluster_size);
+                    let tail_spans_cluster =
+                        footer_end.saturating_sub(tail_start) >= fs.cluster_size;
+                    if (head_has_room && cluster_flag(&gap_filler, base, fs.cluster_size, previous))
+                        || (tail_spans_cluster
+                            && cluster_flag(&gap_filler, base, fs.cluster_size, tail_start))
+                    {
+                        continue;
+                    }
+                    joins.push(FragmentJoin {
+                        cut,
+                        tail_start,
+                        footer_end,
+                        gap_clusters: gap,
+                        gap_matches: gap_cluster_matches(
+                            &gap_filler,
+                            &gap_headers,
+                            base,
+                            fs.cluster_size,
+                            cut,
+                            tail_start,
+                        ),
+                    });
+                    // Keep the pool bounded without discarding good joins that
+                    // are enumerated late (a tail far from its footer).
+                    if joins.len() >= join_pool_limit {
+                        joins.sort_by_key(join_rank);
+                        joins.truncate(join_pool_limit / 2);
+                    }
+                }
+            }
+            let Some(previous) = tail_start.checked_sub(fs.cluster_size) else {
                 break;
             };
-            let Some(tail_start) = cut.checked_add(gap_bytes) else {
-                break;
-            };
-            for &footer_end in footers {
-                if footer_end <= tail_start {
-                    continue;
+            tail_start = previous;
+        }
+    }
+
+    // A real split leaves filler (or another file's header) in the gap, while
+    // a footer-only splice cuts ordinary bytes out of one contiguous file.
+    // Rank the explained gaps first, then prefer small gaps and early tails so
+    // the deterministic work-unit budget reaches the real split.
+    joins.sort_by_key(join_rank);
+    joins.truncate(opts.max_frag_candidates);
+    joins
+}
+
+/// Cheap rejection before the expensive head probe: if no footer can possibly
+/// follow a tail within the configured gap and size bounds, the candidate is
+/// not a B-06 head.
+fn has_plausible_footer(
+    cand: &Candidate,
+    fs: &FsInfo,
+    footers: &[u64],
+    opts: &ScanOptions,
+) -> bool {
+    if footers.is_empty() || fs.cluster_size == 0 || !is_cluster_boundary(cand.offset, fs) {
+        return false;
+    }
+    let Some(first_cut) = next_cluster_boundary(cand.offset.saturating_add(1), fs) else {
+        return false;
+    };
+    let max_footer = cand
+        .offset
+        .saturating_add(opts.max_size)
+        .saturating_add(opts.max_gap.saturating_mul(fs.cluster_size))
+        .saturating_add(opts.max_size);
+    footers
+        .iter()
+        .any(|&end| end > first_cut.saturating_add(fs.cluster_size) && end <= max_footer)
+}
+
+/// Deep-validation result for a candidate before it is used as a B-06 head.
+///
+/// H-29 makes the work-unit budget authoritative, so head selection is a
+/// counted work item like a join attempt. The probe never changes the normal
+/// carve output; it only decides whether the contiguous bytes already decode.
+#[derive(Debug)]
+struct HeadProbe {
+    deep_valid: bool,
+    skipped_budget: Option<(u64, u64)>,
+    work_limit: Option<(u64, FileType, u64, u64)>,
+}
+
+fn deep_validate_head(
+    source: &dyn ImageSource,
+    cand: &Candidate,
+    opts: &ScanOptions,
+    budget: &MemoryBudget,
+    stop: &Stop,
+    validated_heads: &mut HashMap<String, bool>,
+    known_hash: Option<&str>,
+) -> Result<HeadProbe> {
+    let miss = || HeadProbe {
+        deep_valid: false,
+        skipped_budget: None,
+        work_limit: None,
+    };
+    let available = cand.extent_end.saturating_sub(cand.offset);
+    let hard_limit = available.min(opts.max_size);
+    if hard_limit < 16 {
+        return Ok(miss());
+    }
+    let work_limit = effective_max_work(opts);
+    let mut work = WorkCounter::new(work_limit);
+    let mut buf_len = hard_limit.min(64 * 1024);
+    let mut guard = match BudgetGuard::reserve(budget, buf_len, "deep-validating a B-06 head") {
+        Ok(guard) => guard,
+        Err(_) => {
+            return Ok(HeadProbe {
+                deep_valid: false,
+                skipped_budget: Some((cand.offset, buf_len)),
+                work_limit: None,
+            })
+        }
+    };
+    let mut bytes = Vec::new();
+    let len = usize::try_from(buf_len).unwrap_or(usize::MAX);
+    if bytes.try_reserve_exact(len).is_err() {
+        return Ok(miss());
+    }
+    bytes.resize(len, 0u8);
+
+    loop {
+        if stop.check() {
+            return Ok(miss());
+        }
+        read_exact_at(source, &mut bytes[..buf_len as usize], cand.offset)
+            .with_context(|| format!("cannot read B-06 head at {}", cand.offset))?;
+        let read_len = buf_len;
+        if !work.add(read_len) {
+            return Ok(HeadProbe {
+                deep_valid: false,
+                skipped_budget: None,
+                work_limit: Some((
+                    cand.offset,
+                    cand.kind,
+                    work.used().saturating_add(read_len),
+                    work_limit,
+                )),
+            });
+        }
+        let at_limit = buf_len >= hard_limit;
+        test_panic_probe(cand.offset, "bgc_head_analyze");
+        match analyze(
+            cand.kind,
+            &bytes[..buf_len as usize],
+            at_limit,
+            opts.pdf_eof,
+        ) {
+            Need::Reject(_) => return Ok(miss()),
+            Need::More => {
+                if at_limit {
+                    return Ok(miss());
                 }
-                let tail_len = footer_end - tail_start;
-                if tail_len == 0 || tail_len > opts.max_size {
-                    continue;
+                let next = buf_len.saturating_mul(2).min(hard_limit);
+                if next <= buf_len {
+                    return Ok(miss());
                 }
-                if !range_covered(extents, tail_start, footer_end) {
-                    continue;
+                if next > budget.limit() {
+                    return Ok(HeadProbe {
+                        deep_valid: false,
+                        skipped_budget: Some((cand.offset, next)),
+                        work_limit: None,
+                    });
                 }
-                joins.push(FragmentJoin {
-                    cut,
-                    tail_start,
-                    footer_end,
-                    gap_clusters: gap,
+                drop(bytes);
+                guard.release();
+                guard = BudgetGuard::reserve(budget, next, "growing a B-06 head buffer")?;
+                bytes = Vec::new();
+                let next_len = usize::try_from(next).unwrap_or(usize::MAX);
+                if bytes.try_reserve_exact(next_len).is_err() {
+                    return Ok(miss());
+                }
+                bytes.resize(next_len, 0u8);
+                buf_len = next;
+            }
+            Need::Analyzed(analysis) => {
+                if analysis.end == 0
+                    || analysis.end > bytes.len()
+                    || !analysis.complete
+                    || analysis.score < opts.min_score
+                    || (analysis.end as u64) < opts.min_size
+                {
+                    return Ok(miss());
+                }
+                let validated = analysis.end as u64;
+                let digest = known_hash
+                    .map(str::to_string)
+                    .unwrap_or_else(|| sha256_hex(&bytes[..analysis.end]));
+                if let Some(&deep_valid) = validated_heads.get(&digest) {
+                    return Ok(HeadProbe {
+                        deep_valid,
+                        skipped_budget: None,
+                        work_limit: None,
+                    });
+                }
+                if !work.add(validated) {
+                    return Ok(HeadProbe {
+                        deep_valid: false,
+                        skipped_budget: None,
+                        work_limit: Some((
+                            cand.offset,
+                            cand.kind,
+                            work.used().saturating_add(validated),
+                            work_limit,
+                        )),
+                    });
+                }
+                let limits = ValidationLimits::new(opts.max_validator_memory.min(budget.limit()));
+                test_panic_probe(cand.offset, "bgc_head_validate");
+                let detail =
+                    validate_deep_detail(cand.kind, &bytes[..analysis.end], &analysis, limits);
+                let validity = Validity::from_legacy(detail.validation, analysis.status(false));
+                let deep_valid =
+                    detail.validation == Validation::Decoded && validity == Validity::Verified;
+                validated_heads.insert(digest, deep_valid);
+                return Ok(HeadProbe {
+                    deep_valid,
+                    skipped_budget: None,
+                    work_limit: None,
                 });
-                if joins.len() >= opts.max_frag_candidates {
-                    break 'search;
-                }
             }
         }
     }
-
-    // The guide requires increasing-distance ordering: a smaller skipped gap
-    // is tried before a larger one, then the nearest tail and cut offsets.
-    joins.sort_by_key(|j| (j.gap_clusters, j.cut, j.tail_start, j.footer_end));
-    joins.truncate(opts.max_frag_candidates);
-    joins
 }
 
 fn try_fragment_join(
@@ -2368,16 +2823,11 @@ fn try_fragment_join(
         checks: detail_checks,
         validated_bytes,
     } = validate_deep_detail(cand.kind, &bytes, &analysis, limits);
-    // B-06 requires deep validation. H-19 stage 2 makes valid PDFs Decoded.
-    // Keep accepting the stage-1 lexical-validated Unverified PDF outcome
-    // (E-1) for compatibility; every other Unverified result is rejected.
-    let accepted = match validation {
-        Validation::Decoded => true,
-        Validation::Unverified if cand.kind == FileType::Pdf => validation_notes
-            .iter()
-            .any(|n| n.contains("startxref target validated")),
-        _ => false,
-    };
+    // H-29 supersedes the stage-1 PDF exception from E-1 for B-06: a stitch
+    // is emitted only when the authoritative honesty label is `verified`.
+    let status = analysis.status(false);
+    let validity = Validity::from_legacy(validation, status);
+    let accepted = validity == Validity::Verified;
     if !accepted {
         return Ok(JoinAttempt {
             data: None,
@@ -2404,8 +2854,6 @@ fn try_fragment_join(
         },
     ];
     let output_len = analysis.end as u64;
-    let status = analysis.status(false);
-    let validity = Validity::from_legacy(validation, status);
     let mut validation_checks =
         base_validity_checks(cand.kind, validation, status, &validation_notes);
     validation_checks.extend(detail_checks);
@@ -2429,6 +2877,7 @@ fn try_fragment_join(
             fragments,
             checks: None,
             confidence: Some(confidence),
+            alternatives: None,
         }),
         deep_checked: true,
         skipped_budget: None,
@@ -2448,27 +2897,25 @@ fn recover_fragments(
     warnings: &mut Vec<Warning>,
     stop: &Stop,
     internal_errors: &mut Vec<InternalError>,
-) -> Result<Vec<CarvedData>> {
+) -> Result<FragmentResult> {
     let started = Instant::now();
     if volumes.is_empty() {
         warnings.push(Warning::new(
             "FRAGMENT_RECOVERY_SKIPPED",
             "B-06 needs a detected volume with cluster boundaries; no stitching attempted",
         ));
-        return Ok(kept);
+        return Ok(FragmentResult {
+            files: kept,
+            nondeterministic_stop: false,
+        });
     }
 
-    let footers = match find_footers(source, extents, &opts.types, opts) {
-        Ok(v) => v,
-        Err(e) => {
-            warnings.push(Warning::new(
-                "FRAGMENT_FOOTER_SCAN_FAILED",
-                format!("fragment footer scan failed: {e}"),
-            ));
-            return Ok(kept);
-        }
-    };
-
+    // A candidate that already panicked in the carve stage is not probed a
+    // second time; the single contained panic is enough evidence for the run.
+    let panicked: HashSet<(u64, FileType)> = internal_errors
+        .iter()
+        .map(|error| (error.offset, error.file_type))
+        .collect();
     let mut successes = Vec::new();
     let mut successful_keys: HashSet<(u64, FileType)> = HashSet::new();
     let mut seen_hashes: HashSet<String> = if opts.dedupe_hashes {
@@ -2476,16 +2923,95 @@ fn recover_fragments(
     } else {
         HashSet::new()
     };
-    let mut attempts = 0usize;
+    // H-29: work units are authoritative. One head probe and one join attempt
+    // each consume one unit of `--max-frag-candidates`. Wall-clock time is only
+    // a safety net and is reported as nondeterministic.
+    let work_budget = opts.max_frag_candidates;
+    let mut work_units = 0usize;
     let mut candidate_limit = false;
     let mut time_limit = false;
-    let mut join_work_limits: Vec<(u64, FileType, u64, u64)> = Vec::new();
+    let mut work_limits: Vec<(u64, FileType, u64, u64)> = Vec::new();
+    const MAX_ALTERNATIVES: u64 = 16;
+    // Deep validation is the expensive part of B-06. Once the first verified
+    // stitch for a head is found, a small bounded window is enough to count
+    // alternatives without letting one head consume the entire run.
+    const MAX_JOIN_ATTEMPTS_PER_HEAD: usize = 32;
+    let mut validated_heads: HashMap<String, bool> = HashMap::new();
+    // A contiguous, gap-free carve cannot benefit from B-06; deep-validating
+    // every such head is what burned the whole fragment budget on ordinary
+    // images. Candidates with no output, or with filler inside a contiguous
+    // carve, still need a deep probe even when the normal validator reports
+    // structural completeness.
+    let mut head_probe_required: HashMap<(u64, FileType), bool> = candidates
+        .iter()
+        .map(|cand| ((cand.offset, cand.kind), true))
+        .collect();
+    // A suspicious contiguous carve is still a B-06 head even if the legacy
+    // deep validator labels it `verified`: an interleaved splice can contain a
+    // valid selected revision and a valid startxref while its bytes are wrong.
+    let mut force_head: HashMap<(u64, FileType), bool> = candidates
+        .iter()
+        .map(|cand| ((cand.offset, cand.kind), true))
+        .collect();
+    for file in &kept {
+        let key = (file.candidate.offset, file.candidate.kind);
+        let cluster_size = volume_at(volumes, file.candidate.offset)
+            .map(|fs| fs.cluster_size)
+            .unwrap_or(0);
+        let (needs_probe, forced) = if !file.fragments.is_empty() || file.repaired {
+            (false, false)
+        } else if file.analysis.status(file.repaired) != Status::Complete {
+            (true, true)
+        } else {
+            let suspicious = contiguous_range_has_gap(
+                source,
+                cluster_size,
+                file.candidate.offset,
+                file.output_len,
+            ) || (file.candidate.kind == FileType::Pdf
+                && contiguous_range_has_multiple_footers(
+                    source,
+                    file.candidate.kind,
+                    file.candidate.offset,
+                    file.output_len,
+                ));
+            (suspicious, suspicious)
+        };
+        head_probe_required.insert(key, needs_probe);
+        force_head.insert(key, forced);
+    }
+    // Reuse the digest already computed by the carve stage for unchanged
+    // contiguous outputs. Duplicate copies then need no second read, hash or
+    // decode, which keeps an ordinary image cheap while still deep-validating
+    // every distinct head.
+    let contiguous_hashes: HashMap<(u64, FileType), String> = kept
+        .iter()
+        .filter(|file| {
+            !file.repaired
+                && file.fragments.is_empty()
+                && matches!(
+                    file.payload,
+                    PayloadSpec::Range { offset, len }
+                        if offset == file.candidate.offset && len == file.output_len
+                )
+        })
+        .map(|file| {
+            (
+                (file.candidate.offset, file.candidate.kind),
+                file.sha256.clone(),
+            )
+        })
+        .collect();
 
+    // Pass one: classify heads. Footer scanning is deliberately deferred until
+    // at least one candidate fails deep validation, so an ordinary image never
+    // pays for the fragment footer index.
+    let mut heads: Vec<(&Candidate, &FsInfo)> = Vec::new();
     for cand in candidates {
         if stop.check() {
             break;
         }
-        if attempts >= opts.max_frag_candidates {
+        if work_units >= work_budget {
             candidate_limit = true;
             break;
         }
@@ -2493,37 +3019,49 @@ fn recover_fragments(
             time_limit = true;
             break;
         }
+        if panicked.contains(&(cand.offset, cand.kind)) {
+            continue;
+        }
         let Some(fs) = volume_at(volumes, cand.offset) else {
             continue;
         };
-        let Some(footer_hits) = footers.get(&cand.kind) else {
+        if !is_cluster_boundary(cand.offset, fs) {
             continue;
-        };
-        let joins = candidate_joins(cand, fs, footer_hits, extents, opts);
-        let mut checks = 0u64;
-
-        for join in joins {
-            if stop.check() {
-                break;
-            }
-            if attempts >= opts.max_frag_candidates {
-                candidate_limit = true;
-                break;
-            }
-            if started.elapsed() >= opts.frag_time_limit {
-                time_limit = true;
-                break;
-            }
-            attempts += 1;
-            let attempt = match catch_unwind(AssertUnwindSafe(|| {
-                try_fragment_join(source, cand, &join, opts, budget)
+        }
+        let key = (cand.offset, cand.kind);
+        if !head_probe_required.get(&key).copied().unwrap_or(true) {
+            continue;
+        }
+        let known_hash = contiguous_hashes.get(&key);
+        let cached_probe = known_hash
+            .and_then(|hash| validated_heads.get(hash))
+            .copied()
+            .map(|deep_valid| HeadProbe {
+                deep_valid,
+                skipped_budget: None,
+                work_limit: None,
+            });
+        if cached_probe.is_none() {
+            work_units += 1;
+        }
+        let probe = match cached_probe {
+            Some(probe) => probe,
+            None => match catch_unwind(AssertUnwindSafe(|| {
+                deep_validate_head(
+                    source,
+                    cand,
+                    opts,
+                    budget,
+                    stop,
+                    &mut validated_heads,
+                    known_hash.map(String::as_str),
+                )
             })) {
                 Ok(Ok(v)) => v,
                 Ok(Err(e)) => {
                     if opts.verbose {
-                        eprintln!("[-] B-06 join at {} failed: {e}", cand.offset);
+                        eprintln!("[-] B-06 head at {} failed: {e}", cand.offset);
                     }
-                    // Budget exhaustion is fatal; other errors are recorded as misses.
                     if e.to_string().contains("--max-memory") {
                         return Err(e);
                     }
@@ -2537,45 +3075,164 @@ fn recover_fragments(
                     });
                     continue;
                 }
-            };
-            if attempt.deep_checked {
-                checks += 1;
-            }
-            if let Some((offset, kind, examined, limit)) = attempt.work_limit {
-                join_work_limits.push((offset, kind, examined, limit));
-            }
-            if let Some((offset, needed)) = attempt.skipped_budget {
+            },
+        };
+        if let Some((offset, needed)) = probe.skipped_budget {
+            warnings.push(Warning::new(
+                "CANDIDATE_SKIPPED_BUDGET",
+                format!(
+                    "B-06 head at byte {} needs {} which exceeds --max-memory {}",
+                    offset,
+                    human_size(needed),
+                    human_size(budget.limit())
+                ),
+            ));
+        }
+        if let Some(limit) = probe.work_limit {
+            work_limits.push(limit);
+        }
+        if probe.skipped_budget.is_some()
+            || probe.work_limit.is_some()
+            || (probe.deep_valid && !force_head.get(&key).copied().unwrap_or(false))
+        {
+            // A clean contiguous copy that deep-validates is not a fragmented
+            // head; a budget-limited probe cannot safely be classified either
+            // way. A suspicious splice remains a head even when deep validation
+            // accepts its selected revision.
+            continue;
+        }
+        heads.push((cand, fs));
+    }
+
+    let mut found: HashMap<FileType, Vec<u64>> =
+        opts.types.iter().map(|&kind| (kind, Vec::new())).collect();
+    let mut footer_failed = false;
+    if !heads.is_empty() && !time_limit {
+        match find_footers(source, extents, &opts.types, opts) {
+            Ok(footers) => found = footers,
+            Err(e) => {
                 warnings.push(Warning::new(
-                    "CANDIDATE_SKIPPED_BUDGET",
-                    format!(
-                        "B-06 candidate at byte {} needs {} which exceeds --max-memory {}",
-                        offset,
-                        human_size(needed),
-                        human_size(budget.limit())
-                    ),
+                    "FRAGMENT_FOOTER_SCAN_FAILED",
+                    format!("fragment footer scan failed: {e}"),
                 ));
+                footer_failed = true;
             }
-            let Some(mut data) = attempt.data else {
-                continue;
-            };
-            if !seen_hashes.insert(data.sha256.clone()) {
-                continue;
-            }
-            data.checks = Some(checks);
-            let key = (cand.offset, cand.kind);
-            successful_keys.insert(key);
-            successes.push(data);
-            // Guide: stop at the first verified stitch for a head fragment.
-            break;
         }
     }
 
-    if let Some(&(offset, kind, examined, limit)) = join_work_limits.first() {
+    // Pass two: bounded join attempts for heads that actually failed deep
+    // validation. The work-unit budget stays authoritative across both passes.
+    if !footer_failed && !time_limit {
+        for (cand, fs) in heads {
+            if stop.check() {
+                break;
+            }
+            if work_units >= work_budget {
+                candidate_limit = true;
+                break;
+            }
+            if started.elapsed() >= opts.frag_time_limit {
+                time_limit = true;
+                break;
+            }
+            let Some(footer_hits) = found.get(&cand.kind) else {
+                continue;
+            };
+            if !has_plausible_footer(cand, fs, footer_hits, opts) {
+                continue;
+            }
+            let joins = candidate_joins(source, cand, fs, footer_hits, extents, opts);
+            let mut checks = 0u64;
+            let mut alternatives = 0u64;
+            let mut head_attempts = 0usize;
+            let mut first_success: Option<CarvedData> = None;
+
+            for join in joins {
+                if stop.check() {
+                    break;
+                }
+                if work_units >= work_budget {
+                    candidate_limit = true;
+                    break;
+                }
+                if head_attempts >= MAX_JOIN_ATTEMPTS_PER_HEAD {
+                    break;
+                }
+                if started.elapsed() >= opts.frag_time_limit {
+                    time_limit = true;
+                    break;
+                }
+                work_units += 1;
+                head_attempts += 1;
+                let attempt = match catch_unwind(AssertUnwindSafe(|| {
+                    try_fragment_join(source, cand, &join, opts, budget)
+                })) {
+                    Ok(Ok(v)) => v,
+                    Ok(Err(e)) => {
+                        if opts.verbose {
+                            eprintln!("[-] B-06 join at {} failed: {e}", cand.offset);
+                        }
+                        if e.to_string().contains("--max-memory") {
+                            return Err(e);
+                        }
+                        continue;
+                    }
+                    Err(payload) => {
+                        internal_errors.push(InternalError {
+                            offset: cand.offset,
+                            file_type: cand.kind,
+                            message: panic_message(payload.as_ref()),
+                        });
+                        continue;
+                    }
+                };
+                if attempt.deep_checked {
+                    checks += 1;
+                }
+                if let Some(limit) = attempt.work_limit {
+                    work_limits.push(limit);
+                }
+                if let Some((offset, needed)) = attempt.skipped_budget {
+                    warnings.push(Warning::new(
+                        "CANDIDATE_SKIPPED_BUDGET",
+                        format!(
+                            "B-06 candidate at byte {} needs {} which exceeds --max-memory {}",
+                            offset,
+                            human_size(needed),
+                            human_size(budget.limit())
+                        ),
+                    ));
+                }
+                let Some(mut data) = attempt.data else {
+                    continue;
+                };
+                alternatives = alternatives.saturating_add(1);
+                if !seen_hashes.insert(data.sha256.clone()) {
+                    continue;
+                }
+                data.checks = Some(checks);
+                data.alternatives = Some(alternatives);
+                if first_success.is_none() {
+                    first_success = Some(data);
+                }
+                if alternatives >= MAX_ALTERNATIVES || head_attempts >= MAX_JOIN_ATTEMPTS_PER_HEAD {
+                    break;
+                }
+            }
+            if let Some(mut data) = first_success {
+                data.alternatives = Some(alternatives);
+                successful_keys.insert((cand.offset, cand.kind));
+                successes.push(data);
+            }
+        }
+    }
+
+    if let Some(&(offset, kind, examined, limit)) = work_limits.first() {
         warnings.push(Warning::new(
             "WORK_LIMIT",
             format!(
-                "{} B-06 join(s) exceeded --max-work-per-candidate {} bytes;                  first at byte {} ({}) examined {} bytes",
-                join_work_limits.len(),
+                "{} B-06 probe(s)/join(s) exceeded --max-work-per-candidate {} bytes; first at byte {} ({}) examined {} bytes",
+                work_limits.len(),
                 limit,
                 offset,
                 kind.label(),
@@ -2586,13 +3243,13 @@ fn recover_fragments(
     if candidate_limit {
         warnings.push(Warning::new(
             "FRAGMENT_CANDIDATE_LIMIT",
-            "B-06 stopped after reaching --max-frag-candidates",
+            "B-06 stopped after reaching the authoritative --max-frag-candidates work-unit budget",
         ));
     }
     if time_limit {
         warnings.push(Warning::new(
             "FRAGMENT_TIME_LIMIT",
-            "B-06 stopped after reaching --frag-time-limit",
+            "B-06 stopped after reaching the wall-clock --frag-time-limit safety net",
         ));
     }
 
@@ -2602,7 +3259,10 @@ fn recover_fragments(
     });
     kept.extend(successes);
     kept.sort_by_key(|f| (f.candidate.offset, f.candidate.kind as u8));
-    Ok(kept)
+    Ok(FragmentResult {
+        files: kept,
+        nondeterministic_stop: time_limit,
+    })
 }
 
 fn postfilter(
@@ -2972,6 +3632,7 @@ fn write_outputs(
             validation_checks: data.validation_checks.clone(),
             checks: data.checks,
             confidence: data.confidence,
+            alternatives: data.alternatives,
             sha256_original: data.sha256_original.clone(),
         };
         if !opts.quiet && (opts.verbose || idx < 20) {

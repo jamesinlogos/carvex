@@ -19,12 +19,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   reporting for compressed E01 and VMDK containers.
 - B-06 bounded bifragment gap carving behind the opt-in
   `--fragment-recovery` flag, with `--max-gap`, `--max-frag-candidates` and
-  `--frag-time-limit`. Accepted stitches pass the deep validator and add
-  `source="bgc"`, optional `fragments[]`, `fragment_checks` and `confidence` to
-  the JSON report; the default report shape and CSV column prefix are unchanged.
-- Two `tests/fragment_recovery.rs` tests cover the S12-style interleaved
-  `[A1][B1][A2][B2]` scenario for JPEG, PNG and PDF, plus rejection of
-  invalid B-06 limits.
+  `--frag-time-limit`. Accepted stitches are `verified` and add `source="bgc"`,
+  optional `fragments[]`, `fragment_checks`, `confidence` and an additive
+  `alternatives` count to the JSON report. Schema 1 strips `alternatives`; CSV
+  appends it as an empty trailing column for non-stitches, preserving the
+  existing column prefix.
+- Five `tests/fragment_recovery.rs` tests cover the S12-style interleaved
+  `[A1][B1][A2][B2]` scenario for JPEG, PNG and PDF, rejection of invalid
+  B-06 limits, and the deterministic work-unit and wall-clock limit paths.
 - `--max-validator-memory` (default `256M`) bounds the working memory claimed
   by one decode validator (H-05/H-06). `--max-decode-bytes` remains as a
   visible alias; the effective value is recorded in report schema v2 as both
@@ -149,6 +151,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `stats.internal_errors`, emit `CANDIDATE_PANIC` and exit 3 while continuing
   other work. Container-open panics become typed errors. All explicit Cargo
   profiles keep `panic = "unwind"`.
+- H-29: B-06 no longer burns its budget on ordinary images or accepts a
+  near-footer splice. Contiguous gap-free carves are skipped unless they are
+  truncated, contain filler, or are PDFs with multiple footers; skipped clusters
+  are scored for filler/header evidence before deep validation; only
+  `validity == verified` stitches are emitted. `--max-frag-candidates` is now
+  the authoritative work-unit budget, while `--frag-time-limit` is a flagged
+  wall-clock safety net. Both incomplete paths emit coded warnings and exit 3.
+  The D1-style profile and strengthened X15 control are recorded in
+  `bench/results/d1_fragment_profile.json` and `docs/VALIDATION.md`.
 - H-11/H-22: hostile E01 chunk sizes are rejected with a typed error before
   allocation; stdin spooling accepts an explicit byte limit and spool directory;
   short final E01 chunks are read at their logical length; checksum/inflate
@@ -172,8 +183,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Notes
 
 - The frozen benchmark, lockbox results, published figures, protocol text and
-  distribution binaries are not modified or rebuilt by this work. B-06 is
-  opt-in and its controlled S12 fixture is not a benchmark recall claim.
+  distribution binaries are not modified or rebuilt by this work. B-06 remains
+  opt-in; the D1-style development profile and X15 control are development
+  evidence, not published benchmark recall claims.
 - E01 segment discovery supports the usual two-digit base-36 suffixes (up to
   `.EZZ`, 1295 segments); sets with longer suffixes are rejected explicitly
   rather than partially discovered.

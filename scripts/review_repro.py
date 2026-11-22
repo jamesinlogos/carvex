@@ -1477,44 +1477,217 @@ def case_x06(carvex: Path, work: Path, corpus: Path, ntfs: Path | None) -> str:
     return ""
 
 
+def _fat32_free_volume(total_sectors: int = 131072, spc: int = 8) -> tuple[bytearray, dict]:
+    """A minimal 64 MiB FAT32 volume with one allocated root cluster.
+
+    The parser accepts this layout (it is the same shape used by the Rust
+    integration fixtures), so no external filesystem tools are needed. Every
+    cluster after cluster 2 is free, which is where deleted payloads are
+    planted.
+    """
+    bps = 512
+    reserved = 1
+    fats = 1
+    fat_sectors = (total_sectors * 4 + 1024 + (bps - 1)) // bps
+    data_start_sector = reserved + fats * fat_sectors
+    image = bytearray(total_sectors * bps)
+
+    boot = bytearray(bps)
+    boot[0:3] = b"\xeb\x3c\x90"
+    boot[3:11] = b"MSWIN4.1"
+    struct.pack_into("<H", boot, 0x0B, bps)
+    boot[0x0D] = spc
+    struct.pack_into("<H", boot, 0x0E, reserved)
+    boot[0x10] = fats
+    boot[0x15] = 0xF8
+    struct.pack_into("<I", boot, 0x20, total_sectors)
+    struct.pack_into("<I", boot, 0x24, fat_sectors)
+    struct.pack_into("<I", boot, 0x2C, 2)
+    boot[0x47:0x52] = b"CARVEX     "
+    boot[0x52:0x57] = b"FAT32"
+    boot[510:512] = b"\x55\xaa"
+    image[0:bps] = boot
+
+    fat = reserved * bps
+    struct.pack_into("<I", image, fat, 0x0FFF_FFF8)
+    struct.pack_into("<I", image, fat + 4, 0x0FFF_FFFF)
+    struct.pack_into("<I", image, fat + 8, 0x0FFF_FFFF)
+    return image, {
+        "bps": bps,
+        "cluster_size": spc * bps,
+        "data_start": data_start_sector * bps,
+        "total_clusters": (total_sectors - data_start_sector) // spc,
+    }
+
+
+def _fat32_cluster_offset(meta: dict, cluster: int) -> int:
+    return meta["data_start"] + (cluster - 2) * meta["cluster_size"]
+
+
+def _plant(image: bytearray, meta: dict, cluster: int, payload: bytes) -> None:
+    offset = _fat32_cluster_offset(meta, cluster)
+    if offset < 0 or offset + len(payload) > len(image):
+        raise RuntimeError("FAT32 fixture payload does not fit")
+    image[offset : offset + len(payload)] = payload
+
+
+def _x15_scan(
+    carvex: Path, work: Path, name: str, image: Path, extra: list[str], timeout: float = 180.0
+) -> tuple[ScanResult, float]:
+    sub = work / name
+    sub.mkdir(parents=True, exist_ok=True)
+    started = time.perf_counter()
+    result = run_carvex(carvex, image, sub, extra, timeout=timeout)
+    return result, time.perf_counter() - started
+
+
+def _x15_codes(res: ScanResult) -> set[str]:
+    return {w.get("code", "") for w in (res.report or {}).get("warnings", [])}
+
+
+def _x15_outputs(res: ScanResult) -> list[tuple[str, str]]:
+    return sorted((p.name, sha256(p.read_bytes())) for p in res.files)
+
+
+def _x15_signature(res: ScanResult) -> list[tuple]:
+    return sorted(
+        (
+            f.get("offset"),
+            f.get("size"),
+            f.get("sha256"),
+            f.get("source"),
+            f.get("validity"),
+        )
+        for f in (res.report or {}).get("files", [])
+    )
+
+
 def case_x15(carvex: Path, work: Path, corpus: Path, ntfs: Path | None) -> str:
-    """H-29: B-06 must stitch realistic interleaved fragments."""
-    jpegs = sorted((corpus / "jpeg").glob("*.jpg"))
-    if len(jpegs) < 2:
-        return "SKIP: corpus JPEGs missing"
-    a = jpegs[0].read_bytes()
-    b = jpegs[1].read_bytes()
+    """H-29: realistic B-06 recall without ordinary-image budget burn."""
     cluster = 4096
-    cut_a = (len(a) // 2 // cluster) * cluster
-    cut_b = (len(b) // 2 // cluster) * cluster
-    if cut_a == 0 or cut_b == 0:
-        return "SKIP: corpus JPEGs too small"
-    gap = b"\x00" * (cluster * 3)
-    image = (
-        a[:cut_a]
-        + gap
-        + b[:cut_b]
-        + a[cut_a:]
-        + gap
-        + b[cut_b:]
+    jpeg = corpus / "jpeg" / "jpeg_01_baseline_640x480.jpg"
+    png = corpus / "png" / "png_02_rgb_800x600.png"
+    pdf = corpus / "pdf" / "pdf_05_large_scan.pdf"
+    jpeg2 = corpus / "jpeg" / "jpeg_02_large_1280x960.jpg"
+    for path in (jpeg, png, pdf, jpeg2):
+        if not path.is_file():
+            return f"SKIP: corpus file missing: {path.name}"
+    payloads = [jpeg.read_bytes(), png.read_bytes(), pdf.read_bytes()]
+    bait_b = jpeg2.read_bytes()
+
+    bgc_args = [
+        "--min-size", "1", "--fragment-recovery", "--max-gap", "16",
+        "--max-frag-candidates", "4096", "--frag-time-limit", "5000",
+    ]
+
+    # 1. Three real, deleted files split at half length on cluster boundaries.
+    real, meta = _fat32_free_volume()
+    cursor = 200
+    expected: set[str] = set()
+    for index, payload in enumerate(payloads):
+        cut = (len(payload) // 2 // cluster) * cluster
+        if cut == 0 or cut == len(payload):
+            return f"SKIP: corpus payload too small: {index}"
+        head, tail = payload[:cut], payload[cut:]
+        head_clusters = (len(head) + cluster - 1) // cluster
+        tail_clusters = (len(tail) + cluster - 1) // cluster
+        gap = b"\x00" * (3 * cluster) if index < 2 else bytes(
+            (0x41 + ((i * 37) % 26)) for i in range(3 * cluster)
+        )
+        _plant(real, meta, cursor, head)
+        _plant(real, meta, cursor + head_clusters, gap)
+        _plant(real, meta, cursor + head_clusters + 3, tail)
+        cursor += head_clusters + 3 + tail_clusters + 60
+        expected.add(sha256(payload))
+    real_img = work / "x15_realistic.img"
+    real_img.write_bytes(real)
+
+    res, _ = _x15_scan(carvex, work, "realistic", real_img, bgc_args)
+    if res.report is None:
+        return f"realistic: no JSON report (exit {res.proc.returncode}): {res.stderr[:200]}"
+    codes = _x15_codes(res)
+    if "FRAGMENT_TIME_LIMIT" in codes or "FRAGMENT_CANDIDATE_LIMIT" in codes:
+        return f"realistic: B-06 work was truncated: {sorted(codes)}"
+    if res.proc.returncode != 0:
+        return f"realistic: exit {res.proc.returncode}: {res.stderr[:200]}"
+    files = res.report.get("files", [])
+    stitched = [f for f in files if f.get("source") == "bgc"]
+    bad = [f for f in stitched if f.get("sha256") not in expected]
+    if bad:
+        return f"realistic: {len(bad)} stitched output(s) are not the source files"
+    recalled = {f.get("sha256") for f in stitched} & expected
+    if not recalled:
+        return "realistic: B-06 stitched none of the interleaved files"
+
+    # 2. A plausible splice must remain unstitched.
+    bait, bait_meta = _fat32_free_volume()
+    cut_a = (len(payloads[0]) // 2 // cluster) * cluster
+    cut_b = (len(bait_b) // 2 // cluster) * cluster
+    junk = bytes((0xA5 ^ (i & 0xFF)) for i in range(2 * cluster))
+    _plant(bait, bait_meta, 200, payloads[0][:cut_a])
+    _plant(bait, bait_meta, 200 + (cut_a + cluster - 1) // cluster, junk)
+    _plant(
+        bait,
+        bait_meta,
+        200 + (cut_a + cluster - 1) // cluster + 2,
+        bait_b[cut_b:],
     )
-    img = work / "x15.img"
-    img.write_bytes(image)
-    res = run_carvex(
-        carvex,
-        img,
-        work,
-        ["--mode", "raw", "--no-fs", "--min-size", "1", "--fragment-recovery",
-         "--max-gap", "16", "--max-frag-candidates", "1024",
-         "--frag-time-limit", "5000"],
-        timeout=120,
-    )
-    if res.proc.returncode not in (0, 3):
-        return f"exit {res.proc.returncode}: {res.stderr[:200]}"
-    hashes = {sha256(p.read_bytes()) for p in res.files}
-    wanted = {sha256(a), sha256(b)}
-    if not (hashes & wanted):
-        return "B-06 stitched none of the interleaved files"
+    bait_img = work / "x15_bait.img"
+    bait_img.write_bytes(bait)
+    bait_res, _ = _x15_scan(carvex, work, "bait", bait_img, bgc_args)
+    if bait_res.report is None:
+        return f"bait: no JSON report (exit {bait_res.proc.returncode})"
+    bait_stitched = [
+        f for f in bait_res.report.get("files", []) if f.get("source") == "bgc"
+    ]
+    if bait_stitched:
+        return f"bait: {len(bait_stitched)} stitched output(s) produced"
+
+    # 3. Ordinary, intact files must not consume the fragment budget.
+    ordinary, ordinary_meta = _fat32_free_volume()
+    for i in range(20):
+        _plant(ordinary, ordinary_meta, 200 + i * 80, payloads[0])
+    ordinary_img = work / "x15_ordinary.img"
+    ordinary_img.write_bytes(ordinary)
+    plain_times: list[float] = []
+    bgc_times: list[float] = []
+    plain_res: ScanResult | None = None
+    ordinary_res: ScanResult | None = None
+    for repeat in range(3):
+        plain, elapsed = _x15_scan(
+            carvex, work, f"ordinary_plain_{repeat}", ordinary_img, []
+        )
+        plain_times.append(elapsed)
+        plain_res = plain
+        with_bgc, elapsed = _x15_scan(
+            carvex, work, f"ordinary_bgc_{repeat}", ordinary_img, bgc_args
+        )
+        bgc_times.append(elapsed)
+        ordinary_res = with_bgc
+    plain_times.sort()
+    bgc_times.sort()
+    if plain_res is None or ordinary_res is None or plain_res.report is None or ordinary_res.report is None:
+        return "ordinary: missing report"
+    fragment_codes = {c for c in _x15_codes(ordinary_res) if c.startswith("FRAGMENT_")}
+    if fragment_codes:
+        return f"ordinary: unexpected fragment warning(s) {sorted(fragment_codes)}"
+    if _x15_outputs(ordinary_res) != _x15_outputs(plain_res):
+        return "ordinary: fragment recovery changed the carved outputs"
+    if bgc_times[1] > plain_times[1] * 1.10:
+        return (
+            "ordinary: B-06 runtime {:.3f}s exceeds 110% of plain {:.3f}s".format(
+                bgc_times[1], plain_times[1]
+            )
+        )
+
+    # 4. The result must not depend on the worker count.
+    single, _ = _x15_scan(carvex, work, "realistic_single", real_img, bgc_args + ["--threads", "1"])
+    if single.report is None:
+        return f"threads=1: no JSON report (exit {single.proc.returncode})"
+    if _x15_signature(single) != _x15_signature(res):
+        return "threads=1: report files differ from the default run"
+    if _x15_outputs(single) != _x15_outputs(res):
+        return "threads=1: carved outputs differ from the default run"
     return ""
 
 

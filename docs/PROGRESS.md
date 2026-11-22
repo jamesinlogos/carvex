@@ -64,8 +64,8 @@ scripts/coverage.sh 60                                OK (4456/6391 lines = 69.7
 scripts/fuzz.sh 60                                   7 targets x 60 s, 18,520,025 runs, no crashes/artifacts
 ```
 
-Current gate after H-28 (2026-11-22): **GATE GREEN**, 131 tests
-(43 unit + 13 cli_contract + 7 evidence_formats + 2 fragment_recovery +
+Current gate after H-29 (2026-11-22): **GATE GREEN**, 134 tests
+(43 unit + 13 cli_contract + 7 evidence_formats + 5 fragment_recovery +
 8 fs_detect + 2 jpeg_frame_budget + 4 memory_budget + 3 panic_containment +
 2 png_crc_validity + 4 png_decode_budget + 2 png_validator_budget +
 8 pdf_structure_validation + 5 properties + 4 regress_e01_safety +
@@ -73,7 +73,7 @@ Current gate after H-28 (2026-11-22): **GATE GREEN**, 131 tests
 1 validity_model + 4 work_budgets + 3 volume_parse_errors + 3 region_coverage),
 34 repro scenarios with 0 failures/2 SKIPs/0 XPASS, G7 and benchmark smoke green.
 `scripts/perf_gate.py --carvex target/release/carvex` reported **PERF GREEN**:
-s9_4m median 0.156 s (limit 3.0 s), rand64m median 0.039 s.
+s9_4m median 0.145 s (limit 3.0 s), rand64m median 0.035 s.
 
 ### Pre-execution protocol correction (protocol-v1.1)
 
@@ -122,7 +122,7 @@ Windows**.
 | A-08 | PARTIAL | green | `trait ImageSource {len, read_at}` + unchanged `RawFile` default; `seek(End)` fallback when metadata len = 0. B-04 adds split raw, E01, VHD, VMDK and stdin sources under `src/image/`. `--on-read-error` and report `unreadable_regions[]` are present (H-22); raw/split reads are retried per 512-byte sector, and abort leaves a partial report. No `BlockDevice`/`--sector-size` yet and real device/Windows not tested. |
 | A-09 | PARTIAL | green | Fixed the NTFS sector off-by-one (`field+1`, D-21, unit test `volume_sector_count_includes_the_backup_boot_sector`); FS errors → `FS_DETECTION_FAILED`. No `$ATTRIBUTE_LIST`/multi-extent `$MFT`/`$MFTMirr`/backup boot/FAT #2 yet. |
 | A-10 | DONE | green | Lib crate + thin `main.rs`; pipeline `plan_extents → build_tasks → scan_task → carve_batch → postfilter → write_outputs`; format registry; `ScanInput<'a>` groups the input parameters for `run_scan`, with targeted `too_many_arguments` allows only on the two R-01/R-02 helpers that take explicit budget/deadline state; `cargo doc -D warnings` passes. |
-| A-11 | PARTIAL | green | **131 tests** in the current gate (43 unit + 13 cli_contract + 7 evidence_formats + 2 fragment_recovery + 8 fs_detect + 2 jpeg_frame_budget + 4 memory_budget + 3 panic_containment + 2 png_crc_validity + 4 png_decode_budget + 2 png_validator_budget + 8 pdf_structure_validation + 5 properties + 4 regress_e01_safety + 4 regress_vmdk_safety + 3 repair_validation + 6 scan_integration + 1 validity_model + 4 work_budgets + 3 volume_parse_errors + 3 region_coverage); `scripts/review_repro.py --assert/--xfail --carvex` 34 scenarios, 0 failures, 2 SKIPs, 0 XPASS; red baseline `docs/baseline/repro_v0.1.0.txt`. Post-R-01/R-02 `cargo-llvm-cov 0.9.1` measured 4456/6391 lines = **69.72%**; CI/local floor set to 60%, not the earlier aspirational 80%. No new coverage run after H-14/H-16/H-17/H-18/H-19/H-21/H-22/H-25/H-26/H-27. |
+| A-11 | PARTIAL | green | **134 tests** in the current gate (43 unit + 13 cli_contract + 7 evidence_formats + 5 fragment_recovery + 8 fs_detect + 2 jpeg_frame_budget + 4 memory_budget + 3 panic_containment + 2 png_crc_validity + 4 png_decode_budget + 2 png_validator_budget + 8 pdf_structure_validation + 5 properties + 4 regress_e01_safety + 4 regress_vmdk_safety + 3 repair_validation + 6 scan_integration + 1 validity_model + 4 work_budgets + 3 volume_parse_errors + 3 region_coverage); `scripts/review_repro.py --assert/--xfail --carvex` 34 scenarios, 0 failures, 2 SKIPs, 0 XPASS; red baseline `docs/baseline/repro_v0.1.0.txt`. Post-R-01/R-02 `cargo-llvm-cov 0.9.1` measured 4456/6391 lines = **69.72%**; CI/local floor set to 60%, not the earlier aspirational 80%. No new coverage run after H-14/H-16/H-17/H-18/H-19/H-21/H-22/H-25/H-26/H-27/H-29. |
 | A-12 | PARTIAL | green | MSRV 1.85 (`rust-version`, README corrected from "Rust 1.74"); `cargo +1.85 check` in the gate; `.github/workflows/ci.yml` adds actionlint + coverage and uses a pinned direct actionlint install; `rustfmt.toml`/`clippy.toml`/`deny.toml`; dist 0.2.0 + `SHA256SUMS`. Local `cargo deny check`, `cargo audit` and `actionlint 1.7.12` pass. Real GitHub run `44548142275` on commit `42376a9` succeeded (all jobs; push-event fuzz matrix skipped), but it predates B-04, B-06 and R-01/R-02. Distributed Windows binary not executed; no SBOM/signatures yet; removing binaries from `dist/` is STOP-AND-ASK (kept). |
 | A-13 | PARTIAL | green | Exit 0/1/2/3/4 documented + CLI contract tests; coded warnings; `RAW_SCANS_ALLOCATED` informational (D-20). No `thiserror`/leveled logger/`ProgressSink`/partial report on interrupt yet. |
 | A-14 | DONE | green | Report schema v2: `schema_version`, `argv`, `options`, `tool_info`, `input` (before–after SHA-256), ISO-8601, `case_id`, `examiner`, `warnings[]` object, `volumes[]`, `regions[]`, `lba`, real `cluster`, `partition_index`, `extent_id`, `allocated`, `source`, `fragments`. `docs/report.schema.json` + key-matching test; atomic write; `--manifest` generates `SHA256SUMS`; `--report-schema 1`. `unreadable_regions[]` belongs to A-08 (not present). |
@@ -132,7 +132,7 @@ Windows**.
 | B-03 | OPEN | - | No exFAT/FAT12/FAT16 support. |
 | B-04 | MITIGATED | green | `src/image/` supplies read-only split raw, classic E01 (compressed/uncompressed), fixed/dynamic VHD, flat/sparse VMDK and stdin sources; `open_image()`/`--input-format` select them. Five `evidence_formats` fixture tests verify byte-for-byte reads and stdin report identity (D-29). The raw default, frozen benchmark, figures, lockbox results and dist binaries are unchanged. Recognized EWF2/Ex01, L01/Lx01, LVF, differencing VHD, ESX/COWD and compressed streamOptimized VMDK variants are rejected explicitly; encrypted E01 has no decryption and is not guaranteed to be detected before parsing. |
 | B-05 | DONE | green | `--align none\|auto\|cluster\|sector`; default `none` keeps the old behavior; test `alignment_restricts_candidate_starts_without_changing_results_on_aligned_data`; golden TP unchanged. No per-file `aligned` flag recorded, no measurement of candidate reduction (D5). |
-| B-06 | MITIGATED | green | Opt-in `--fragment-recovery` adds bounded two-fragment gap carving at cluster boundaries (`--max-gap`, `--max-frag-candidates`, `--frag-time-limit`). Accepted stitches pass the deep validator and record `source="bgc"`, `fragments[]`, `checks` and `confidence`; S12-style JPEG/PNG/PDF fixture recovers both files byte-exactly. Default raw/benchmark path untouched | No D1 recall/splice-rate measurement, no n-fragment path, no metadata hybrid, and no claim that published figures include B-06. |
+| B-06 | MITIGATED | green | Opt-in `--fragment-recovery` adds bounded two-fragment gap carving at cluster boundaries. Work units are authoritative, ordinary images are not deep-probed, joins are ranked by filler/header evidence, and only `verified` stitches are emitted with `source="bgc"`, `fragments[]`, `checks`, `confidence` and `alternatives`. D1 profile: recall 4/6 = 66.7% [30.0%, 90.3%], splice 0/4, junk FP 0/24; X15 recalls 3/3 real files with no bait stitch. Default raw/benchmark path untouched | n-fragment and metadata/runlist-assisted reassembly remain unimplemented; the small D1 sample has wide CIs, is development evidence only, and published figures exclude B-06. |
 | B-07 | PARTIAL | green | JPEG/PNG prefix salvage; `status=truncated` + `validated_bytes`; H-21 now rebuilds PDF xref/trailer, appends real JPEG/PNG footers, and labels `repaired` only after revalidation. No `--salvage` flag; generic marker/chunk truncation is a disclosed `[SHOULD]` skip (D-47). |
 | B-08 | PARTIAL | green | `--manifest`, `--hash-image`, `--case-id`/`--examiner`, full exit codes. No carve-phase progress/`--resume`/`--dry-run`/`verify`/`check`/`extract`/`--json-lines`/completions/man. |
 | B-09 | OPEN | - | Per-file `notes[]` present; no fixture + test per variant (APNG, xref stream, `/Encrypt`…); no format support table. |
@@ -196,6 +196,7 @@ Windows**.
 | H-26 | MED | 2026-11-22 source | CLOSED | eb649f1 | tests/volume_parse_errors.rs; scripts/review_repro.py X19 | Red tests: multi-volume scan exited 0 with no warning, the single-volume message was generic, and `info` hid the cause. Parse errors now emit `VOLUME_PARSE_FAILED`, exit 3, flag the fallback region, and give a specific `FS_DETECTION_FAILED`/`info` cause. X19 was strengthened and removed from xfail. |
 | H-27 | MED | 2026-11-22 source/bench FAT32 | CLOSED | 5ebe851 | tests/region_coverage.rs; scripts/review_repro.py X20 | X20 reported `regions overlap or are unsorted`; the scanned rows summed to 102,760,448 B vs 95,367,168 B scanned on the v5 disk. Red tests also showed regions starting at the volume, not byte 0, and `info --json` calling the whole volume free. Regions now come from the scanner extent plan, cover the image exactly, carry `extent_id`/`summarized`, and preserve `Σ scanned == bytes_scanned`; X20 was removed from xfail. |
 | H-28 | MED | 2026-11-22 source/release binary | CLOSED | c14060d | scripts/review_repro.py X21; direct two-signal control | X21 killed the unmodified release binary with `exit -2 after SIGINT (expected 4)` and no report. `ctrlc` now latches a cooperative stop through all scanner stages; an interrupted run writes an `interrupted`/`INTERRUPTED` schema-2 report and exits 4, completed outputs stay, and a second signal exits 130. X21 passes and was removed from xfail. |
+| H-29 | HIGH | 2026-11-22 source/release binary | CLOSED | pending | tests/fragment_recovery.rs; tests/cli_contract.rs; tests/repair_validation.rs; tests/validity_model.rs; scripts/review_repro.py X15; scripts/fragment_profile.py | Red evidence: schema/CSV missing `alternatives`, S12 `file A not recovered exactly`, X15 accepted one incorrect PDF splice. Work units are now authoritative; ordinary images skip deep head probes and footer indexing; joins are filler/header-ranked; only `verified` stitches are emitted. D1 profile: recall 4/6 = 66.7% [30.0%, 90.3%], splice 0/4, junk FP 0/24. X15 passes with 3/3 real files, zero bait stitches, no ordinary `FRAGMENT_*` warning, identical outputs and `--threads 1` parity; removed from xfail. |
 | H-23 | MED | 2026-11-21 source | CLOSED | 080b76a | tests/regress_vmdk_safety.rs | Missing grain table returned "index out of range"; now reads zeros like qemu-img. |
 
 ### Per-task reports
@@ -644,6 +645,41 @@ Residual risk / next: the handler is process-wide, so library callers that do
   available to execute; Windows Ctrl-C support is a source/dependency claim
   only. No lockbox, full benchmark or `dist/` rebuild was run.
 
+Task: H-29 — B-06 burned the budget and accepted a false splice
+Reviews: v1:R-20, v2:N-07, v4:F-16, v5:F-24 (SRC/RT); harness §H-29.
+Repro: REPRODUCED on the 0.3.0-dev source and release binary. Red evidence
+  retained in `/tmp/opencode`: schema validation lacked `alternatives`, the CSV
+  header lacked the trailing column, S12 failed with `file A not recovered
+  exactly`/`file B not recovered exactly`, and strengthened X15 failed with
+  `realistic: 1 stitched output(s) are not the source files`. The false PDF
+  stitch joined tail `4085248`; the planted tail was at `3773952`.
+Change: `--max-frag-candidates` now counts head probes and join attempts, while
+  `--frag-time-limit` is a flagged wall-clock safety net. Contiguous, gap-free
+  carves are not deep-probed except when truncated, containing filler, or PDFs
+  with multiple footers; footer indexing is deferred until a head needs it.
+  Per-head filler/header flags score the skipped gap, joins are ranked by
+  unexplained gap then evidence strength, and only `validity == verified`
+  stitches are emitted under the H-10/H-05/H-06 boundaries. Accepted stitches
+  record an additive `alternatives` count in JSON and CSV.
+Measurement: `scripts/fragment_profile.py --carvex target/release/carvex
+  --corpus bench/corpus --work target/fragment-profile --out
+  bench/results/d1_fragment_profile.json` produced recall 4/6 = 0.667, Wilson
+  95% [0.299993, 0.903229]; splice rate 0/4 = 0.0, Wilson 95% [0.0, 0.489891];
+  junk-FP 0/24 = 0.0, Wilson 95% [0.0, 0.137976]. The release binary SHA-256 is
+  recorded in the JSON file. No tuning followed this measurement.
+Evidence: strengthened X15 passed: bait 0 stitches; ordinary image had no
+  `FRAGMENT_*` warning, 20 identical carved outputs and runtime within 10% of
+  the plain scan; realistic layout recalled all 3 exact source files (JPEG,
+  PNG, PDF); `--threads 1` matched the default report and output hashes.
+  Final gate: 134 tests, 34 scenarios, 0 failures/2 SKIPs/0 XPASS, GOLDEN GREEN
+  and **GATE GREEN** (`/tmp/opencode/gate_h29.log`); `scripts/perf_gate.py`
+  reported **PERF GREEN**, s9_4m median 0.145 s and rand64m median 0.035 s
+  (`/tmp/opencode/perf_h29.log`). X15 was removed from xfail.
+Residual risk / next: the D1-style profile is small and its confidence
+  intervals are wide; D2–D7 and the frozen lockbox were not touched. Only two
+  fragments and no metadata/runlist-assisted reassembly are supported. No new
+  coverage measurement, full benchmark, `dist/` rebuild or tag was run.
+
 ### Conflict measurements (C1-C13)
 
 - **C1 (JPEG splice rate).** `scripts/jpeg_splice_property.py` on the
@@ -740,4 +776,4 @@ Residual risk / next: the handler is process-wide, so library callers that do
 
 ## Decisions
 
-See `docs/DECISIONS.md` (D-01…D-33).
+See `docs/DECISIONS.md` (D-01…D-53).

@@ -5,13 +5,16 @@ mod common;
 use carvex::fs;
 use carvex::io::ImageSource;
 use carvex::scan::{run_scan, ScanContext, ScanInput, ScanMode};
-use carvex::signatures::{FileType, Status, Validation, ValidationMode};
+use carvex::signatures::{FileType, Status, Validation, ValidationMode, Validity};
 use common::{
     fat32_interleaved, jpeg_with_cluster_split, pdf_with_cluster_split, png_with_cluster_split,
     scan_options, MemSource,
 };
 use std::collections::HashSet;
+use std::fs as std_fs;
+use std::process::Command;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use tempfile::TempDir;
 
 const CLUSTER: usize = 4096;
@@ -109,15 +112,28 @@ fn s12_interleaved_fragments_are_recovered_exactly() {
             report.files
         );
 
+        // H-29: A always needs stitching. For PDF, B's contiguous carve also
+        // contains A's trailer, so its multiple-EOF signal forces a B-06 join
+        // even though the legacy deep validator accepts that splice.
         let stitched: Vec<_> = report.files.iter().filter(|f| f.source == "bgc").collect();
+        let expected_stitched = if kind == FileType::Pdf { 2 } else { 1 };
         assert_eq!(
             stitched.len(),
-            2,
-            "{name}: expected exactly two stitched outputs, got {:#?}",
+            expected_stitched,
+            "{name}: unexpected stitched outputs: {:#?}",
             report.files
+        );
+        assert!(
+            stitched
+                .iter()
+                .all(|f| f.sha256 == expected_a || f.sha256 == expected_b),
+            "{name}: a stitch did not reproduce an original file"
         );
         for file in stitched {
             assert_eq!(file.status, Status::Complete);
+            // H-29 supersedes the stage-1 PDF lexical exception: a stitch is
+            // only emitted when the authoritative label is `verified`.
+            assert_eq!(file.validity, Validity::Verified);
             // H-19 stage 2: a complete stitched PDF passes the bounded
             // xref/trailer/catalog checks and is Decoded; B-06 still requires
             // deep validation for every type.
@@ -139,6 +155,10 @@ fn s12_interleaved_fragments_are_recovered_exactly() {
             assert!(file.fragments[1].len > 0);
             assert!(file.checks.unwrap_or(0) > 0, "{name}: missing check count");
             assert!(
+                file.alternatives.unwrap_or(0) > 0,
+                "{name}: missing alternatives count"
+            );
+            assert!(
                 file.confidence.unwrap_or(0) > 0,
                 "{name}: missing confidence"
             );
@@ -146,6 +166,20 @@ fn s12_interleaved_fragments_are_recovered_exactly() {
                 file.notes.iter().any(|n| n.contains("B-06")),
                 "{name}: B-06 note missing"
             );
+        }
+
+        if kind != FileType::Pdf {
+            let contiguous = report
+                .files
+                .iter()
+                .find(|f| f.sha256 == expected_b)
+                .unwrap_or_else(|| panic!("{name}: file B missing from report"));
+            assert_eq!(
+                contiguous.source, "carve",
+                "{name}: file B should not be stitched"
+            );
+            assert!(contiguous.fragments.is_empty());
+            assert_eq!(contiguous.validity, Validity::Structural);
         }
         assert!(
             report
@@ -183,4 +217,94 @@ fn invalid_bgc_limits_are_rejected() {
     opts.fragment_recovery = true;
     opts.max_gap = 0;
     assert!(run_scan(&input, &opts, &ScanContext::default()).is_err());
+}
+
+fn assert_incomplete(report: &carvex::scan::ScanReport, code: &str) {
+    let warning = report
+        .warnings
+        .iter()
+        .find(|w| w.code == code)
+        .unwrap_or_else(|| panic!("expected {code}, got {:?}", report.warnings));
+    assert!(
+        warning.incomplete(),
+        "{code} must be an incomplete-work warning"
+    );
+}
+
+#[test]
+fn h29_work_unit_limit_is_authoritative_and_deterministic() {
+    let file = jpeg_with_cluster_split(CLUSTER);
+    let image = fat32_interleaved(&file, &file, CLUSTER);
+    let mut opts = scan_options(vec![FileType::Jpeg], ScanMode::Auto);
+    opts.min_size = 1;
+    opts.fragment_recovery = true;
+    opts.validate = ValidationMode::Structure;
+    opts.max_frag_candidates = 1;
+    opts.threads = 1;
+
+    let (_dir, report) = run_bgc(image, &opts);
+    assert_incomplete(&report, "FRAGMENT_CANDIDATE_LIMIT");
+    assert!(!report.nondeterministic_stop);
+}
+
+#[test]
+fn h29_wall_clock_safety_net_is_flagged_as_nondeterministic() {
+    let file = jpeg_with_cluster_split(CLUSTER);
+    let image = fat32_interleaved(&file, &file, CLUSTER);
+    let mut opts = scan_options(vec![FileType::Jpeg], ScanMode::Auto);
+    opts.min_size = 1;
+    opts.fragment_recovery = true;
+    opts.validate = ValidationMode::Structure;
+    opts.frag_time_limit = Duration::from_nanos(1);
+    opts.threads = 1;
+
+    let (_dir, report) = run_bgc(image, &opts);
+    assert_incomplete(&report, "FRAGMENT_TIME_LIMIT");
+    assert!(report.nondeterministic_stop);
+}
+
+#[test]
+fn h29_fragment_work_limit_exits_three() {
+    let file = jpeg_with_cluster_split(CLUSTER);
+    let image = fat32_interleaved(&file, &file, CLUSTER);
+    let dir = tempfile::tempdir().unwrap();
+    let image_path = dir.path().join("fragment.img");
+    let report_path = dir.path().join("report.json");
+    std_fs::write(&image_path, image).unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_carvex"))
+        .args([
+            "scan",
+            image_path.to_str().unwrap(),
+            "-o",
+            dir.path().join("out").to_str().unwrap(),
+            "--quiet",
+            "--types",
+            "jpeg",
+            "--min-size",
+            "1",
+            "--fragment-recovery",
+            "--max-frag-candidates",
+            "1",
+            "--threads",
+            "1",
+            "--json-report",
+            report_path.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(3),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: serde_json::Value =
+        serde_json::from_slice(&std_fs::read(&report_path).unwrap()).unwrap();
+    assert!(report["warnings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|w| w["code"] == "FRAGMENT_CANDIDATE_LIMIT"));
+    assert_eq!(report["nondeterministic_stop"], false);
 }

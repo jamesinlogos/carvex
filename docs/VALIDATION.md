@@ -50,9 +50,10 @@ reported advisories, bans, licenses and sources all OK.
 The gate was re-run after the B-04 source additions, after B-06, and after
 R-01/R-02. The five `tests/evidence_formats.rs` fixture tests verify
 byte-for-byte reads for split raw, compressed and uncompressed E01, fixed and
-dynamic VHD, flat and sparse VMDK, and stdin report identity. The two
+dynamic VHD, flat and sparse VMDK, and stdin report identity. The five
 `tests/fragment_recovery.rs` tests verify exact S12-style JPEG, PNG and PDF
-recovery from interleaved fragments and rejection of invalid B-06 limits. The
+recovery from interleaved fragments, rejection of invalid B-06 limits, and the
+work-unit and wall-clock incomplete paths. The
 three `tests/memory_budget.rs` tests cover early `--max-memory` failure,
 candidate-count enforcement and a finite default candidate limit. The four
 `tests/png_decode_budget.rs` tests cover extreme dimensions, an explicit small
@@ -61,9 +62,9 @@ invalid filter byte. Smoke output remained metric-identical to the frozen 0.2.0
 behavior.
 
 The gate was re-run after H-14, H-16, H-17, H-18, H-19 stage 2, H-21, H-22,
-H-25, H-26, H-27 and H-28 on 2026-11-22 and remained green.
-The current test count is 131: 43 unit, 13 CLI contract, 7 evidence-format,
-2 fragment recovery, 8 filesystem detection, 2 JPEG frame budget, 4 memory
+H-25, H-26, H-27, H-28 and H-29 on 2026-11-22 and remained green.
+The current test count is 134: 43 unit, 13 CLI contract, 7 evidence-format,
+5 fragment recovery, 8 filesystem detection, 2 JPEG frame budget, 4 memory
 budget, 3 panic containment, 2 PNG CRC validity, 4 PNG decode budget,
 2 PNG validator budget, 8 PDF structure validation, 5 property, 4 E01 safety,
 4 VMDK safety, 3 repair validation, 6 scan integration, 1 validity-model,
@@ -122,12 +123,32 @@ H-28 strengthened X21 to check exit 4, schema 2, `interrupted: true`, the
 `INTERRUPTED` warning and the absence of `.tmp` files. It was red against the
 unmodified release binary with `exit -2 after SIGINT (expected 4)`; after the
 fix it passes, and a direct two-signal control exited 130 without a report.
-X21 was removed from `scripts/repro_xfail.txt`. The repro harness ran 34
-scenarios with 0 failures, 2 SKIPs and 0 XPASS; G7 and the benchmark smoke were
-green. `scripts/perf_gate.py --carvex target/release/carvex` reported
-**PERF GREEN**: s9_4m median 0.156 s and rand64m median 0.039 s. No new
-coverage measurement was made for
-H-14/H-16/H-17/H-18/H-19/H-21/H-22/H-25/H-26/H-27/H-28.
+X21 was removed from `scripts/repro_xfail.txt`. H-29 added three fragment tests
+and schema/CSV assertions. Before the fix, schema validation lacked
+`alternatives`, the CSV header lacked the trailing column, S12 reported
+`file A not recovered exactly`/`file B not recovered exactly`, and
+strengthened X15 accepted an incorrect PDF splice. After the fix the work-unit
+limit is authoritative, the wall-clock safety net sets `nondeterministic_stop`,
+and only `validity == verified` stitches are emitted. X15 passed with 3/3 exact
+recall, zero bait stitches, ordinary-image output identity and no
+`FRAGMENT_*` warning, within-10% runtime and `--threads 1` parity; it was
+removed from `scripts/repro_xfail.txt`.
+
+The D1-style development profile was measured with
+`python3 scripts/fragment_profile.py --carvex target/release/carvex --corpus
+bench/corpus --work target/fragment-profile --out
+bench/results/d1_fragment_profile.json`. The committed JSON records the release
+binary SHA-256, each planted case and the summary: recall 4/6 = 0.6667, Wilson
+95% [0.299993, 0.903229]; splice rate 0/4 = 0.0, Wilson 95% [0.0, 0.489891];
+junk-FP 0/24 = 0.0, Wilson 95% [0.0, 0.137976]. No tuning followed that
+measurement, and the frozen lockbox was not touched.
+
+The repro harness ran 34 scenarios with 0 failures, 2 SKIPs and 0 XPASS; G7 and
+the benchmark smoke were green. `scripts/perf_gate.py --carvex
+target/release/carvex` reported **PERF GREEN**: s9_4m median 0.145 s and
+rand64m median 0.035 s. Gate logs are `/tmp/opencode/gate_h29.log` and
+`/tmp/opencode/perf_h29.log`. No new coverage measurement was made for
+H-14/H-16/H-17/H-18/H-19/H-21/H-22/H-25/H-26/H-27/H-28/H-29.
 
 ## 3. GitHub Actions
 
@@ -281,9 +302,11 @@ evidence only; published figures remain those of 0.1.0.
 ## 8. What is still not claimed
 
 - D2–D7 datasets remain OPEN; lockbox-v1 uses the D1-style synthetic profile.
-- No D1 fragmented-profile recall or `splice_rate` was measured for B-06; the
-  S12 fixtures are correctness tests only, and the published figures do not
-  include B-06.
+- B-06 now has a small, reproducible D1-style development measurement (§2 and
+  `bench/results/d1_fragment_profile.json`): recall 4/6 with a wide Wilson 95%
+  interval [0.299993, 0.903229], `splice_rate` 0/4 [0.0, 0.489891] and junk-FP
+  0/24 [0.0, 0.137976]. X15 is a larger 3/3 control, but neither is a D2–D7 or
+  frozen-lockbox result, and the published figures do not include B-06.
 - Same-search-space baselines, validator/alignment/FS-aware ablations,
   block-level byte recall/splice rate and McNemar/bootstrap statistics remain
   OPEN.

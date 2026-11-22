@@ -72,11 +72,20 @@ fn scan_repaired(payload: &[u8], name: &str) -> (Value, Vec<u8>) {
         "CSV must expose sha256_original: {csv}"
     );
     assert_eq!(csv.lines().count(), 2, "unexpected CSV rows: {csv}");
+    let header = csv.lines().next().unwrap();
+    assert!(
+        header.ends_with(",sha256_original,alternatives"),
+        "CSV must append alternatives after sha256_original: {header}"
+    );
+    // Notes can contain quoted commas, so the two new numeric/identity columns
+    // are read from the end of the row rather than by a naive split index.
+    let row: Vec<_> = csv.lines().nth(1).unwrap().split(',').collect();
     assert_eq!(
-        csv.lines().nth(1).unwrap().split(',').next_back().unwrap(),
+        row[row.len() - 2],
         file["sha256_original"].as_str().unwrap_or_default(),
         "CSV sha256_original must match JSON"
     );
+    assert_eq!(row[row.len() - 1], "", "repairs have no alternatives count");
     (file, carved)
 }
 
