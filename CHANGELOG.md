@@ -69,6 +69,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - H-28: `ctrlc` 3.5.3 installs a cooperative SIGINT/Ctrl-C handler for `scan`.
   Schema 2 gains `interrupted: true` and an `INTERRUPTED` warning on an
   interrupted partial report; a second signal exits 130.
+- H-31: `scripts/check_status.py` reconciles every A-xx/B-xx/C-xx/D-xx and
+  H-xx row between `docs/PROGRESS.md` and `docs/REVIEW_RESPONSE.md`, and runs
+  from both `scripts/gate.sh` and a dedicated CI job.
 - H-30: G8 now compares measured medians with the committed performance
   baseline; `scripts/perf_gate.py --strict` makes a relative regression fail,
   while the default gate reports it without failing on noisy shared runners.
@@ -78,6 +81,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- H-31: overstated guide statuses were relabelled PARTIAL and the two status
+  tables were consolidated; no CLI, JSON/CSV or benchmark behavior changed.
 - H-30: `scripts/gate.sh` is now the single G0-G9 entry point and also runs
   coverage at 70%, a 13-target fuzz smoke and the benchmark smoke. CI runs fuzz
   smoke on push/PR and executes the packaged Windows and musl binaries. The X15

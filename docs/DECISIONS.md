@@ -997,4 +997,26 @@ decision, and the consequences.
   and three pairs still produced a false failure on a shared runner. No output, score, default, CLI field,
   CSV column or frozen benchmark changes. A GitHub Actions run ID will be
   appended to `docs/VALIDATION.md` after HEAD is pushed; until then no CI run
-  at HEAD is claimed.
+  at HEAD was later recorded as `45035152791` and failed (8 success / 18
+  failure); the remote failure causes were not observable through the public
+  API and are not claimed.
+
+## D-55. Reconcile status labels mechanically (H-31)
+
+- **Context:** several guide items were marked DONE/FIXED in one document while
+  residual defects were still described, the two status tables disagreed (for
+  example A-03 and C-09), and the duplicate H-xx tables in `PROGRESS.md` were
+  incomplete. A reader could not tell which status was authoritative.
+- **Decision:** A-03, A-04, A-06, A-10, A-13, A-14, D-01, D-03, B-05 and C-01
+  are labelled PARTIAL; C-09 is PARTIAL in both documents. `scripts/check_status.py`
+  requires exactly one row per A-01…D-03 and H-01…H-34 in both documents,
+  requires the statuses to agree, and permits `DONE`/`FIXED` only when every
+  linked H-xx is CLOSED with a commit hash and an existing test/control path.
+  The checker runs from `scripts/gate.sh` and a dedicated CI job.
+- **Evidence:** the checker failed before the H-xx table was added and failed
+  again when a temporary copy incorrectly marked A-10 as fixed; the real tree
+  reports `STATUS GREEN` for 38 guide IDs and 34 harness IDs.
+- **Consequences:** no scan behavior, score, default, CLI field, CSV column,
+  warning code or frozen result changed. H-01 remains BLOCKED pending the
+  user-supplied guide; H-04, H-32, H-33 and H-34 remain open until their own
+  findings are implemented.

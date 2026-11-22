@@ -223,3 +223,11 @@ jobs:
         with:
           name: sbom
           path: bench/results/sbom.spdx.json
+
+  status-labels:
+    name: status labels (H-31)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reconcile PROGRESS and REVIEW_RESPONSE
+        run: python3 scripts/check_status.py

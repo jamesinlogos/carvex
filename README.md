@@ -540,8 +540,9 @@ The current suite has 134 tests (43 unit + 13 `cli_contract` +
 Run the full G0-G9 release gate with `bash scripts/gate.sh`: it also runs G7
 golden hashes, G8 performance checks against committed baselines, a generated
 flag-table check (G9), 70% line coverage, a 13-target fuzz smoke, all repro
-controls and the benchmark smoke. CI runs the same gate plus packaged Windows
-and musl binary execution. The suite covers, among other things:
+controls, the benchmark smoke and the H-31 status-label reconciliation check.
+CI runs the same gate plus packaged Windows and musl binary execution. The
+suite covers, among other things:
 
 - JPEG baseline, progressive, EXIF thumbnail, truncated data, fake headers;
 - Valid PNG, bad CRC, truncated chunk, indexed PNG missing PLTE, first chunk not IHDR;

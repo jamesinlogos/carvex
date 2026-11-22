@@ -53,6 +53,9 @@ cargo build --release --locked
 echo "== docs check (G9) =="
 python3 bench/render_docs.py --check --carvex target/release/carvex
 
+echo "== status labels (H-31) =="
+python3 scripts/check_status.py
+
 echo "== performance gate (G8) =="
 python3 scripts/perf_gate.py --carvex target/release/carvex
 

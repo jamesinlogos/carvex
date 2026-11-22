@@ -163,7 +163,7 @@ fuzz budget and logged at `/tmp/opencode/gate_h30.log`.
 | G3 | MSRV 1.85 via `scripts/check-msrv.sh` | PASS |
 | G4 | `actionlint`, `cargo deny check`, `cargo audit` | locally installed and PASS |
 | G5 | coverage + 13 fuzz targets | 70% floor PASS; 18,942,273 executions in 13 × 60 s, no crash or artifact |
-| G6 | cross-platform jobs | Linux/macOS/Windows test matrix declared; packaged Windows and musl execution jobs added (GitHub run pending) |
+| G6 | cross-platform jobs | Linux/macOS/Windows test matrix declared; packaged Windows and musl execution jobs added (H-30 GitHub run later failed; see §3) |
 | G7 | `scripts/golden.py` output-hash sets | GOLDEN GREEN |
 | G8 | `scripts/perf_gate.py` | PERF GREEN; s9_4m 0.154 s / 0.392x baseline, rand64m 0.030 s / 1.001x |
 | G9 | `bench/render_docs.py --check` | G9 GREEN; 48 options match `carvex scan --help` |
@@ -183,6 +183,32 @@ H-08 and H-17 one at a time. The gate exited nonzero for each: PNG budget tests
 (H-05), X04 at 25.38 s (H-07), the 16 MiB working-memory test (H-08), and the
 PNG CRC integrity unit test (H-17). Exact messages and logs are in
 `docs/PROGRESS.md`.
+
+### Status reconciliation at H-31
+
+Command: `python3 scripts/check_status.py`, now called from `scripts/gate.sh`
+and from the `status labels (H-31)` CI job. Result: **STATUS GREEN**: 38 guide
+IDs and 34 harness IDs agree between `docs/PROGRESS.md` and
+`docs/REVIEW_RESPONSE.md`, and every `DONE`/`FIXED` guide item's linked H-xx is
+`CLOSED` with a commit and an existing test/control path.
+
+Two red controls were captured before the green result:
+
+1. Before the reconciliation, the checker exited 1 with
+   `STATUS FAIL: section heading not found` because the H-xx table was absent
+   from `docs/REVIEW_RESPONSE.md` (`/tmp/opencode/status_red_before_docs.txt`).
+2. After the fix, temporary copies of both documents with A-10 changed to
+   `DONE`/`FIXED` exited 1 with `A-10: linked H-34 is OPEN, not CLOSED` and
+   `A-10: linked H-34 has no commit hash ('-')`
+   (`/tmp/opencode/status_red_wrong_label.txt`). The real documents were not
+   changed by that control.
+
+The final H-31 tree ran the full `scripts/gate.sh` with the default 60 s fuzz
+budget: G9 GREEN for 48 options, STATUS GREEN, G7 GOLDEN GREEN, coverage at 70%,
+13 fuzz targets with 16,964,405 executions, 34 scenarios with 0 failures/2
+SKIPs/0 XPASS and **GATE GREEN** (`/tmp/opencode/gate_h31_final.log`). G8
+reported s9_4m 0.147 s / 0.376x baseline and rand64m 0.035 s / advisory 1.161x;
+the relative check is advisory without `--strict` and no threshold changed.
 
 ## 3. GitHub Actions
 
