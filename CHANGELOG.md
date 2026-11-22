@@ -70,6 +70,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `validity=suspect` in both structure and decode modes. The file and its
   historical score are unchanged. Decode mode sets `validated_bytes` to the
   contiguous prefix ending at the last chunk with a good CRC instead of zero.
+- H-18: decode mode no longer labels unsupported JPEG strict-scan variants as
+  `decoded`; they are `unverified`/`structural`. The residual accepted-splice
+  rate for self-consistent baseline tail swaps is disclosed in
+  `docs/baseline/jpeg_splice_v0.2.0.txt`; no clean-file-breaking heuristic was
+  added. Scores, emission and clean baseline labels are unchanged.
 
 ### Fixed
 

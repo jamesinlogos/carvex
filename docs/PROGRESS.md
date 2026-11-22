@@ -64,8 +64,8 @@ scripts/coverage.sh 60                                OK (4456/6391 lines = 69.7
 scripts/fuzz.sh 60                                   7 targets x 60 s, 18,520,025 runs, no crashes/artifacts
 ```
 
-Current gate after H-17 (2026-11-22): **GATE GREEN**, 107 tests
-(39 unit + 13 cli_contract + 5 evidence_formats + 2 fragment_recovery +
+Current gate after H-18 (2026-11-22): **GATE GREEN**, 109 tests
+(41 unit + 13 cli_contract + 5 evidence_formats + 2 fragment_recovery +
 8 fs_detect + 2 jpeg_frame_budget + 4 memory_budget + 3 panic_containment +
 2 png_crc_validity + 4 png_decode_budget + 2 png_validator_budget + 5 properties +
 3 regress_e01_safety + 4 regress_vmdk_safety + 6 scan_integration +
@@ -121,7 +121,7 @@ Windows**.
 | A-08 | PARTIAL | green | `trait ImageSource {len, read_at}` + unchanged `RawFile` default; `seek(End)` fallback when metadata len = 0. B-04 adds split raw, E01, VHD, VMDK and stdin sources under `src/image/`. `--on-read-error` and report `unreadable_regions[]` are now present (H-22); no `BlockDevice`/`--sector-size` yet and real device/Windows not tested. |
 | A-09 | PARTIAL | green | Fixed the NTFS sector off-by-one (`field+1`, D-21, unit test `volume_sector_count_includes_the_backup_boot_sector`); FS errors → `FS_DETECTION_FAILED`. No `$ATTRIBUTE_LIST`/multi-extent `$MFT`/`$MFTMirr`/backup boot/FAT #2 yet. |
 | A-10 | DONE | green | Lib crate + thin `main.rs`; pipeline `plan_extents → build_tasks → scan_task → carve_batch → postfilter → write_outputs`; format registry; `ScanInput<'a>` groups the input parameters for `run_scan`, with targeted `too_many_arguments` allows only on the two R-01/R-02 helpers that take explicit budget/deadline state; `cargo doc -D warnings` passes. |
-| A-11 | PARTIAL | green | **107 tests** in the current gate (39 unit + 13 cli_contract + 5 evidence_formats + 2 fragment_recovery + 8 fs_detect + 2 jpeg_frame_budget + 4 memory_budget + 3 panic_containment + 2 png_crc_validity + 4 png_decode_budget + 2 png_validator_budget + 5 properties + 3 regress_e01_safety + 4 regress_vmdk_safety + 6 scan_integration + 1 validity_model + 4 work_budgets); `scripts/review_repro.py --assert/--xfail --carvex` 34 scenarios, 0 failures, 2 SKIPs, 0 XPASS; red baseline `docs/baseline/repro_v0.1.0.txt`. Post-R-01/R-02 `cargo-llvm-cov 0.9.1` measured 4456/6391 lines = **69.72%**; CI/local floor set to 60%, not the earlier aspirational 80%. No new coverage run after H-14/H-16/H-17. |
+| A-11 | PARTIAL | green | **109 tests** in the current gate (41 unit + 13 cli_contract + 5 evidence_formats + 2 fragment_recovery + 8 fs_detect + 2 jpeg_frame_budget + 4 memory_budget + 3 panic_containment + 2 png_crc_validity + 4 png_decode_budget + 2 png_validator_budget + 5 properties + 3 regress_e01_safety + 4 regress_vmdk_safety + 6 scan_integration + 1 validity_model + 4 work_budgets); `scripts/review_repro.py --assert/--xfail --carvex` 34 scenarios, 0 failures, 2 SKIPs, 0 XPASS; red baseline `docs/baseline/repro_v0.1.0.txt`. Post-R-01/R-02 `cargo-llvm-cov 0.9.1` measured 4456/6391 lines = **69.72%**; CI/local floor set to 60%, not the earlier aspirational 80%. No new coverage run after H-14/H-16/H-17/H-18. |
 | A-12 | PARTIAL | green | MSRV 1.85 (`rust-version`, README corrected from "Rust 1.74"); `cargo +1.85 check` in the gate; `.github/workflows/ci.yml` adds actionlint + coverage and uses a pinned direct actionlint install; `rustfmt.toml`/`clippy.toml`/`deny.toml`; dist 0.2.0 + `SHA256SUMS`. Local `cargo deny check`, `cargo audit` and `actionlint 1.7.12` pass. Real GitHub run `44548142275` on commit `42376a9` succeeded (all jobs; push-event fuzz matrix skipped), but it predates B-04, B-06 and R-01/R-02. Distributed Windows binary not executed; no SBOM/signatures yet; removing binaries from `dist/` is STOP-AND-ASK (kept). |
 | A-13 | PARTIAL | green | Exit 0/1/2/3/4 documented + CLI contract tests; coded warnings; `RAW_SCANS_ALLOCATED` informational (D-20). No `thiserror`/leveled logger/`ProgressSink`/partial report on interrupt yet. |
 | A-14 | DONE | green | Report schema v2: `schema_version`, `argv`, `options`, `tool_info`, `input` (before–after SHA-256), ISO-8601, `case_id`, `examiner`, `warnings[]` object, `volumes[]`, `regions[]`, `lba`, real `cluster`, `partition_index`, `extent_id`, `allocated`, `source`, `fragments`. `docs/report.schema.json` + key-matching test; atomic write; `--manifest` generates `SHA256SUMS`; `--report-schema 1`. `unreadable_regions[]` belongs to A-08 (not present). |
@@ -187,7 +187,7 @@ Windows**.
 | H-10 | HIGH | 2026-11-21 source / 2026-11-21 release build | CLOSED | 5f794a4 | tests/panic_containment.rs; scripts/review_repro.py X06 | Red test proved an escaping rayon panic before the fix. After: candidate/join panics become `internal_errors[]`, `CANDIDATE_PANIC`, counted in stats, exit 3; other candidates still carved. Open panics become typed errors; panic=unwind profile test added. |
 | H-14 | HIGH | 2026-11-22 source / nightly fuzz runtime | CLOSED | e2d3f1d | fuzz/fuzz_targets/fuzz_*.rs; src/image/fuzz_support.rs tests; scripts/fuzz.sh | Static gap: only 7 targets, none for the new parsers. Added 6 named targets, 22 committed seeds and structured property tests; each target ran 60 s clean (235,272 executions total, no crash/artifact). Real-tool E01/VMDK fixtures SKIPPED (`ewfacquire`/`ewfexport`/`qemu-img` missing); all 13 targets are listed in the CI fuzz matrix. |
 | H-15 | MED | 2026-11-22 source / 0.2.0 `dist/` | CLOSED (measured; musl/dist-only) | 1c28e2e | scripts/review_repro.py X23; direct X23 timing | Current glibc source: 1 thread median 0.489 s, default 0.156 s (0.32x). Stale 0.2.0 musl dist: 1 thread median 0.694 s, default 2.436 s (3.51x). Only the stale packaged release is slow; buffer reuse already landed in H-08. No allocator change without STOP-AND-ASK; no tuning or dist rebuild in this finding. |
-| H-18 | HIGH | 2026-11-21 source | IN_PROGRESS | 3724a06 | scripts/review_repro.py X12; scripts/jpeg_splice_property.py | Baseline splice rate 0.2180 [0.1935,0.2446] at a7a5c08; current rate 0.0010 [0.0002,0.0056]. Strict-scan unsupported variants are Unverified; step 2 is still needed because the current upper CI exceeds 0.1%. |
+| H-18 | HIGH | 2026-11-22 source | CLOSED | PENDING_H18 | src/signatures/jpeg.rs unit tests; scripts/review_repro.py X12; scripts/jpeg_splice_property.py | Baseline 0.2180 [0.1935,0.2446] at a7a5c08; final 4,000-pair rate 0.0013 [0.0005,0.0029]. Unsupported variants are Unverified; RSTn/MCU/EOI checks verified by unit tests. D-45 records the disclosed residual accepted cases and decision not to add a false-positive-prone detector. |
 | H-19 | HIGH | 2026-11-21 source | CLOSED (stage 1) | - | scripts/review_repro.py X11 | PDF decode no longer returns Decoded; returns Unverified with explicit lexical-only note (stage 1 honesty). S12/B-06 acceptance adjusted with E-1 note: PDF stitches accepted as lexical-validated Unverified, not Decoded. |
 | H-21 | HIGH | 2026-11-21 source | REPRODUCED | - | scripts/review_repro.py X14 | Repaired PDF missing `sha256_original`. |
 | H-22 | CRIT | 2026-11-21 in-memory fixture | IN_PROGRESS | 4b86f2d+97b2b04 | tests/regress_e01_safety.rs::{partial_final_chunk_is_tolerated, damaged_chunk_is_reported_and_outputs_are_not_verified}; X16 (real libewf SKIPPED) | Short final chunks are accepted; damaged chunks follow `--on-read-error`; `unreadable_regions[]`, `UNREADABLE_REGION` and overlap downgrade are reported. Remaining: `abort` must still write a partial report, and real libewf fixtures are unavailable; X16 is now present in the Python harness. |
@@ -196,6 +196,26 @@ Windows**.
 | H-23 | MED | 2026-11-21 source | CLOSED | 080b76a | tests/regress_vmdk_safety.rs | Missing grain table returned "index out of range"; now reads zeros like qemu-img. |
 
 ### Per-task reports
+
+Task: H-18 — JPEG strict-scan validity and splice rate
+Reviews: v1:R-05, v2:R-05, v3:R-05, v4:F-05, v5:F-08
+Repro: `scripts/jpeg_splice_property.py` on the unmodified build measured
+  218/1,000 top-label splices (0.2180, Wilson 95% [0.1935, 0.2446]).
+  The partial fix already made unsupported strict-scan variants return
+  `Unverified`; the remaining accepted cases are baseline tail swaps with
+  identical headers.
+Change: no further parser change was made. The RSTn-sequence (when DRI is
+  present), MCU-count-against-SOF and exact-EOI-consumption checks were already
+  in `check_baseline_mcus`; two unit tests now pin the MCU/EOI behaviour.
+  The property script records accepted case bytes and the final 4,000-pair run.
+  D-45 records why no false-positive-prone splice detector was added.
+Tests: `src/signatures/jpeg.rs::h18_strict_scan_rejects_extra_entropy_before_eoi`
+  and `h18_strict_scan_rejects_truncated_entropy`; X12 for progressive labels.
+Gate: green (fmt/clippy/tests/doc/actionlint/deny/audit/MSRV/release/repro/golden/smoke),
+  109 tests, 34 repro scenarios, 0 failures/2 SKIPs/0 XPASS, G7 green.
+Residual risk / next: 5/4,000 byte-aligned tail swaps still receive `verified`
+  (0.0013, Wilson 95% [0.0005, 0.0029]); the upper CI remains above 0.1%.
+  H-19 stage 2 and later validity items continue.
 
 Task: H-17 — PNG bad CRC still `complete` / `decoded`
 Reviews: v1:R-03, v2:R-03, v3:R-02, v4:F-03, v5:F-06
@@ -448,8 +468,11 @@ Residual risk / next: `abort` still exits 1 without a partial report, the
   unmodified `a7a5c08` build: 218/1,000 splices received `validation=decoded`,
   rate 0.2180, Wilson 95% [0.1935, 0.2446] (`docs/baseline/jpeg_splice_v0.2.0.txt`).
   After the partial H-18 fix the same protocol gave 1/1,000, rate 0.0010,
-  Wilson 95% [0.0002, 0.0056]. The point estimate meets the 0.1% boundary but
-  the upper CI does not; H-18 step 2 remains open.
+  Wilson 95% [0.0002, 0.0056]. The final 4,000-pair run gave 5/4,000, rate
+  0.0013, Wilson 95% [0.0005, 0.0029]. D-45 closes the finding by disclosing
+  the residual accepted cases rather than adding an unreliable detector; the
+  reviewer's 21.8% conflict is resolved, but the 0.1% boundary is not met at
+  the upper CI.
 - **C2 (PDF `%%EOF` cost).** Current source build, `--threads 1`, canonical
   revision-like fixture at 61,550,637 B: E=1 0.005 s, E=4,096 0.331 s,
   `%%EOX` control 0.139 s (median of 3). Reviewer figures were 18.05-19.2 s;

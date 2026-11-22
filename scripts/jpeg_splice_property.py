@@ -131,6 +131,8 @@ def main() -> None:
         )
         if top_label:
             accepted += 1
+            (work / f"accepted_{index}.img").write_bytes(b[:cut] + a[cut:])
+            print(f"accepted case {index}: {a_path.name} <- {b_path.name}, cut={cut}")
             key = a_path.name.split("_")[0]
             by_class.setdefault(key, [0, 0])
             by_class[key][0] += 1

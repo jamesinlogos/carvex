@@ -701,3 +701,20 @@ decision, and the consequences.
 - **Compatibility:** no score, emission, CSV prefix, schema shape or published
   benchmark figure changes. The earlier H-17 partial fix is retained and
   extended rather than reverted.
+
+## D-45. Residual JPEG splice acceptance (H-18)
+
+- **Context:** after the partial fix and the already-present RSTn, MCU-count
+  and exact-EOI checks, the 4,000-pair property run still accepted 5 byte-aligned
+  tail swaps (0.0013, Wilson 95% [0.0005, 0.0029]). Each accepted output has
+  identical SOF/quantisation/Huffman headers to one input and is a completely
+  self-consistent baseline bitstream, so no parser error exists to detect.
+- **Decision:** close H-18 with the measured point estimate and confidence
+  interval disclosed in `docs/baseline/jpeg_splice_v0.2.0.txt`; do not add a
+  statistical change-point or suffix heuristic. Such a rule could only be
+  calibrated against this corpus and would risk downgrading clean high-contrast
+  JPEGs, contradicting the mandatory-check definition of `verified` (ADR-H1).
+- **Compatibility:** no score, emission, label mapping or clean-file behaviour
+  changes. Unsupported variants remain `unverified`/`structural`; progressive
+  JPEGs are never `verified`. The residual rate is a known limitation, not a
+  claim that the 0.1% upper-CI boundary was met.

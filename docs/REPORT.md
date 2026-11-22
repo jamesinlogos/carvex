@@ -331,9 +331,13 @@ For PNG, every chunk-CRC mismatch adds a `chunk_crc` check naming the chunk
 type and byte offset and sets `validation=partial`/`validity=suspect` without
 changing the score or suppressing the file. Decode mode recomputes all CRCs
 and reports the contiguous prefix ending at the last good chunk; structure
-mode reports zero decoded bytes. An output intersecting an unreadable source
-range is at best `suspect` and
-carries `overlaps_unreadable_region: false`.
+mode reports zero decoded bytes. For JPEG, unsupported strict-scan variants
+are `unverified`/`structural`; a baseline tail swap between files with
+identical headers can still be self-consistent and receive `verified`. The
+measured residual rate and confidence interval are disclosed in
+`docs/baseline/jpeg_splice_v0.2.0.txt` (D-45). An output intersecting an
+unreadable source range is at best `suspect` and carries
+`overlaps_unreadable_region: false`.
 
 ### 3.5. Scoring
 

@@ -888,6 +888,41 @@ mod tests {
     }
 
     #[test]
+    fn h18_strict_scan_rejects_extra_entropy_before_eoi() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/bench/corpus/jpeg/jpeg_01_baseline_640x480.jpg"
+        );
+        let original = std::fs::read(path).unwrap();
+        assert!(strict_baseline_scan(&original).is_some_and(|r| r.is_ok()));
+        let split = original.len() - EOI.len();
+        let mut mutated = original[..split].to_vec();
+        mutated.push(0x00);
+        mutated.extend_from_slice(EOI);
+        match strict_baseline_scan(&mutated) {
+            Some(Err(reason)) => assert!(
+                reason.contains("after the last MCU") || reason.contains("padding"),
+                "reason: {reason}"
+            ),
+            other => panic!("extra entropy byte was accepted: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn h18_strict_scan_rejects_truncated_entropy() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/bench/corpus/jpeg/jpeg_01_baseline_640x480.jpg"
+        );
+        let original = std::fs::read(path).unwrap();
+        let split = original.len() - EOI.len();
+        let mut truncated = original[..split].to_vec();
+        truncated.extend_from_slice(EOI);
+        truncated.truncate(truncated.len() - 1024);
+        assert!(strict_baseline_scan(&truncated).is_some_and(|r| r.is_err()));
+    }
+
+    #[test]
     fn rejects_bogus_header() {
         let d = [0xFF, 0xD8, 0xFF, 0x00, 0x01, 0x02];
         assert!(matches!(analyze(&d, true), Need::Reject(_)));

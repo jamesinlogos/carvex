@@ -38,3 +38,29 @@ wilson95=[0.0002,0.0056]
 gradient: 1/315 rate=0.0032 wilson95=[0.0006,0.0178]
 noise: 0/347 rate=0.0000 wilson95=[0.0000,0.0109]
 photo: 0/338 rate=0.0000 wilson95=[0.0000,0.0112]
+
+Final 0.3.0-dev re-measurement (H-18 step 2)
+--------------------------------------------
+Command: python3 scripts/jpeg_splice_property.py \
+  --carvex target/release/carvex --corpus bench/corpus --pairs 4000 \
+  --workdir target/h18-4000
+
+accepted case 940: gradient_noise_35_baseline.jpg <- gradient_noise_41_baseline.jpg, cut=39424
+accepted case 1131: gradient_noise_07_baseline.jpg <- gradient_noise_10_baseline.jpg, cut=106496
+accepted case 2006: gradient_noise_21_baseline.jpg <- gradient_noise_09_baseline.jpg, cut=30208
+accepted case 2280: gradient_noise_35_baseline.jpg <- gradient_noise_38_baseline.jpg, cut=180736
+accepted case 2798: noise_15_baseline.jpg <- noise_30_baseline.jpg, cut=135680
+pairs=4000 accepted=5 rate=0.0013
+wilson95=[0.0005,0.0029]
+gradient: 4/1323 rate=0.0030 wilson95=[0.0012,0.0077]
+noise: 1/1336 rate=0.0007 wilson95=[0.0001,0.0042]
+photo: 0/1341 rate=0.0000 wilson95=[0.0000,0.0029]
+
+The remaining accepted cases are byte-aligned tail swaps between baseline
+JPEGs with identical SOF/quantisation/Huffman headers. Each is a self-consistent
+Huffman bitstream that passes the implemented RSTn (when DRI is present), MCU
+count against SOF geometry, and exact EOI-consumption checks. No detector that
+rejects these cases while preserving clean baseline JPEG labels was found;
+adding a heuristic would require tuning against the measurement corpus. Per
+D-45 the point estimate and 95% CI are recorded as-is and the residual accepted
+cases are disclosed rather than hidden by a false-positive-prone rule.
