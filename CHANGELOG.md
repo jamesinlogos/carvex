@@ -69,9 +69,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - H-28: `ctrlc` 3.5.3 installs a cooperative SIGINT/Ctrl-C handler for `scan`.
   Schema 2 gains `interrupted: true` and an `INTERRUPTED` warning on an
   interrupted partial report; a second signal exits 130.
+- H-30: G8 now compares measured medians with the committed performance
+  baseline; `scripts/perf_gate.py --strict` makes a relative regression fail,
+  while the default gate reports it without failing on noisy shared runners.
+  G9 generates the README scan flag table from `carvex scan --help`
+  (`bench/render_docs.py`). CI adds
+  full-gate, repro, fuzz-smoke, musl, packaged-Windows and SBOM jobs.
 
 ### Changed
 
+- H-30: `scripts/gate.sh` is now the single G0-G9 entry point and also runs
+  coverage at 70%, a 13-target fuzz smoke and the benchmark smoke. CI runs fuzz
+  smoke on push/PR and executes the packaged Windows and musl binaries. The X15
+  runtime control uses the median of nine paired B-06/plain ratios after one
+  discarded warm-up pair instead of independently sorted medians; this changes
+  only test measurement, not scan behaviour.
 - H-08: `--max-memory` now bounds concurrent working buffers instead of the
   cumulative size of carved output. Carving keeps source ranges, analysis and
   digests; the write stage re-reads each output from the read-only source,

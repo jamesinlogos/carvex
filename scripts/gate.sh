@@ -50,6 +50,26 @@ bash scripts/check-msrv.sh
 echo "== release build =="
 cargo build --release --locked
 
+echo "== docs check (G9) =="
+python3 bench/render_docs.py --check --carvex target/release/carvex
+
+echo "== performance gate (G8) =="
+python3 scripts/perf_gate.py --carvex target/release/carvex
+
+echo "== coverage (G5) =="
+if cargo llvm-cov --version >/dev/null 2>&1; then
+    scripts/coverage.sh "${CARVEX_COVERAGE_MIN:-70}"
+else
+    echo "SKIPPED coverage (cargo-llvm-cov not installed)"
+fi
+
+echo "== fuzz smoke (G5) =="
+if command -v cargo-fuzz >/dev/null 2>&1 && cargo +nightly fuzz --version >/dev/null 2>&1; then
+    scripts/fuzz.sh "${CARVEX_FUZZ_SECONDS:-60}"
+else
+    echo "SKIPPED fuzz smoke (cargo-fuzz or nightly toolchain not installed)"
+fi
+
 echo "== review repro =="
 NTFS_IMG=bench/images/all-deleted_ntfs.img
 FAT32_IMG=bench/images/all-deleted_fat32.img

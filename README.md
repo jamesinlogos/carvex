@@ -116,49 +116,57 @@ carvex scan IMAGE -o OUT [OPTIONS]
 
 Main options:
 
+<!-- BEGIN GENERATED SCAN FLAG TABLE -->
 | Option | Default | Meaning |
 |---|---|---|
-| `-o, --output DIR` | required | Output directory; must be empty unless `--force` is given |
-| `--input-format FMT` | `auto` | Image container: `auto`, `raw`, `split`, `e01`, `vhd`, `vmdk`, `stdin`; use `-` as `IMAGE` for stdin |
-| `--on-read-error POLICY` | `zero-fill` | `abort`, `zero-fill` or `skip` for unreadable bytes; `abort` exits 1 but writes a partial report |
-| `-t, --types LIST` | `jpeg,png,pdf` | File types to search for; accepts the alias `jpg` |
-| `--mode MODE` | `auto` | `auto`, `unallocated`, `raw`, `allocated` |
-| `--min-size SIZE` | `256` | Minimum size of a written file; supports `K/M/G` suffixes |
-| `--max-size SIZE` | `64M` | Maximum bytes to read after a header before giving up |
-| `--max-truncated-size SIZE` | `16M` | Maximum size of a truncated file written without `--repair` (`0` = unlimited) |
-| `--max-memory SIZE` | `1G` | Maximum concurrent working memory for carve, B-06 join and write buffers; output is not retained in RAM |
-| `--max-validator-memory SIZE` | `256M` | Working-memory limit for one decode validator; legacy alias `--max-decode-bytes` (`0` = default bound) |
-| `--max-candidates N` | `1000000` | Deterministic work limit on header candidates; excess writes a partial report and exits 3 (`0` = default limit) |
-| `--max-work-per-candidate SIZE` | `256M` | Analyzer + validator byte budget for one candidate; excess emits `WORK_LIMIT` and exits 3 (`0` = unlimited) |
-| `--max-output SIZE` | `4G` | Cap on bytes written by one scan; excess emits `OUTPUT_LIMIT` and exits 3 (`0` = unlimited) |
-| `--time-budget SEC` | `0` | Wall-clock safety net in seconds; sets `nondeterministic_stop` and exits 3 when exceeded (`0` = unlimited) |
-| `--chunk-size SIZE` | `4M` | Read chunk size for parallel scanning (minimum 64 KiB) |
-| `--threads N` | `0` | Number of threads; `0` = available CPU count |
-| `--min-score N` | `50` | Minimum structural score (0–100) |
-| `--repair` | off | Rebuild a truncated file footer (JPEG EOI, PNG IEND, PDF xref/trailer) and label it `repaired` only after revalidation |
-| `--complete-only` | off | Only write files where a footer was found |
-| `--pdf-eof MODE` | `smart` | `first`, `last`, `smart` — strategy for choosing the `%%EOF` of a PDF |
-| `--dedupe-hashes` | off | Discard files with duplicate SHA-256 |
-| `--keep-nested` | off | Keep images/PDFs located entirely within an already carved container |
-| `--validate MODE` | `structure` | `structure` (structure validation only) or `decode` (also decode the payload) |
-| `--align MODE` | `none` | Align candidates: `none`, `auto`, `cluster`, `sector` |
-| `--fragment-recovery` | off | Opt in to bounded two-fragment gap carving (B-06; needs a detected volume) |
-| `--max-gap N` | `16` | Maximum gap between joined fragments, in clusters (requires `--fragment-recovery`) |
-| `--max-frag-candidates N` | `1024` | Authoritative work-unit budget for B-06 head probes and join attempts (requires `--fragment-recovery`) |
-| `--frag-time-limit MS` | `5000` | Wall-clock safety net for B-06; flags a partial report as nondeterministic (requires `--fragment-recovery`) |
-| `--partition SEL` | `all` | `all` (default: all volumes, written to `part1/`, `part2/`, …), `largest` (0.1.0 behavior), or a 1-based partition number |
-| `--include-gaps` | on | Still accepted (not needed since it is the default); use it to state intent explicitly in scripts |
-| `--no-gaps` | off | Disable scanning of gaps/unsupported partitions; use with `--partition largest` to restore the old behavior |
-| `--max-regions N` | `4096` | Maximum detailed `regions[]` rows before same-state rows are summarised (`0` = unlimited); coverage and byte totals are preserved (H-27) |
-| `--offset BYTES` | automatic | Force the byte offset of the volume boot sector |
-| `--no-fs` | off | Skip filesystem detection and scan raw |
-| `--hash-image` | off | Hash the entire source image (streaming, can be slow) |
-| `--case-id` / `--examiner` | — | Written into the JSON report |
-| `--manifest` | off | Write `SHA256SUMS` for the output directory |
-| `--json-report FILE` | — | Write a JSON report |
-| `--report-schema N` | `2` | `2` (current) or `1` (legacy 0.1.0 format) |
-| `--csv-report FILE` | — | Write a CSV report |
-| `--quiet` / `--verbose` | — | Decrease / increase log level |
+| `--input-format <INPUT_FORMAT>` | `auto` | Image container: auto, raw, split, e01, vhd, vmdk or stdin |
+| `--allow-external-extents` | `off` | Allow VMDK extents outside the descriptor directory (unsafe) |
+| `--on-read-error <ON_READ_ERROR>` | `zero-fill` | What to do when a byte range cannot be read (default: zero-fill) |
+| `--max-stdin-bytes <MAX_STDIN_BYTES>` | `0` | Maximum bytes spooled from stdin (0 = unlimited) |
+| `--spool-dir <SPOOL_DIR>` | `off` | Directory for the stdin spool file |
+| `--output <OUTPUT>` | `required` | Output directory for carved files (must be empty unless --force) |
+| `--types <TYPES>` | `jpeg,png,pdf` | Comma-separated types: jpeg,jpg,png,pdf |
+| `--mode <MODE>` | `auto` | Space to scan: auto, unallocated, raw, allocated |
+| `--min-size <MIN_SIZE>` | `256` | Minimum carved file size (bytes, suffix K/M/G allowed) |
+| `--max-size <MAX_SIZE>` | `64M` | Maximum bytes to inspect after a header before giving up |
+| `--max-truncated-size <MAX_TRUNCATED_SIZE>` | `16M` | Maximum size of a truncated file written without --repair (0 = unlimited) |
+| `--max-memory <MAX_MEMORY>` | `1G` | Maximum concurrent working memory for carve, join and write buffers; carved output is streamed from the source, not retained in RAM |
+| `--max-validator-memory <MAX_VALIDATOR_MEMORY>` | `256M` | Maximum working memory for one decode validator (0 = default) (alias: `--max-decode-bytes`) |
+| `--max-candidates <MAX_CANDIDATES>` | `1000000` | Deterministic limit on header candidates evaluated (0 = default limit) |
+| `--max-work-per-candidate <MAX_WORK_PER_CANDIDATE>` | `256M` | Deterministic analyzer + validator byte budget for one candidate (0 = unlimited) |
+| `--max-output <MAX_OUTPUT>` | `4G` | Cap on bytes written by one scan (0 = unlimited) |
+| `--time-budget <TIME_BUDGET>` | `0` | Overall scan wall-clock budget in seconds (0 = unlimited); stops with a partial report |
+| `--chunk-size <CHUNK_SIZE>` | `4M` | Read chunk size for parallel scanning |
+| `--threads <THREADS>` | `0` | Worker threads (0 = number of CPUs) |
+| `--min-score <MIN_SCORE>` | `50` | Minimum structural validation score (0-100) |
+| `--repair` | `off` | Rebuild a truncated footer (PDF xref/trailer, JPEG EOI, PNG IEND) and revalidate before labelling repaired |
+| `--complete-only` | `off` | Only write files whose footer was found, not verified (see validity) |
+| `--pdf-eof <PDF_EOF>` | `smart` | PDF %%EOF selection strategy |
+| `--dedupe-hashes` | `off` | Drop later files with an identical SHA-256 |
+| `--keep-nested` | `off` | Keep images/PDFs embedded inside a complete carved container |
+| `--validate <VALIDATE>` | `structure` | Validate structure only, or also decode the payload |
+| `--align <ALIGN>` | `none` | Candidate alignment: none (historical), auto, cluster, sector |
+| `--force` | `off` | Allow writing into a non-empty output directory |
+| `--manifest` | `off` | Write SHA256SUMS for the carved files |
+| `--partition <PARTITION>` | `all` | Select partitions: 'all' (default), 'largest' (historical) or a 1-based number |
+| `--include-gaps` | `on` | Scan image regions outside every supported volume (gaps and partitions without a supported filesystem); on by default |
+| `--no-gaps` | `off` | Restore the historical behaviour: do not scan gaps or unsupported partitions (use with `--partition largest`) |
+| `--max-regions <MAX_REGIONS>` | `4096` | Maximum detailed `regions[]` rows before adjacent rows of the same scanned state are summarised (0 = unlimited; H-27) |
+| `--fragment-recovery` | `off` | Opt in to bounded bifragment gap carving (B-06) |
+| `--max-gap <MAX_GAP>` | `16` | Maximum gap between joined fragments, in clusters (B-06) |
+| `--max-frag-candidates <MAX_FRAG_CANDIDATES>` | `1024` | Maximum candidate joins evaluated by B-06 |
+| `--frag-time-limit <FRAG_TIME_LIMIT>` | `5000` | Wall-clock budget for B-06, in milliseconds |
+| `--offset <OFFSET>` | `off` | Force the volume boot-sector offset (bytes, suffix K/M/G allowed) |
+| `--no-fs` | `off` | Skip filesystem detection (raw scanning only) |
+| `--hash-image` | `off` | Hash the complete source image (streaming, can be slow) |
+| `--case-id <CASE_ID>` | `off` | Case identifier stored in the report |
+| `--examiner <EXAMINER>` | `off` | Examiner name stored in the report |
+| `--json-report <JSON_REPORT>` | `off` | Write a machine-readable JSON report (schema 1 or 2) |
+| `--csv-report <CSV_REPORT>` | `off` | Write a CSV report |
+| `--report-schema <REPORT_SCHEMA>` | `2` | JSON report schema: 2 (current) or 1 (legacy shape) |
+| `--quiet` | `off` | Suppress progress and summary output |
+| `--verbose` | `off` | Print every candidate/rejection decision |
+<!-- END GENERATED SCAN FLAG TABLE -->
 
 ### Evidence image sources
 
@@ -529,7 +537,11 @@ The current suite has 134 tests (43 unit + 13 `cli_contract` +
 4 `regress_vmdk_safety` + 3 `repair_validation` + 6 `scan_integration` +
 1 `validity_model` + 4 `work_budgets` + 3 `volume_parse_errors` +
 3 `region_coverage`).
-Run the full release gate with `bash scripts/gate.sh`. The suite covers, among other things:
+Run the full G0-G9 release gate with `bash scripts/gate.sh`: it also runs G7
+golden hashes, G8 performance checks against committed baselines, a generated
+flag-table check (G9), 70% line coverage, a 13-target fuzz smoke, all repro
+controls and the benchmark smoke. CI runs the same gate plus packaged Windows
+and musl binary execution. The suite covers, among other things:
 
 - JPEG baseline, progressive, EXIF thumbnail, truncated data, fake headers;
 - Valid PNG, bad CRC, truncated chunk, indexed PNG missing PLTE, first chunk not IHDR;

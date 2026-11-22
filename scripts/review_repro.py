@@ -1651,21 +1651,30 @@ def case_x15(carvex: Path, work: Path, corpus: Path, ntfs: Path | None) -> str:
     ordinary_img.write_bytes(ordinary)
     plain_times: list[float] = []
     bgc_times: list[float] = []
+    paired_ratios: list[float] = []
     plain_res: ScanResult | None = None
     ordinary_res: ScanResult | None = None
-    for repeat in range(3):
-        plain, elapsed = _x15_scan(
+    # Ten alternating pairs; the first is discarded as process warm-up. Three
+    # pairs were too few on shared runners and produced false X15 failures
+    # (median ratios above 1.10 despite identical outputs and no fragment
+    # warnings). Paired ratios cancel drift between the two command variants.
+    for repeat in range(10):
+        plain, plain_elapsed = _x15_scan(
             carvex, work, f"ordinary_plain_{repeat}", ordinary_img, []
         )
-        plain_times.append(elapsed)
-        plain_res = plain
-        with_bgc, elapsed = _x15_scan(
+        with_bgc, bgc_elapsed = _x15_scan(
             carvex, work, f"ordinary_bgc_{repeat}", ordinary_img, bgc_args
         )
-        bgc_times.append(elapsed)
+        if repeat == 0:
+            continue
+        plain_times.append(plain_elapsed)
+        plain_res = plain
+        bgc_times.append(bgc_elapsed)
         ordinary_res = with_bgc
+        paired_ratios.append(bgc_elapsed / plain_elapsed if plain_elapsed > 0 else float("inf"))
     plain_times.sort()
     bgc_times.sort()
+    paired_ratios.sort()
     if plain_res is None or ordinary_res is None or plain_res.report is None or ordinary_res.report is None:
         return "ordinary: missing report"
     fragment_codes = {c for c in _x15_codes(ordinary_res) if c.startswith("FRAGMENT_")}
@@ -1673,10 +1682,11 @@ def case_x15(carvex: Path, work: Path, corpus: Path, ntfs: Path | None) -> str:
         return f"ordinary: unexpected fragment warning(s) {sorted(fragment_codes)}"
     if _x15_outputs(ordinary_res) != _x15_outputs(plain_res):
         return "ordinary: fragment recovery changed the carved outputs"
-    if bgc_times[1] > plain_times[1] * 1.10:
+    if paired_ratios[1] > 1.10:
         return (
-            "ordinary: B-06 runtime {:.3f}s exceeds 110% of plain {:.3f}s".format(
-                bgc_times[1], plain_times[1]
+            "ordinary: median paired B-06/plain runtime ratio {:.3f} exceeds 1.10 "
+            "(plain median {:.3f}s, B-06 median {:.3f}s)".format(
+                paired_ratios[1], plain_times[1], bgc_times[1]
             )
         )
 

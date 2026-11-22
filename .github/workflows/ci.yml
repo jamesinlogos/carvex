@@ -89,7 +89,7 @@ jobs:
       - run: python3 bench/run_benchmark.py --smoke
 
   coverage:
-    name: coverage
+    name: coverage (≥70%)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -98,16 +98,15 @@ jobs:
           components: llvm-tools-preview
       - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@cargo-llvm-cov
-      - name: Coverage (≥60% lines)
-        run: cargo llvm-cov --all-features --locked --lcov --output-path lcov.info --fail-under-lines 60
+      - name: Coverage floor (ratchet 70, next 75)
+        run: scripts/coverage.sh 70
       - uses: actions/upload-artifact@v4
         with:
           name: lcov
-          path: lcov.info
+          path: bench/results/coverage/lcov.info
 
   fuzz:
     name: fuzz (${{ matrix.target }})
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -116,6 +115,8 @@ jobs:
           [jpeg, png, pdf, fat32_boot, ntfs_boot, ntfs_mft, partition_table,
            fuzz_e01, fuzz_vhd, fuzz_vmdk, fuzz_split_names, fuzz_open_image,
            fuzz_fragment_join]
+    env:
+      FUZZ_SECONDS: ${{ github.event_name == 'schedule' && '600' || '60' }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@nightly
@@ -124,9 +125,9 @@ jobs:
           workspaces: fuzz
       - name: Install cargo-fuzz
         run: cargo install cargo-fuzz --locked
-      - name: Fuzz for 10 minutes
+      - name: Fuzz smoke (60 s on push/PR, 10 min nightly)
         working-directory: fuzz
-        run: cargo fuzz run "${{ matrix.target }}" -- -max_total_time=600 -rss_limit_mb=4096
+        run: cargo fuzz run "${{ matrix.target }}" -- -max_total_time="$FUZZ_SECONDS" -rss_limit_mb=4096
       - name: Upload crash artifact
         if: failure()
         uses: actions/upload-artifact@v4
@@ -134,3 +135,91 @@ jobs:
           name: fuzz-${{ matrix.target }}
           path: fuzz/artifacts/
           if-no-files-found: ignore
+
+  release-gate:
+    name: release gate (G0-G9)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Run scripts/gate.sh
+        run: bash scripts/gate.sh
+
+  review-repro:
+    name: review repro assertions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release --locked
+      - name: Run X01-X24 controls
+        run: |
+          mkdir -p target/repro-ci
+          python3 scripts/review_repro.py --carvex target/release/carvex \
+            --corpus bench/corpus --workdir target/repro-ci \
+            --assert --xfail scripts/repro_xfail.txt \
+            --ntfs-image bench/images/all-deleted_ntfs.img \
+            --fat32-image bench/images/all-deleted_fat32.img
+
+  musl-smoke:
+    name: Linux musl packaged binary smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release --locked --target x86_64-unknown-linux-musl
+      - name: Execute musl binary
+        run: |
+          BIN=target/x86_64-unknown-linux-musl/release/carvex
+          "$BIN" --version
+          "$BIN" info bench/images/mixed_fat32.img
+          rm -rf target/musl-scan && mkdir -p target/musl-scan
+          "$BIN" scan bench/images/mixed_fat32.img -o target/musl-scan \
+            --mode raw --no-fs --types jpeg --max-candidates 500 --quiet \
+            --json-report target/musl-scan/report.json
+          test -f target/musl-scan/report.json
+
+  windows-packaged:
+    name: Windows packaged binary smoke
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release --locked
+      - name: Execute the release exe
+        shell: pwsh
+        run: |
+          .\target\release\carvex.exe --version
+          .\target\release\carvex.exe info bench\images\mixed_fat32.img
+          if (Test-Path target\windows-scan) { Remove-Item -Recurse -Force target\windows-scan }
+          New-Item -ItemType Directory -Path target\windows-scan | Out-Null
+          .\target\release\carvex.exe scan bench\images\mixed_fat32.img -o target\windows-scan `
+            --mode raw --no-fs --types jpeg --max-candidates 500 --quiet `
+            --json-report target\windows-scan\report.json
+          if (-not (Test-Path target\windows-scan\report.json)) {
+            throw "no report written by packaged Windows binary"
+          }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: carvex-windows-ci
+          path: target/release/carvex.exe
+
+  sbom:
+    name: SBOM
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: python3 scripts/sbom.py --out bench/results/sbom.spdx.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: bench/results/sbom.spdx.json

@@ -969,3 +969,32 @@ decision, and the consequences.
   hashes matched the plain scan, runtime stayed within 10%, the realistic
   layout recalled 3/3 exact source files, and `--threads 1` matched the
   default. The profile is development evidence, not the frozen lockbox.
+
+## D-54. Enforce G0-G9 locally and in CI (H-30)
+
+- **Context:** G8 and G9 existed only as scripts or prose, fuzz smoke ran on a
+  schedule rather than every push/PR, the packaged Windows executable was never
+  run, and coverage remained at a 60% floor. The gate had to prove that earlier
+  fixes were actually protected.
+- **Decision:** `scripts/gate.sh` is the single entry point for G0-G9. It runs
+  `scripts/perf_gate.py` (G8), `bench/render_docs.py --check` (G9), coverage at
+  70%, fuzz smoke for all 13 targets, G7 golden, X01-X24 repro and benchmark
+  smoke. `scripts/perf_gate.py` reports relative baseline regressions by
+  default and fails on them only with `--strict`; absolute thresholds remain
+  blocking. CI adds full-gate, repro, Windows-packaged, musl, SBOM and coverage
+  jobs, and runs fuzz smoke on push and pull request as well as nightly.
+- **Documentation check:** the README scan flag table is generated from
+  `carvex scan --help` between explicit markers; `bench/render_docs.py --write`
+  refreshes it and `--check` fails on any stale flag or default. Other numeric
+  claims continue to come from committed generated results; no frozen result is
+  regenerated.
+- **Efficacy:** reintroducing H-05, H-07, H-08 and H-17 in a scratch worktree
+  each turned the gate red at the corresponding Rust test or X control. The
+  exact failures are recorded in `docs/PROGRESS.md`.
+- **Consequences:** X15 timing now compares the median of nine paired
+  B-06/plain runtime ratios after one discarded warm-up pair, because
+  independently sorted medians can pair a cold plain run with a warm B-06 run
+  and three pairs still produced a false failure on a shared runner. No output, score, default, CLI field,
+  CSV column or frozen benchmark changes. A GitHub Actions run ID will be
+  appended to `docs/VALIDATION.md` after HEAD is pushed; until then no CI run
+  at HEAD is claimed.

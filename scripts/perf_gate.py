@@ -61,11 +61,21 @@ SCENARIOS = {
 }
 
 
+def load_baseline(path: Path) -> dict:
+    if not path.is_file():
+        return {}
+    data = json.loads(path.read_text())
+    return data.get('scenarios', {})
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--carvex', type=Path, default=Path('target/release/carvex'))
     ap.add_argument('--thresholds', type=Path, default=Path('bench/perf/thresholds.toml'))
+    ap.add_argument('--baseline', type=Path, default=Path('bench/perf/baseline-0.2.0.json'))
     ap.add_argument('--workdir', type=Path, default=None)
+    ap.add_argument('--strict', action='store_true',
+                    help='fail when a scenario exceeds its committed relative baseline ratio')
     args = ap.parse_args()
     carvex = args.carvex.resolve()
     if not carvex.is_file():
@@ -75,6 +85,7 @@ def main():
     if args.thresholds.exists() and tomllib:
         cfg = tomllib.loads(args.thresholds.read_text())
     scenarios_cfg = cfg.get('scenarios', {})
+    baseline = load_baseline(args.baseline)
 
     temp = None
     if args.workdir:
@@ -97,6 +108,20 @@ def main():
             ok = False
         status = 'PASS' if ok else ('XFAIL' if xfail else 'FAIL')
         print(f'{status} perf {name}: median {median:.3f}s' + (f' (max {max_s}s)' if max_s else ''))
+
+        base = baseline.get(name, {})
+        base_median = base.get('median_seconds')
+        max_ratio = scfg.get('max_regression_ratio', 1.10)
+        if base_median:
+            ratio = median / float(base_median)
+            relative_ok = ratio <= float(max_ratio)
+            print(
+                f'{"PASS" if relative_ok else "REGRESSION"} perf {name}: '
+                f'{ratio:.3f}x committed baseline {float(base_median):.3f}s '
+                f'(max {float(max_ratio):.2f}x)'
+            )
+            if not relative_ok and args.strict and not xfail:
+                failures += 1
         if not ok and not xfail:
             failures += 1
     if temp: temp.cleanup()

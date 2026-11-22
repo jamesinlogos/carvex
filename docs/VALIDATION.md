@@ -150,6 +150,40 @@ rand64m median 0.035 s. Gate logs are `/tmp/opencode/gate_h29.log` and
 `/tmp/opencode/perf_h29.log`. No new coverage measurement was made for
 H-14/H-16/H-17/H-18/H-19/H-21/H-22/H-25/H-26/H-27/H-28/H-29.
 
+### G0-G9 at H-30
+
+The full gate was run on the exact H-30 candidate tree with the default 60 s
+fuzz budget and logged at `/tmp/opencode/gate_h30.log`.
+
+| Gate | Check | Local result |
+|---|---|---|
+| G0 | `cargo fmt --all -- --check` | PASS |
+| G1 | clippy, all targets/features, `-D warnings` | PASS |
+| G2 | `cargo test --all-features --locked` | PASS, 134 tests |
+| G3 | MSRV 1.85 via `scripts/check-msrv.sh` | PASS |
+| G4 | `actionlint`, `cargo deny check`, `cargo audit` | locally installed and PASS |
+| G5 | coverage + 13 fuzz targets | 70% floor PASS; 18,942,273 executions in 13 × 60 s, no crash or artifact |
+| G6 | cross-platform jobs | Linux/macOS/Windows test matrix declared; packaged Windows and musl execution jobs added (GitHub run pending) |
+| G7 | `scripts/golden.py` output-hash sets | GOLDEN GREEN |
+| G8 | `scripts/perf_gate.py` | PERF GREEN; s9_4m 0.154 s / 0.392x baseline, rand64m 0.030 s / 1.001x |
+| G9 | `bench/render_docs.py --check` | G9 GREEN; 48 options match `carvex scan --help` |
+
+X15 now compares nine paired runtime ratios after one discarded warm-up pair.
+The first final-gate attempt used three pairs and produced a false X15 failure
+(ratio 1.176) despite identical outputs and no fragment warning; the sample
+size was increased rather than relaxing the 10% limit. The repro harness then
+reported 34 scenarios, 0 failures, 2 SKIPs and 0 XPASS. The gate exited
+**GATE GREEN**. Both relative performance ratios were within 1.10x on this
+final run; an earlier H-30 run reported rand64m at 1.144x without failing,
+because `scripts/perf_gate.py` reports, rather than fails, relative regressions
+unless `--strict` is requested. No committed threshold was changed.
+
+Gate efficacy was checked in a detached worktree by reintroducing H-05, H-07,
+H-08 and H-17 one at a time. The gate exited nonzero for each: PNG budget tests
+(H-05), X04 at 25.38 s (H-07), the 16 MiB working-memory test (H-08), and the
+PNG CRC integrity unit test (H-17). Exact messages and logs are in
+`docs/PROGRESS.md`.
+
 ## 3. GitHub Actions
 
 The first two runs on `cbee72d` failed only because `rhysd/actionlint-action@v1`
@@ -173,6 +207,13 @@ evidence.
 These GitHub runs predate the B-04 source additions, B-06 and R-01/R-02. The
 post-B-04, post-B-06 and post-R-01/R-02 evidence in §2 is the local gate only;
 no corresponding GitHub run is claimed.
+
+H-30 updates `.github/workflows/ci.yml` so push and pull-request events run the
+full gate, repro assertions, fuzz smoke for all 13 targets, the packaged
+Windows executable, a Linux musl build smoke, coverage at 70% and SBOM
+generation. A run ID for the H-30 HEAD has not yet been recorded; until it is,
+**no CI result at HEAD is claimed**. The local evidence in §2 and the G0-G9
+table are the executed evidence for this finding.
 
 ## 4. Fuzz runtime
 
@@ -220,18 +261,46 @@ installed. The expanded fuzzer corpora were reset to the 22 deterministic
 committed seeds after the run. Logs are in `bench/results/fuzz/`; the CI
 matrix lists all 13 targets, but no post-change GitHub run is claimed.
 
+### H-30 full gate fuzz smoke (2026-11-22)
+
+Command: `scripts/gate.sh` with its default `scripts/fuzz.sh 60` invocation
+(13 targets × 60 seconds, nightly toolchain, cargo-fuzz;
+`/tmp/opencode/gate_h30_final.log`).
+
+| Target | Executions |
+|---|---:|
+| `jpeg` | 2,361,859 |
+| `png` | 641,512 |
+| `pdf` | 111,378 |
+| `fat32_boot` | 4,291,435 |
+| `ntfs_boot` | 4,166,482 |
+| `ntfs_mft` | 2,300,954 |
+| `partition_table` | 4,817,910 |
+| `fuzz_e01` | 1,233 |
+| `fuzz_vhd` | 88,106 |
+| `fuzz_vmdk` | 53,202 |
+| `fuzz_split_names` | 86,597 |
+| `fuzz_open_image` | 5,552 |
+| `fuzz_fragment_join` | 16,053 |
+| **Total** | **18,942,273** |
+
+Every target printed `Done ... in 61 second(s)`; there was no crash, timeout,
+OOM or panic, and `fuzz/artifacts/` remained empty. CI now runs the same 13
+targets for 60 s on push and pull request and for 600 s on the nightly schedule.
+
 ## 5. Coverage
 
 Command: `scripts/coverage.sh 60` (cargo-llvm-cov `0.9.1`).
 
-Result: **COVERAGE COMPLETE: minimum 60% lines**. After R-01/R-02 the lcov
-report contains 4456/6391 covered lines = **69.72%**. The post-B-06
-measurement was 4111/6001 lines = 68.51%, the post-B-04 measurement was
-3802/5633 lines = 67.50%, and the pre-B-04 0.2.0 measurement was 2859/4508
-lines = 63.42%; those figures are historical. All measurements are below the
-earlier aspirational 80% target, so the CI and local floor is honestly set to
-60%; no 80% coverage is claimed. Artifacts:
-`bench/results/coverage/lcov.info` and
+The historical command used a 60% floor; H-30 raised the CI and gate floor to
+70%. A fresh `cargo llvm-cov report --summary-only` after H-29 measured
+12518 total lines with 3440 uncovered = **72.52% line coverage**. The H-30
+full gate ran `scripts/coverage.sh 70` and reported **COVERAGE COMPLETE:
+minimum 70% lines**. After R-01/R-02 the lcov report contained 4456/6391 lines
+= 69.72%; the post-B-06 measurement was 4111/6001 lines = 68.51%, post-B-04
+3802/5633 lines = 67.50%, and pre-B-04 0.2.0 was 2859/4508 lines = 63.42%.
+The earlier aspirational 80% target is not claimed; the next ratchet is 75%.
+Artifacts: `bench/results/coverage/lcov.info` and
 `bench/results/coverage/coverage.log`.
 
 ## 6. Lockbox-v1 (single use)

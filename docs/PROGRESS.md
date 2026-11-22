@@ -73,7 +73,8 @@ Current gate after H-29 (2026-11-22): **GATE GREEN**, 134 tests
 1 validity_model + 4 work_budgets + 3 volume_parse_errors + 3 region_coverage),
 34 repro scenarios with 0 failures/2 SKIPs/0 XPASS, G7 and benchmark smoke green.
 `scripts/perf_gate.py --carvex target/release/carvex` reported **PERF GREEN**:
-s9_4m median 0.145 s (limit 3.0 s), rand64m median 0.035 s.
+s9_4m median 0.145 s (limit 3.0 s), rand64m median 0.035 s. The H-30 full-gate
+rerun is recorded in the H-30 task below.
 
 ### Pre-execution protocol correction (protocol-v1.1)
 
@@ -197,6 +198,7 @@ Windows**.
 | H-27 | MED | 2026-11-22 source/bench FAT32 | CLOSED | 5ebe851 | tests/region_coverage.rs; scripts/review_repro.py X20 | X20 reported `regions overlap or are unsorted`; the scanned rows summed to 102,760,448 B vs 95,367,168 B scanned on the v5 disk. Red tests also showed regions starting at the volume, not byte 0, and `info --json` calling the whole volume free. Regions now come from the scanner extent plan, cover the image exactly, carry `extent_id`/`summarized`, and preserve `Σ scanned == bytes_scanned`; X20 was removed from xfail. |
 | H-28 | MED | 2026-11-22 source/release binary | CLOSED | c14060d | scripts/review_repro.py X21; direct two-signal control | X21 killed the unmodified release binary with `exit -2 after SIGINT (expected 4)` and no report. `ctrlc` now latches a cooperative stop through all scanner stages; an interrupted run writes an `interrupted`/`INTERRUPTED` schema-2 report and exits 4, completed outputs stay, and a second signal exits 130. X21 passes and was removed from xfail. |
 | H-29 | HIGH | 2026-11-22 source/release binary | CLOSED | b902eed | tests/fragment_recovery.rs; tests/cli_contract.rs; tests/repair_validation.rs; tests/validity_model.rs; scripts/review_repro.py X15; scripts/fragment_profile.py | Red evidence: schema/CSV missing `alternatives`, S12 `file A not recovered exactly`, X15 accepted one incorrect PDF splice. Work units are now authoritative; ordinary images skip deep head probes and footer indexing; joins are filler/header-ranked; only `verified` stitches are emitted. D1 profile: recall 4/6 = 66.7% [30.0%, 90.3%], splice 0/4, junk FP 0/24. X15 passes with 3/3 real files, zero bait stitches, no ordinary `FRAGMENT_*` warning, identical outputs and `--threads 1` parity; removed from xfail. |
+| H-30 | HIGH | 2026-11-22 source/CI config | CLOSED (local; GitHub run pending) | pending | scripts/gate.sh; scripts/render_docs.py; scripts/perf_gate.py; scripts/sbom.py; .github/workflows/ci.yml | Red efficacy test: detached worktree reintroductions of H-05, H-07, H-08 and H-17 each turned the gate red at the targeted test/control. Gate now runs G0-G9, coverage at 70%, fuzz smoke, golden, perf and repro; CI runs fuzz smoke on push/PR, packaged Windows and musl binaries, repro assertions, SBOM and the full gate. X15 now uses the median of nine paired runtime ratios after one discarded warm-up pair. GitHub run ID to be backfilled after pushing HEAD. |
 | H-23 | MED | 2026-11-21 source | CLOSED | 080b76a | tests/regress_vmdk_safety.rs | Missing grain table returned "index out of range"; now reads zeros like qemu-img. |
 
 ### Per-task reports
@@ -679,6 +681,55 @@ Residual risk / next: the D1-style profile is small and its confidence
   intervals are wide; D2–D7 and the frozen lockbox were not touched. Only two
   fragments and no metadata/runlist-assisted reassembly are supported. No new
   coverage measurement, full benchmark, `dist/` rebuild or tag was run.
+
+Task: H-30 — Gates G7–G9 absent and CI did not enforce the guide
+Reviews: v1:R-09, v2:R-09, v3:R-09, v4:F-09, v5:F-11 (SRC×5).
+Repro: static evidence before the change — `scripts/gate.sh` had G0-G6 plus G7
+  golden but no G8/G9, no coverage or fuzz invocation, and `.github/workflows/ci.yml`
+  ran fuzz only on `schedule`/`workflow_dispatch`; the packaged Windows exe was
+  built but never executed and no SBOM was produced.
+Change: `scripts/gate.sh` now runs fmt, clippy, tests, rustdoc, actionlint,
+  deny/audit, MSRV, release build, G9 (`bench/render_docs.py --check`), G8
+  (`scripts/perf_gate.py` with committed baseline ratios), coverage (floor 70),
+  fuzz smoke (13 targets, 60 s each by default), G7 golden, X01-X24 repro and
+  benchmark smoke. CI adds a full-gate job, an explicit repro job, push/PR fuzz
+  smoke, packaged Windows and musl execution jobs, coverage at 70% and an SPDX
+  SBOM artifact. `scripts/perf_gate.py` gained `--strict`; relative regressions
+  are reported by default because shared runners are noisy. X15 compares the
+  median of nine paired B-06/plain runtime ratios after one discarded warm-up
+  pair, instead of independently sorted medians or three pairs. Both earlier
+  forms were sensitive to scheduler noise on clean builds: a three-pair run
+  during the final gate produced a false X15 failure (ratio 1.176) despite
+  identical outputs and no fragment warning.
+Gate-efficacy test: performed in detached worktree `/tmp/opencode/h30-efficacy`
+  with `CARVEX_FUZZ_SECONDS=1 CARVEX_COVERAGE_MIN=0` to keep the test short.
+  Every reintroduction was applied to a clean worktree and the gate was run:
+  H-05 (`let max_decoded = u64::MAX`) failed `tests/png_decode_budget.rs` with
+  `expected a validator-budget note, got: ["PNG zlib stream did not terminate"]`
+  (`/tmp/opencode/gate_efficacy_h05.log`); H-07 (per-`%%EOF` full-prefix rescans
+  and a 4 KiB look-ahead) failed X04 with `took 25.38s for 4096 EOF markers`
+  (`gate_efficacy_h07.log`); H-08 (retaining carved outputs against
+  `--max-memory`) failed `dense_successful_carves_complete_within_a_working_memory_budget`
+  with `retaining carved output would exceed --max-memory 16.0 MiB`
+  (`gate_efficacy_h08.log`); H-17 (CRC check reported ok and no Partial return)
+  failed `signatures::png::tests::reports_bad_crc_but_keeps_file` at
+  `assertion failed: a.integrity_failed()` (`gate_efficacy_h17.log`). All four
+  gates exited nonzero; the worktree was removed afterwards.
+Local evidence: `CARVEX_FUZZ_SECONDS=1 scripts/gate.sh` reported G9 GREEN for
+  48 scan options, G7 GOLDEN GREEN, PERF GREEN (s9_4m 0.158 s / 0.403x baseline;
+  rand64m 0.030 s / 1.001x), coverage complete at 70%, 13 fuzz targets × 1 s,
+  34 scenarios with 0 failures/2 SKIPs/0 XPASS and GATE GREEN
+  (`/tmp/opencode/gate_h30_smoke.log`). A full `scripts/gate.sh` run with the
+  default 60 s fuzz budget reported G9 GREEN, G7 GOLDEN GREEN, PERF GREEN
+  (s9_4m 0.154 s / 0.392x baseline, rand64m 0.030 s / 1.001x), coverage
+  complete at 70%, 18,942,273 fuzz executions, 34 scenarios with 0
+  failures/2 SKIPs/0 XPASS and **GATE GREEN** (`/tmp/opencode/gate_h30_final.log`).
+  The GitHub run ID is recorded in `docs/VALIDATION.md` after push.
+Residual risk / next: the GitHub Actions run is external and was not executed
+  by the local agent; it will be recorded after pushing HEAD. The packaged
+  Windows binary in `dist/` is still stale until the approved 0.3.0 release;
+  the CI job executes the freshly built exe from the same commit. No lockbox,
+  full benchmark or tag was run.
 
 ### Conflict measurements (C1-C13)
 
