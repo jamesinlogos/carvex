@@ -657,8 +657,14 @@ impl PngRowCursor {
 
 fn validate_pdf(data: &[u8], analysis: &Analysis) -> (Validation, Vec<String>) {
     let selected = data.get(..analysis.end).unwrap_or(data);
-    let has_eof = selected.ends_with(b"%%EOF") || selected.ends_with(b"%%EOF\n");
-    if !has_eof {
+    let trimmed = match selected
+        .iter()
+        .rposition(|b| !matches!(b, b'\r' | b'\n' | b' ' | b'\t' | 0))
+    {
+        Some(i) => selected.get(..=i).unwrap_or(selected),
+        None => selected,
+    };
+    if !trimmed.ends_with(b"%%EOF") {
         return (
             Validation::Partial,
             vec!["selected PDF revision does not end with %%EOF".into()],
