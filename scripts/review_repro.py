@@ -535,6 +535,11 @@ def main() -> int:
     parser.add_argument("--workdir", type=Path, default=None)
     parser.add_argument("--assert", dest="assert_mode", action="store_true")
     parser.add_argument("--xfail", type=Path, default=None)
+    parser.add_argument(
+        "--require-all",
+        action="store_true",
+        help="treat SKIP results as failures (default: SKIP is not a failure)",
+    )
     args = parser.parse_args()
 
     global FAT32_IMAGE
@@ -564,6 +569,7 @@ def main() -> int:
 
     failures = 0
     xpasses = 0
+    skips = 0
     for ident, title, func in CASES:
         work = root / ident
         shutil.rmtree(work, ignore_errors=True)
@@ -575,7 +581,14 @@ def main() -> int:
         except Exception as exc:  # fixture/run error is a failing case
             error = f"error: {exc}"
         expected_fail = ident in xfail
-        if error:
+        if error and error.startswith("SKIP"):
+            if args.require_all:
+                failures += 1
+                print(f"FAIL  {ident:<4} {title}: {error}")
+            else:
+                skips += 1
+                print(f"SKIP  {ident:<4} {title}: {error}")
+        elif error:
             if expected_fail:
                 print(f"XFAIL {ident:<4} {title}: {error}")
             else:
@@ -591,7 +604,9 @@ def main() -> int:
     if temp is not None:
         temp.cleanup()
     print()
-    print(f"{len(CASES)} scenario(s), {failures} failure(s), {xpasses} XPASS")
+    print(
+        f"{len(CASES)} scenario(s), {failures} failure(s), {skips} SKIP(s), {xpasses} XPASS"
+    )
     if args.assert_mode and (failures or xpasses):
         return 1
     return 0

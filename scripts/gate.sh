@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
-# CarveX release gate (guide-v2 §3.2).
+# CarveX release gate (harness.md §4.2; supersedes the old guide-v2 header).
 #
 # Every command must succeed before a change is considered done.  Optional
-# tools that are not installed are reported as SKIPPED; record those in
-# docs/PROGRESS.md.  Run from anywhere: the script changes to the repo root.
+# tools or prerequisites that are not installed are reported as SKIPPED with a
+# reason; record SKIPPED items in docs/PROGRESS.md.  The gate must pass on a
+# clean checkout without root.  Run from anywhere: the script changes to the
+# repo root.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -43,12 +45,7 @@ else
 fi
 
 echo "== MSRV =="
-MSRV=$(grep -m1 '^rust-version' Cargo.toml | cut -d'"' -f2)
-if rustup toolchain list 2>/dev/null | grep -q "^${MSRV}"; then
-    cargo +"${MSRV}" check --locked
-else
-    echo "SKIPPED MSRV ${MSRV} (toolchain missing)"
-fi
+bash scripts/check-msrv.sh
 
 echo "== release build =="
 cargo build --release --locked
@@ -57,7 +54,11 @@ echo "== review repro =="
 NTFS_IMG=bench/images/all-deleted_ntfs.img
 FAT32_IMG=bench/images/all-deleted_fat32.img
 if [ ! -f "$NTFS_IMG" ] || [ ! -f "$FAT32_IMG" ]; then
-    python3 bench/make_images.py >/dev/null 2>&1 || true
+    if command -v mkfs.vfat >/dev/null && command -v mkntfs >/dev/null; then
+        python3 bench/make_images.py >/dev/null 2>&1 || echo "SKIPPED bench image generation (make_images.py failed)"
+    else
+        echo "SKIPPED bench image generation (mkfs.vfat/mkntfs missing)"
+    fi
 fi
 # Work dir under target/ (the 967 MB /tmp tmpfs is too small for R8's 125 MiB
 # image plus carved output).
@@ -78,6 +79,14 @@ fi
 python3 scripts/review_repro.py "${REPRO_ARGS[@]}"
 
 echo "== benchmark smoke =="
-python3 bench/run_benchmark.py --smoke
+if python3 -c "import json, hashlib" >/dev/null 2>&1; then
+    if ! python3 bench/run_benchmark.py --smoke; then
+        echo "SKIPPED benchmark smoke (failed; see output above)"
+        echo "GATE INCOMPLETE (smoke skipped)"
+        exit 1
+    fi
+else
+    echo "SKIPPED benchmark smoke (python deps missing)"
+fi
 
 echo "GATE GREEN"
