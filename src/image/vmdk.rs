@@ -8,13 +8,26 @@
 use super::{le_u16, le_u32, le_u64};
 use crate::io::{read_vec_at, ImageSource, RawFile};
 use anyhow::{bail, Context, Result};
+use std::collections::{HashMap, VecDeque};
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
 const SECTOR: u64 = 512;
 const FLAG_ZEROED_GRAIN: u32 = 0x0000_0004;
 const FLAG_COMPRESSED: u32 = 0x0001_0000;
 const GD_AT_END: u64 = u64::MAX;
+/// Hard ceiling on entries in one grain table (256 KiB per table at 4 bytes
+/// per entry).  Legitimate VMDKs use 4096 or fewer.
+const MAX_GTE_PER_TABLE: usize = 65_536;
+/// Hard ceiling on the number of grain-directory entries (4 MiB directory).
+const MAX_GD_ENTRIES: usize = 1_048_576;
+/// Ceiling on total bytes held by the shared grain-table cache.  Identical
+/// table offsets share one allocation, so duplicate directory entries do not
+/// multiply memory (H-12).
+const MAX_TABLE_CACHE_BYTES: u64 = 64 * 1024 * 1024;
+/// Number of distinct grain tables kept in the LRU cache.
+const TABLE_CACHE_SLOTS: usize = 16;
 
 enum ExtentKind {
     Flat { file: RawFile, base: u64 },
@@ -38,9 +51,25 @@ pub struct VmdkImage {
 impl VmdkImage {
     /// Open a VMDK descriptor (or sparse extent with an embedded descriptor).
     pub fn open(path: &Path) -> Result<Self> {
+        Self::open_with(path, false)
+    }
+
+    /// Open with explicit permission to follow extents outside the descriptor
+    /// directory.  The default (`false`) rejects absolute paths, `..` escapes
+    /// and symlink escapes (H-13).
+    pub fn open_with(path: &Path, allow_external: bool) -> Result<Self> {
         let text = read_descriptor(path)?;
         let lines = parse_descriptor(&text)?;
         let parent = path.parent().unwrap_or_else(|| Path::new("."));
+        // A monolithicSparse extent embeds its descriptor and names itself in
+        // the extent line.  When the file is renamed that name is stale; use
+        // the file that was actually opened instead of resolving the name
+        // (v5:F-23).  This also closes the sibling-swap confusion.
+        let self_sparse = RawFile::open(path)
+            .ok()
+            .and_then(|f| read_vec_at(&f, 0, 4).ok())
+            .map(|h| h == b"KDMV")
+            .unwrap_or(false);
 
         let mut extents = Vec::with_capacity(lines.len());
         let mut paths = Vec::with_capacity(lines.len());
@@ -53,7 +82,7 @@ impl VmdkImage {
             let kind = match line.kind.as_str() {
                 "ZERO" => ExtentKind::Zero,
                 "FLAT" => {
-                    let resolved = resolve(parent, &line.filename)?;
+                    let resolved = resolve(parent, &line.filename, allow_external)?;
                     let file = RawFile::open(&resolved)?;
                     let base = line.offset.saturating_mul(SECTOR);
                     if base
@@ -70,7 +99,11 @@ impl VmdkImage {
                     ExtentKind::Flat { file, base }
                 }
                 "SPARSE" => {
-                    let resolved = resolve(parent, &line.filename)?;
+                    let resolved = if self_sparse {
+                        path.to_path_buf()
+                    } else {
+                        resolve(parent, &line.filename, allow_external)?
+                    };
                     let image = VmdkSparse::open(&resolved)?;
                     paths.push(resolved);
                     ExtentKind::Sparse(image)
@@ -265,12 +298,38 @@ fn tokenize(line: &str) -> Result<Vec<String>> {
     Ok(out)
 }
 
-fn resolve(parent: &Path, name: &str) -> Result<PathBuf> {
+fn resolve(parent: &Path, name: &str, allow_external: bool) -> Result<PathBuf> {
     let path = Path::new(name);
     if path.is_absolute() {
+        if !allow_external {
+            bail!("VMDK absolute extent path '{}' is not allowed", name);
+        }
         return Ok(path.to_path_buf());
     }
-    Ok(parent.join(path))
+    let joined = parent.join(path);
+    let canonical_parent = std::fs::canonicalize(parent)
+        .with_context(|| format!("cannot canonicalize VMDK directory {}", parent.display()))?;
+    let canonical = std::fs::canonicalize(&joined)
+        .with_context(|| format!("VMDK extent '{}' cannot be resolved", name))?;
+    if !canonical.starts_with(&canonical_parent) && !allow_external {
+        bail!(
+            "VMDK extent '{}' escapes the descriptor directory (parent {}, resolved {})",
+            name,
+            canonical_parent.display(),
+            canonical.display()
+        );
+    }
+    Ok(canonical)
+}
+
+/// LRU of decoded grain tables.  Duplicate grain-directory entries share a
+/// single allocation, so a tiny file with thousands of identical entries
+/// cannot multiply memory (H-12).
+#[derive(Default)]
+struct TableCache {
+    order: VecDeque<u32>,
+    data: HashMap<u32, Arc<Vec<u32>>>,
+    bytes: u64,
 }
 
 /// One hosted-sparse VMDK extent, addressed in sectors.
@@ -279,7 +338,13 @@ struct VmdkSparse {
     len: u64,
     grain_bytes: u64,
     num_gte: usize,
-    grain_tables: Vec<Vec<u32>>,
+    /// Grain directory entries (table sector numbers).  Loaded once and
+    /// bounded by `MAX_GD_ENTRIES` and the file length.
+    directory: Vec<u32>,
+    /// Lazily loaded, shared grain tables.
+    tables: Mutex<TableCache>,
+    table_bytes: usize,
+    file_len: u64,
     zeroed_grain: bool,
 }
 
@@ -313,6 +378,9 @@ impl VmdkSparse {
         if num_gte == 0 || capacity == 0 {
             bail!("VMDK sparse extent has no capacity");
         }
+        if num_gte > MAX_GTE_PER_TABLE {
+            bail!("VMDK grain table declares {num_gte} entries (limit {MAX_GTE_PER_TABLE})");
+        }
         if gd_offset == GD_AT_END {
             if file_len < 1024 {
                 bail!("VMDK stream-optimized extent is truncated");
@@ -330,7 +398,11 @@ impl VmdkSparse {
         let per_table = (num_gte as u64)
             .checked_mul(grain_size)
             .context("VMDK grain table coverage overflow")?;
-        let gd_count = capacity.div_ceil(per_table) as usize;
+        let gd_count_u64 = capacity.div_ceil(per_table);
+        if gd_count_u64 > MAX_GD_ENTRIES as u64 {
+            bail!("VMDK grain directory declares {gd_count_u64} entries (limit {MAX_GD_ENTRIES})");
+        }
+        let gd_count = gd_count_u64 as usize;
         let gd_bytes = gd_count
             .checked_mul(4)
             .context("VMDK grain directory size overflow")?;
@@ -346,32 +418,29 @@ impl VmdkSparse {
         }
         let raw_gd = read_vec_at(&file, gd_start, gd_bytes)?;
         let zeroed_grain = flags & FLAG_ZEROED_GRAIN != 0;
-        let mut grain_tables = Vec::with_capacity(gd_count);
+        let mut directory = Vec::with_capacity(gd_count);
+        let table_bytes = num_gte
+            .checked_mul(4)
+            .context("VMDK grain table size overflow")?;
+        // A bounded number of distinct tables may exist; verify the total
+        // declared table footprint before loading any of them.
+        let mut unique: std::collections::HashSet<u32> = std::collections::HashSet::new();
         for i in 0..gd_count {
-            let sector = u64::from(le_u32(&raw_gd, i * 4, "VMDK grain directory entry")?);
-            if sector == 0 || (zeroed_grain && sector == 1) {
-                grain_tables.push(Vec::new());
-                continue;
+            let sector = le_u32(&raw_gd, i * 4, "VMDK grain directory entry")?;
+            if sector != 0 && !(zeroed_grain && sector == 1) {
+                unique.insert(sector);
             }
-            let table_start = sector
-                .checked_mul(SECTOR)
-                .context("VMDK grain table offset overflow")?;
-            let table_bytes = num_gte
-                .checked_mul(4)
-                .context("VMDK grain table size overflow")?;
-            if table_start
-                .checked_add(table_bytes as u64)
-                .context("VMDK grain table range overflow")?
-                > file_len
-            {
-                bail!("VMDK grain table lies past the end of the file");
-            }
-            let raw = read_vec_at(&file, table_start, table_bytes)?;
-            let mut table = Vec::with_capacity(num_gte);
-            for j in 0..num_gte {
-                table.push(le_u32(&raw, j * 4, "VMDK grain table entry")?);
-            }
-            grain_tables.push(table);
+        }
+        if (unique.len() as u64).saturating_mul(table_bytes as u64) > MAX_TABLE_CACHE_BYTES {
+            bail!(
+                "VMDK declares {} distinct grain tables of {} bytes (limit {} bytes)",
+                unique.len(),
+                table_bytes,
+                MAX_TABLE_CACHE_BYTES
+            );
+        }
+        for i in 0..gd_count {
+            directory.push(le_u32(&raw_gd, i * 4, "VMDK grain directory entry")?);
         }
 
         Ok(Self {
@@ -383,9 +452,50 @@ impl VmdkSparse {
                 .checked_mul(SECTOR)
                 .context("VMDK grain size overflow")?,
             num_gte,
-            grain_tables,
+            directory,
+            tables: Mutex::new(TableCache::default()),
+            table_bytes,
+            file_len,
             zeroed_grain,
         })
+    }
+
+    /// Fetch a grain table, loading it from the file on first use.  Duplicate
+    /// directory entries share one cached allocation.
+    fn table(&self, sector: u32) -> Option<Arc<Vec<u32>>> {
+        {
+            let cache = self.tables.lock().ok()?;
+            if let Some(table) = cache.data.get(&sector) {
+                return Some(Arc::clone(table));
+            }
+        }
+        let table_start = (sector as u64)
+            .checked_mul(SECTOR)?
+            .checked_add(self.table_bytes as u64)?;
+        if table_start > self.file_len {
+            return None;
+        }
+        let raw = read_vec_at(&self.file, (sector as u64) * SECTOR, self.table_bytes).ok()?;
+        let mut table = Vec::with_capacity(self.num_gte);
+        for chunk in raw.chunks_exact(4) {
+            table.push(u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]));
+        }
+        table.resize(self.num_gte, 0);
+        let table = Arc::new(table);
+        let mut cache = self.tables.lock().ok()?;
+        if cache.data.len() >= TABLE_CACHE_SLOTS
+            || cache.bytes + self.table_bytes as u64 > MAX_TABLE_CACHE_BYTES
+        {
+            if let Some(old) = cache.order.pop_front() {
+                if let Some(removed) = cache.data.remove(&old) {
+                    cache.bytes = cache.bytes.saturating_sub((removed.len() * 4) as u64);
+                }
+            }
+        }
+        cache.order.push_back(sector);
+        cache.bytes += self.table_bytes as u64;
+        cache.data.insert(sector, Arc::clone(&table));
+        Some(table)
     }
 
     fn read_at(&self, offset: u64, buf: &mut [u8]) -> io::Result<usize> {
@@ -402,17 +512,40 @@ impl VmdkSparse {
             let within = pos % self.grain_bytes;
             let gd_index = (grain / self.num_gte as u64) as usize;
             let gte_index = (grain % self.num_gte as u64) as usize;
-            let sector = match self
-                .grain_tables
-                .get(gd_index)
-                .and_then(|t| t.get(gte_index))
-            {
-                Some(sector) => *sector,
+            // Missing or out-of-range directory entries read as zeros (H-23),
+            // matching qemu-img behaviour for unallocated thin-provisioned
+            // grains.  Only an explicit grain sector is dereferenced.
+            let table_sector = match self.directory.get(gd_index) {
+                Some(s) => *s,
                 None => {
-                    return Err(io::Error::new(
-                        io::ErrorKind::UnexpectedEof,
-                        "VMDK grain index out of range",
-                    ))
+                    let zeros = (self.grain_bytes - within)
+                        .min((buf.len() - done) as u64)
+                        .min(self.len - pos) as usize;
+                    buf[done..done + zeros].fill(0);
+                    done += zeros;
+                    continue;
+                }
+            };
+            if table_sector == 0 || (self.zeroed_grain && table_sector == 1) {
+                let zeros = (self.grain_bytes - within)
+                    .min((buf.len() - done) as u64)
+                    .min(self.len - pos) as usize;
+                buf[done..done + zeros].fill(0);
+                done += zeros;
+                continue;
+            }
+            let sector = match self
+                .table(table_sector)
+                .and_then(|t| t.get(gte_index).copied())
+            {
+                Some(s) => s,
+                None => {
+                    let zeros = (self.grain_bytes - within)
+                        .min((buf.len() - done) as u64)
+                        .min(self.len - pos) as usize;
+                    buf[done..done + zeros].fill(0);
+                    done += zeros;
+                    continue;
                 }
             };
             if sector == 0 || (self.zeroed_grain && sector == 1) {

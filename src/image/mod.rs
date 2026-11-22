@@ -126,6 +126,16 @@ pub struct OpenedImage {
 /// used for split raw and E01 segment discovery.  An explicit format bypasses
 /// detection so unusual files can still be opened as raw.
 pub fn open_image(path: &Path, format: InputFormat) -> Result<OpenedImage> {
+    open_image_with(path, format, false)
+}
+
+/// Open an image with explicit permission to resolve VMDK extents outside the
+/// descriptor directory.  The default `open_image` never allows this (H-13).
+pub fn open_image_with(
+    path: &Path,
+    format: InputFormat,
+    allow_external_extents: bool,
+) -> Result<OpenedImage> {
     if path == Path::new("-") {
         if !matches!(format, InputFormat::Auto | InputFormat::Stdin) {
             bail!("an explicit container cannot be used with stdin; use auto or stdin");
@@ -166,7 +176,7 @@ pub fn open_image(path: &Path, format: InputFormat) -> Result<OpenedImage> {
             (Box::new(image), len, paths)
         }
         InputFormat::Vmdk => {
-            let image = VmdkImage::open(path)?;
+            let image = VmdkImage::open_with(path, allow_external_extents)?;
             let len = image.len();
             let paths = image.source_paths();
             (Box::new(image), len, paths)

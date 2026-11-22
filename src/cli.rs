@@ -1,5 +1,5 @@
 use crate::fs::{self, FsInfo, PartitionSel};
-use crate::io::{open_image, sha256_source, InputFormat, OpenedImage};
+use crate::io::{open_image_with, sha256_source, InputFormat, OpenedImage};
 use crate::report;
 use crate::scan::{
     self, AlignMode, ScanContext, ScanMode, ScanOptions, VolumeSummary, Warning,
@@ -59,6 +59,9 @@ struct InfoArgs {
     /// Image container: auto, raw, split, e01, vhd, vmdk or stdin
     #[arg(long, value_enum, default_value_t = InputFormat::Auto)]
     input_format: InputFormat,
+    /// Allow VMDK extents outside the descriptor directory (unsafe)
+    #[arg(long)]
+    allow_external_extents: bool,
     /// Select a 1-based MBR slot / GPT partition number
     #[arg(long, conflicts_with = "offset")]
     partition: Option<usize>,
@@ -77,6 +80,9 @@ struct ScanArgs {
     /// Image container: auto, raw, split, e01, vhd, vmdk or stdin
     #[arg(long, value_enum, default_value_t = InputFormat::Auto)]
     input_format: InputFormat,
+    /// Allow VMDK extents outside the descriptor directory (unsafe)
+    #[arg(long)]
+    allow_external_extents: bool,
     /// Output directory for carved files (must be empty unless --force)
     #[arg(short, long)]
     output: PathBuf,
@@ -306,7 +312,7 @@ fn print_info(
 }
 
 fn info(args: InfoArgs) -> Result<i32> {
-    let image = open_image(&args.image, args.input_format)?;
+    let image = open_image_with(&args.image, args.input_format, args.allow_external_extents)?;
     let len = image.len;
     let source = image.source.as_ref();
 
@@ -369,7 +375,8 @@ fn scan(args: ScanArgs) -> Result<i32> {
     {
         bail!("B-06 limits require --fragment-recovery");
     }
-    let image: OpenedImage = open_image(&args.image, args.input_format)?;
+    let image: OpenedImage =
+        open_image_with(&args.image, args.input_format, args.allow_external_extents)?;
     let len = image.len;
     let source = image.source.as_ref();
 

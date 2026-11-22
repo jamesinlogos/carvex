@@ -180,6 +180,9 @@ Windows**.
 | H-22 | CRIT | - | OPEN | - | - | E01 partial/damaged chunk handling not reproduced (ewfacquire missing). |
 | H-25 | LOW | 2026-11-21 source | REPRODUCED | - | scripts/review_repro.py X22 | stdin report has `unchanged=true` with null `modified_unix`; missing `logical_size`. |
 | H-26 | MED | 2026-11-21 source | REPRODUCED | - | scripts/review_repro.py X19 | Corrupted NTFS in multi-volume disk: exit 0, no parse-failure warning. |
+| H-12 | CRIT | 2026-11-21 source | REPRODUCED | - | tests/regress_vmdk_safety.rs | Tiny VMDK declaring 128 x 262144-entry tables took >5s; now rejected by typed error; tables lazy/LRU-capped (64 MiB), gd capped (1M); added --allow-external-extents. |
+| H-13 | HIGH | 2026-11-21 source | REPRODUCED | - | tests/regress_vmdk_safety.rs | Absolute/.. extent paths were accepted; now canonicalised and confined to descriptor directory; monolithicSparse uses opened file, not descriptor name. |
+| H-23 | MED | 2026-11-21 source | REPRODUCED | - | tests/regress_vmdk_safety.rs | Missing grain table returned "index out of range"; now reads zeros like qemu-img. |
 ## Blockers / open questions
 
 - GitHub Actions has now run successfully on the pre-B-04/B-06 CI-fix commit
