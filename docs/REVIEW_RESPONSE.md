@@ -99,7 +99,7 @@ status row in each reconciliation document.
 | H-30 | HIGH | 2026-11-22 source/CI | CLOSED (local; CI failed) | b9c40d3 | scripts/gate.sh; scripts/render_docs.py; .github/workflows/ci.yml | Local G0-G9 green and gate efficacy proven; remote run `45035152791` failed (8/18 jobs). |
 | H-31 | MED | 2026-11-22 source/docs | CLOSED | efd6d9f | scripts/check_status.py; scripts/gate.sh; .github/workflows/ci.yml | Status labels reconciled; checker is green and fails on a deliberately wrong label. |
 | H-32 | MED | 2026-11-22 docs | CLOSED | bd9ebd0 | bench/results/EVIDENCE.md; bench/results/EVIDENCE.sha256; bench/lockbox.log | Manifest and prepared bundle cover the cited artefacts; historical unbacked figures are labelled author-reported. |
-| H-33 | MED | 2026-11-22 docs | CLOSED | pending | README.md; docs/DECISIONS.md; docs/REPORT.md; docs/baseline/h33_static_red.txt | Speed sentence removed; Pillow wording corrected; `fuzz/` tree entry added; NOT-REPRODUCED items recorded with grep output; frozen results unchanged. |
+| H-33 | MED | 2026-11-22 docs | CLOSED | 240ef42 | README.md; docs/DECISIONS.md; docs/REPORT.md; docs/baseline/h33_static_red.txt | Speed sentence removed; Pillow wording corrected; `fuzz/` tree entry added; NOT-REPRODUCED items recorded with grep output; frozen results unchanged. |
 | H-34 | LOW | 2026-11-22 source | OPEN | - | clippy.toml | Long-function, `missing_docs` and pedantic work not yet applied. |
 
 ## Cross-reference of old findings (F-01…F-21) → new IDs
