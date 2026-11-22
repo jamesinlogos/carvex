@@ -73,7 +73,7 @@ Current gate after H-27 (2026-11-22): **GATE GREEN**, 131 tests
 1 validity_model + 4 work_budgets + 3 volume_parse_errors + 3 region_coverage),
 34 repro scenarios with 0 failures/2 SKIPs/0 XPASS, G7 and benchmark smoke green.
 `scripts/perf_gate.py --carvex target/release/carvex` reported **PERF GREEN**:
-s9_4m median 0.140 s (limit 3.0 s), rand64m median 0.039 s.
+s9_4m median 0.167 s (limit 3.0 s), rand64m median 0.032 s.
 
 ### Pre-execution protocol correction (protocol-v1.1)
 
@@ -194,7 +194,7 @@ Windows**.
 | H-22 | CRIT | 2026-11-22 in-memory fixture | CLOSED | d7d991e | tests/regress_e01_safety.rs::{partial_final_chunk_is_tolerated, damaged_chunk_is_reported_and_outputs_are_not_verified, abort_writes_partial_report_and_exits_one}; tests/image/mod.rs raw-policy unit tests; X16 | Short final chunks are accepted; damaged E01 chunks and raw/split read errors follow `--on-read-error`; `unreadable_regions[]`, `UNREADABLE_REGION` and overlap downgrade are reported. `abort` exits 1 and writes a schema-2 partial report with `READ_ABORTED`; `skip` drops overlapping candidates; `zero-fill` remains the default. Real libewf/.E02 fixtures are SKIPPED because `ewfacquire` is unavailable. |
 | H-25 | LOW | 2026-11-22 source | CLOSED | e65f0f2 | tests/evidence_formats.rs::{compressed_e01_report_records_logical_and_physical_identity, vmdk_report_records_logical_and_physical_identity}; stdin schema test; X22 | Red tests failed with `left: Null, right: "e01"/"vmdk"/"stdin"`. Schema 2 now adds `input.logical_size`, `physical_size`, both `_after` fields, `format` and `files[]`; legacy `size`/`size_after` keep their meanings. Stdin reports `unchanged: null`. X22 checks compressed E01, VMDK and stdin and was removed from xfail. |
 | H-26 | MED | 2026-11-22 source | CLOSED | eb649f1 | tests/volume_parse_errors.rs; scripts/review_repro.py X19 | Red tests: multi-volume scan exited 0 with no warning, the single-volume message was generic, and `info` hid the cause. Parse errors now emit `VOLUME_PARSE_FAILED`, exit 3, flag the fallback region, and give a specific `FS_DETECTION_FAILED`/`info` cause. X19 was strengthened and removed from xfail. |
-| H-27 | MED | 2026-11-22 source/bench FAT32 | CLOSED | - | tests/region_coverage.rs; scripts/review_repro.py X20 | X20 reported `regions overlap or are unsorted`; the scanned rows summed to 102,760,448 B vs 95,367,168 B scanned on the v5 disk. Red tests also showed regions starting at the volume, not byte 0, and `info --json` calling the whole volume free. Regions now come from the scanner extent plan, cover the image exactly, carry `extent_id`/`summarized`, and preserve `Σ scanned == bytes_scanned`; X20 was removed from xfail. |
+| H-27 | MED | 2026-11-22 source/bench FAT32 | CLOSED | 5ebe851 | tests/region_coverage.rs; scripts/review_repro.py X20 | X20 reported `regions overlap or are unsorted`; the scanned rows summed to 102,760,448 B vs 95,367,168 B scanned on the v5 disk. Red tests also showed regions starting at the volume, not byte 0, and `info --json` calling the whole volume free. Regions now come from the scanner extent plan, cover the image exactly, carry `extent_id`/`summarized`, and preserve `Σ scanned == bytes_scanned`; X20 was removed from xfail. |
 | H-23 | MED | 2026-11-21 source | CLOSED | 080b76a | tests/regress_vmdk_safety.rs | Missing grain table returned "index out of range"; now reads zeros like qemu-img. |
 
 ### Per-task reports
@@ -607,7 +607,7 @@ New tests: `tests/region_coverage.rs` has three red-first CLI cases. Before
   extents, exact report/stats byte sums and a raw-mode cap control; it was
   removed from xfail.
 Gate: green, 131 tests, 34 repro scenarios, 0 failures/2 SKIPs/0 XPASS, G7 green;
-  G8 PERF GREEN (s9_4m median 0.140 s, rand64m median 0.039 s). Carving output,
+  G8 PERF GREEN (s9_4m median 0.167 s, rand64m median 0.032 s). Carving output,
   scores, emission, output names, CSV and schema 1 are unchanged.
 Measurement: on the FAT32 benchmark image the new report has 16 disjoint
   regions covering all 67,108,864 bytes; auto mode sums 66,087,936 scanned

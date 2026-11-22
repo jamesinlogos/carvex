@@ -120,8 +120,8 @@ largest/no-gaps and no-filesystem modes. X20 now asserts that contract plus a
 raw-mode `--max-regions 1` run and was removed from `scripts/repro_xfail.txt`.
 The repro harness ran 34 scenarios with 0 failures, 2 SKIPs and 0 XPASS; G7 and
 the benchmark smoke were green. `scripts/perf_gate.py --carvex
-target/release/carvex` reported **PERF GREEN**: s9_4m median 0.140 s and
-rand64m median 0.039 s. No new coverage measurement was made for
+target/release/carvex` reported **PERF GREEN**: s9_4m median 0.167 s and
+rand64m median 0.032 s. No new coverage measurement was made for
 H-14/H-16/H-17/H-18/H-19/H-21/H-22/H-25/H-26/H-27.
 
 ## 3. GitHub Actions
