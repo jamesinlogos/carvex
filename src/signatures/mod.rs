@@ -312,6 +312,7 @@ fn validate_png(
     let mut pos = 8usize;
     let mut saw_ihdr = false;
     let mut saw_iend = false;
+    let mut bad_crcs: Vec<String> = Vec::new();
     let mut inflate: Option<PngInflate> = None;
     while pos + 12 <= data.len() {
         let Some(len_bytes) = data.get(pos..pos + 4) else {
@@ -334,6 +335,23 @@ fn validate_png(
         let Some(chunk_data) = data.get(pos + 8..pos + 8 + len) else {
             break;
         };
+        let stored_crc = data
+            .get(pos + 8 + len..pos + 12 + len)
+            .and_then(|b| <[u8; 4]>::try_from(b).ok())
+            .map(u32::from_be_bytes);
+        let computed_crc = {
+            let mut hasher = crc32fast::Hasher::new();
+            hasher.update(ctype);
+            hasher.update(chunk_data);
+            hasher.finalize()
+        };
+        let crc_ok = stored_crc == Some(computed_crc);
+        if !crc_ok {
+            bad_crcs.push(format!(
+                "PNG chunk {} has CRC mismatch",
+                String::from_utf8_lossy(ctype)
+            ));
+        }
         match ctype {
             b"IHDR" if chunk_data.len() >= 13 => {
                 if saw_ihdr {
@@ -410,6 +428,14 @@ fn validate_png(
     };
     if let Err(reason) = state.finish_and_check() {
         return (Validation::Partial, vec![reason]);
+    }
+    if !bad_crcs.is_empty() {
+        let mut notes = bad_crcs;
+        notes.push(format!(
+            "inflated {} bytes of PNG image data but chunk CRCs failed",
+            state.expected
+        ));
+        return (Validation::Partial, notes);
     }
     (
         Validation::Decoded,

@@ -162,7 +162,7 @@ Windows**.
 | H-11 | CRIT | 2026-11-21 source | STATIC-ONLY | - | scripts/review_repro.py X07 | Crafted minimal E01 did not crash; fixture likely insufficient. SRC confirms unbounded chunk allocation risk. |
 | H-12 | CRIT | 2026-11-21 source | STATIC-ONLY | - | scripts/review_repro.py X08 | Crafted VMDK completed quickly; RSS not measured. Needs proper RSS harness. |
 | H-16 | CRIT | 2026-11-21 source | OPEN | - | scripts/review_repro.py X24 | X24 interleaved fixture not flagged as decoded/complete; default structural-as-complete issue still present per SRC. Needs proper validity-model check. |
-| H-17 | HIGH | 2026-11-21 source | REPRODUCED | - | scripts/review_repro.py X10 | Bad CRC PNG reported decoded/complete score=85. |
+| H-17 | HIGH | 2026-11-21 source | CLOSED | - | scripts/review_repro.py X10 | Deep PNG validation now reports CRC mismatches as Validation::Partial; file still emitted. |
 | H-20 | MED | 2026-11-21 source | CLOSED | - | scripts/review_repro.py X13 | Trim trailing CR/LF/whitespace/NUL before %%EOF check; EOL variants now identical. |
 | H-24 | MED | 2026-11-21 source | CLOSED | - | scripts/review_repro.py X18 | Auto-detect now validates VHD footer checksum and requires strong VMDK descriptor markers before classifying. |
 
@@ -216,7 +216,6 @@ Windows**.
 
 ## Open xfail tests / scenarios
 
-- `X10` (H-17): REPRODUCED - bad CRC PNG reported as decoded/complete (score 85).
 
 ## Blockers / open questions
 
