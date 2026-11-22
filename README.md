@@ -542,7 +542,8 @@ golden hashes, G8 performance checks against committed baselines, a generated
 flag-table check (G9), 70% line coverage, a 13-target fuzz smoke, all repro
 controls, the benchmark smoke and the H-31 status-label reconciliation check.
 CI runs the same gate plus packaged Windows and musl binary execution. The
-suite covers, among other things:
+artefact manifest for the validation claims is `bench/results/EVIDENCE.md`.
+The suite covers, among other things:
 
 - JPEG baseline, progressive, EXIF thumbnail, truncated data, fake headers;
 - Valid PNG, bad CRC, truncated chunk, indexed PNG missing PLTE, first chunk not IHDR;

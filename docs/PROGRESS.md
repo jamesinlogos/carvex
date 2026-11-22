@@ -209,7 +209,7 @@ Windows**.
 | H-29 | HIGH | 2026-11-22 source/release binary | CLOSED | b902eed | tests/fragment_recovery.rs; tests/cli_contract.rs; tests/validity_model.rs; scripts/review_repro.py X15; scripts/fragment_profile.py | Red evidence: schema/CSV missing `alternatives`, S12 `file A not recovered exactly`, X15 accepted one incorrect PDF splice. Work units are authoritative; only `verified` stitches are emitted. D1 profile: recall 4/6, splice 0/4, junk FP 0/24; X15 recalls 3/3 real files with no bait stitch. |
 | H-30 | HIGH | 2026-11-22 source/CI config | CLOSED (local; CI run failed) | b9c40d3 | scripts/gate.sh; scripts/render_docs.py; scripts/perf_gate.py; scripts/sbom.py; .github/workflows/ci.yml | Red efficacy test: reintroducing H-05, H-07, H-08 and H-17 each turned the gate red. Gate now runs G0-G9 at 70% coverage with 13 fuzz targets. GitHub run `45035152791` on `d9dcac3` completed failure (8 success / 18 failure); logs unavailable and not guessed. |
 | H-31 | MED | 2026-11-22 source/docs | CLOSED | efd6d9f | scripts/check_status.py; scripts/gate.sh; .github/workflows/ci.yml | Static red: the checker failed with `STATUS FAIL: section heading not found` before the reconciliation; a deliberately wrong A-10 label fails after the fix. Status tables now agree across both documents. |
-| H-32 | MED | 2026-11-22 docs | OPEN | - | docs/VALIDATION.md | Evidence cited in docs is still not covered by a committed SHA-256 manifest; no lockbox regeneration is planned. |
+| H-32 | MED | 2026-11-22 docs | CLOSED | pending | bench/results/EVIDENCE.md; bench/results/EVIDENCE.sha256; bench/results/evidence-bundle-0.2.0.tar.gz; bench/lockbox.log; docs/VALIDATION.md | Static red showed ignored evidence paths, no manifest and no reconstructed lockbox log. The manifest covers 47 bundled artefacts; historical figures without retained raw logs are labelled author-reported; no lockbox regeneration. |
 | H-33 | MED | 2026-11-22 docs | OPEN | - | bench/render_docs.py | Known documentation drift (speed sentence, Pillow claim, flag table limitations, stale `/home/kali` paths) remains to be fixed with grep evidence. |
 | H-34 | LOW | 2026-11-22 source | OPEN | - | clippy.toml | The `too_many_lines` threshold and staged `missing_docs`/pedantic work have not yet been applied. |
 
@@ -779,9 +779,40 @@ Gate: the final H-31 tree ran `scripts/gate.sh` with the default 60 s fuzz
   (`/tmp/opencode/gate_h31_final.log`). G8 reported s9_4m 0.147 s / 0.376x
   baseline and rand64m 0.035 s / advisory 1.161x; no threshold was changed.
 Residual risk / next: H-01 remains BLOCKED until the user supplies
-  `docs/guide.md`; H-04, H-32, H-33 and H-34 remain open in their own findings.
+  `docs/guide.md`; H-04, H-33 and H-34 remain open in their own findings.
   This is a documentation/process fix: no CLI, JSON/CSV, score, warning code,
   default or frozen result changed.
+
+Task: H-32 — Evidence cited in the documents is not in the tree
+Reviews: v1:R-14, v2:N-08, v3:R-09 and v4:F-15.
+Repro: static red evidence before the change — `git check-ignore -v` showed
+  `bench/results/fuzz/`, `bench/results/coverage/`, `bench/results/lockbox-v1/`,
+  `bench/results/full-0.2.0/`, `bench/lockbox/` and `bench/results/*.log` were
+  excluded; `bench/results/EVIDENCE.md` and `bench/lockbox.log` did not exist;
+  `docs/VALIDATION.md` did not cite a manifest
+  (`/tmp/opencode/h32_static_red.txt`).
+Change: `bench/results/EVIDENCE.md` lists 47 artefact digests and the bundle
+  checksums; `bench/results/EVIDENCE.sha256` is a `sha256sum`-compatible
+  manifest; `bench/results/evidence-bundle-0.2.0.tar.gz` prepares those
+  artefacts for the user to publish. `bench/lockbox.log` is explicitly
+  reconstructed from `docs/VALIDATION.md`, not independently observed.
+  `docs/VALIDATION.md` now cites the manifest and labels historical fuzz,
+  audit and coverage figures without retained raw logs as **author-reported**.
+Red evidence: extracting the bundle into an empty directory and running
+  `sha256sum -c bench/results/EVIDENCE.sha256` verified all 47 entries
+  (`/tmp/opencode/h32_bundle_verify.txt`). No lockbox dataset or result was
+  regenerated; the 1.8 GiB dataset itself is not bundled, only its checksum
+  files and one-shot execution results.
+Gate: the H-32 candidate tree ran `scripts/gate.sh` with the default 60 s fuzz
+  budget: G9 GREEN, STATUS GREEN, G7 GOLDEN GREEN, 70% coverage, 13 fuzz targets
+  with 17,940,194 executions, 34 scenarios with 0 failures/2 SKIPs/0 XPASS and
+  **GATE GREEN** (`/tmp/opencode/gate_h32_final.log`). G8 reported s9_4m
+  0.152 s / 0.387x baseline and rand64m 0.027 s / 0.887x baseline; no threshold
+  was changed.
+Residual risk / next: the bundle is prepared but not published; only the user
+  can attach it to a release or data repository. Remote GitHub job logs remain
+  unavailable, so no failure cause is claimed. No CLI, JSON/CSV, score,
+  warning code, default or frozen benchmark value changed.
 
 ### Conflict measurements (C1-C13)
 

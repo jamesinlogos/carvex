@@ -1020,3 +1020,25 @@ decision, and the consequences.
   warning code or frozen result changed. H-01 remains BLOCKED pending the
   user-supplied guide; H-04, H-32, H-33 and H-34 remain open until their own
   findings are implemented.
+
+## D-56. Publish an evidence manifest and disclose unbacked figures (H-32)
+
+- **Context:** `docs/VALIDATION.md` cited lockbox, benchmark, fuzz, coverage and
+  CI results whose raw artefacts were either ignored by `.gitignore` or kept
+  only at transient `/tmp` paths. No manifest connected those claims to
+  digests, and `bench/lockbox.log` did not exist.
+- **Decision:** `bench/results/EVIDENCE.md` and `bench/results/EVIDENCE.sha256`
+  list 47 artefact digests, and `bench/results/evidence-bundle-0.2.0.tar.gz`
+  prepares them for user publication. The 1.8 GiB lockbox dataset is not
+  bundled; its checksum files and one-shot execution results are.
+  `bench/lockbox.log` is a documented reconstruction, not an independent
+  observation. Historical figures without retained raw logs are labelled
+  **author-reported** in `docs/VALIDATION.md`.
+- **Evidence:** the static red check showed the ignored paths and missing
+  files; after the change all 47 bundled files passed `sha256sum -c` in an
+  empty extraction directory. Quoted lockbox, full-benchmark, protocol,
+  config and dist digests matched the computed values.
+- **Consequences:** no lockbox dataset, benchmark, published figure, score,
+  CLI/JSON/CSV field or warning code changed. The bundle is prepared locally;
+  publication is the user's action. Remote job logs remain unavailable, so no
+  CI failure cause is claimed.

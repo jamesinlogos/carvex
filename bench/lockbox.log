@@ -1,0 +1,50 @@
+CarveX lockbox-v1 execution log (RECONSTRUCTED)
+
+Status: reconstructed from docs/VALIDATION.md on 2026-11-22. This is NOT an
+independently observed raw tool log and must not be cited as one. It exists to
+make the documented lockbox command, checksums and pooled table available in the
+tree; the original one-shot execution results are in bench/results/lockbox-v1/
+and their digests are listed in bench/results/EVIDENCE.md. No lockbox dataset or
+result was regenerated to create this file.
+
+Dataset command: python3 bench/lockbox.py (after protocol-v1.1)
+Execution command: scripts/lockbox_run.sh (run exactly once)
+
+Dataset provenance
+- 20 seeds 1001-1020, balanced 5/5/5/5: all-deleted/FAT32, all-deleted/NTFS,
+  mixed/FAT32, mixed/NTFS.
+- 600 unique corpus files and 20 64 MiB images; strict hash dedupe against the
+  development corpus and earlier lockbox seeds.
+- bench/lockbox/SHA256SUMS: 1302 entries; SHA-256
+  a5724038df4d76bdf1691dc429c86292f58f41d15b19c3ab6cdab1b66446f68f
+- bench/lockbox/lockbox.json SHA-256
+  3c98caaa693791a2198bb2dfdabf9797c5e25a6328785042b299ab176148b93c
+- sha256sum -c SHA256SUMS passed in bench/lockbox/ (author-reported check).
+
+Execution provenance
+- 100 tool/image combinations (20 images x 5 tool/mode specs x 1 repetition).
+- All 100 rows: ok=true, empty error strings, no metric_variance warnings.
+- bench/results/lockbox-v1/DATASET_SHA256SUMS SHA-256
+  a5724038df4d76bdf1691dc429c86292f58f41d15b19c3ab6cdab1b66446f68f
+- bench/results/lockbox-v1/SHA256SUMS SHA-256
+  9f8b4e5d475ccd38587f14abb127ef56b2d6b0c967eb1c07722487bb04f03734
+- sha256sum -c SHA256SUMS passed in the result directory (author-reported
+  check; the checksum file itself is bundled).
+
+Pooled lockbox metrics (reconstructed from docs/VALIDATION.md section 6)
+Tool / mode          Deleted Kept Outputs   TP   FP   FN      P      R     F1  TP usable FP usable Runtime
+CarveX unallocated       500  100     500  500    0    0  100.0% 100.0% 100.0%        500         0   3.524 s
+CarveX raw               500  100     600  500  100    0   83.3% 100.0%  90.9%        500       100   2.173 s
+Foremost                 500  100     780  390  390  110   50.0%  78.0%  60.9%        470       310   7.660 s
+Scalpel                  500  100     845  390  455  110   46.2%  78.0%  58.0%        460       385   9.877 s
+PhotoRec                 500  100     579  479  100   21   82.7%  95.8%  88.8%        479       100  10.745 s
+
+By design group
+- CarveX unallocated: 150/150 deleted files with 0 FP in each of the four
+  groups (all-deleted/FAT32, all-deleted/NTFS, mixed/FAT32, mixed/NTFS).
+- CarveX raw: every deleted file; 50 FP in each mixed group and 0 FP in each
+  all-deleted group.
+- Wilson 95% CI for 500/500 exact true positives: [99.24%, 100%].
+- These numbers were not used to change code, thresholds, configs or the runner.
+
+END OF RECONSTRUCTED LOG

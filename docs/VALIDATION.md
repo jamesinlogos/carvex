@@ -6,6 +6,14 @@
 > published 0.1.0 figures in `README.md`, `docs/REPORT.md` and
 > `bench/results/final/` are unchanged.
 
+Evidence cross-reference: `bench/results/EVIDENCE.md` is the SHA-256 manifest
+for the artefacts cited below, with a prepared archive
+(`bench/results/evidence-bundle-0.2.0.tar.gz`) and checksum file
+(`bench/results/EVIDENCE.sha256`) for publication as a release asset or data
+repository. Historical figures whose raw artefact was not retained are marked
+**author-reported** in the sections below. `bench/lockbox.log` is explicitly a
+reconstruction from this file, not an independently observed raw log.
+
 ## 1. Freeze and provenance
 
 | Item | Value |
@@ -19,6 +27,9 @@
 | `bench/scalpel.conf` SHA-256 | `9c55a406f8911167c912b790c06fcb1c54247b59b32fecc4ef541c466df653e0` |
 | Linux dist SHA-256 | `b9e6c5f4d9cd5dd6ed633acda799e1e1c0880717de5030a5fe61a8ce5f7858af` |
 | Windows dist SHA-256 | `503553ea17cd15522ce694ecb5eee0a8daacc8d6fed9ff434fe48262ad17fc9b` |
+
+Every digest in this table is reproduced and verified in
+`bench/results/EVIDENCE.md`.
 
 The first lockbox generation attempt failed at seed 1001 because 19 of the
 fixed seeds produced a `pdf_08_small_text.pdf` below the corpus builder's own
@@ -38,13 +49,15 @@ Command: `scripts/gate.sh`
 Result: **GATE GREEN**. The original recorded run in this section executed 80
 tests (34 unit + 13 CLI contract + 5 evidence formats + 8 filesystem detection
 + 5 property + 6 scan integration + 2 fragment recovery + 3 memory budget +
-4 PNG decode budget); the current H-14 re-run is recorded below. The gate runs
+4 PNG decode budget); this 80-test count and the early audit summary below are
+**author-reported**, because their raw logs were not retained. The current
+H-14 re-run is recorded below. The gate runs
 format check, clippy, tests, rustdoc with `-D warnings`, `actionlint`,
 `cargo deny check`, `cargo audit`, MSRV 1.85 check, release build,
 `scripts/review_repro.py` (10/10 PASS, 0 XPASS in the original run; 34 scenarios
 with 0 failures, 2 SKIPs and 0 XPASS in the H-14 run) and the benchmark smoke
-test (TP=3/FP=0 unallocated, TP=3/FP=1 raw). `cargo audit` reported 0
-vulnerabilities in 91 crates against 1555 advisories; `cargo deny check`
+test (TP=3/FP=0 unallocated, TP=3/FP=1 raw). `cargo audit` **author-reported**
+0 vulnerabilities in 91 crates against 1555 advisories; `cargo deny check`
 reported advisories, bans, licenses and sources all OK.
 
 The gate was re-run after the B-04 source additions, after B-06, and after
@@ -146,14 +159,16 @@ measurement, and the frozen lockbox was not touched.
 The repro harness ran 34 scenarios with 0 failures, 2 SKIPs and 0 XPASS; G7 and
 the benchmark smoke were green. `scripts/perf_gate.py --carvex
 target/release/carvex` reported **PERF GREEN**: s9_4m median 0.145 s and
-rand64m median 0.035 s. Gate logs are `/tmp/opencode/gate_h29.log` and
-`/tmp/opencode/perf_h29.log`. No new coverage measurement was made for
+rand64m median 0.035 s. Gate logs are retained in the evidence bundle as
+`bench/results/gate_h29.log` and `bench/results/perf_h29.log`. No new coverage
+measurement was made for
 H-14/H-16/H-17/H-18/H-19/H-21/H-22/H-25/H-26/H-27/H-28/H-29.
 
 ### G0-G9 at H-30
 
 The full gate was run on the exact H-30 candidate tree with the default 60 s
-fuzz budget and logged at `/tmp/opencode/gate_h30.log`.
+fuzz budget. The recorded log is retained in the evidence bundle as
+`bench/results/gate_h30_final.log`.
 
 | Gate | Check | Local result |
 |---|---|---|
@@ -196,19 +211,31 @@ Two red controls were captured before the green result:
 
 1. Before the reconciliation, the checker exited 1 with
    `STATUS FAIL: section heading not found` because the H-xx table was absent
-   from `docs/REVIEW_RESPONSE.md` (`/tmp/opencode/status_red_before_docs.txt`).
+   from `docs/REVIEW_RESPONSE.md` (retained as
+   `bench/results/status_red_before_docs.txt` in the evidence bundle).
 2. After the fix, temporary copies of both documents with A-10 changed to
    `DONE`/`FIXED` exited 1 with `A-10: linked H-34 is OPEN, not CLOSED` and
    `A-10: linked H-34 has no commit hash ('-')`
-   (`/tmp/opencode/status_red_wrong_label.txt`). The real documents were not
-   changed by that control.
+   (retained as `bench/results/status_red_wrong_label.txt` in the evidence
+   bundle). The real documents were not changed by that control.
 
 The final H-31 tree ran the full `scripts/gate.sh` with the default 60 s fuzz
 budget: G9 GREEN for 48 options, STATUS GREEN, G7 GOLDEN GREEN, coverage at 70%,
 13 fuzz targets with 16,964,405 executions, 34 scenarios with 0 failures/2
-SKIPs/0 XPASS and **GATE GREEN** (`/tmp/opencode/gate_h31_final.log`). G8
+SKIPs/0 XPASS and **GATE GREEN** (retained as
+`bench/results/gate_h31_final.log` in the evidence bundle). G8
 reported s9_4m 0.147 s / 0.376x baseline and rand64m 0.035 s / advisory 1.161x;
 the relative check is advisory without `--strict` and no threshold changed.
+
+### Evidence manifest at H-32
+
+`bench/results/EVIDENCE.md` lists 47 artefact digests and the prepared bundle
+checksums. Extracting `bench/results/evidence-bundle-0.2.0.tar.gz` into an empty
+directory and running `sha256sum -c bench/results/EVIDENCE.sha256` verified all
+47 entries. The 1.8 GiB lockbox dataset is not bundled; only its checksum files
+and execution results are. `bench/lockbox.log` is a labelled reconstruction.
+The static red check that found ignored paths and missing files is recorded in
+`docs/PROGRESS.md`; no lockbox or benchmark result was regenerated.
 
 ## 3. GitHub Actions
 
@@ -260,14 +287,21 @@ logs are not available through the public API to this account (the log endpoint
 returned `403 Must have admin rights to Repository.`), so the remote failure
 causes are **not observed** here and are not guessed. The local G0-G9 evidence
 in §2 therefore remains the only executed evidence for H-30: **no green CI run
-at HEAD is claimed**.
+at HEAD is claimed**. The public API responses for both runs are retained as
+`bench/results/ci_run_44548142275.json`,
+`bench/results/ci_jobs_44548142275.json`,
+`bench/results/ci_run_45035152791.json` and
+`bench/results/ci_jobs_45035152791.json` in the evidence bundle. Remote failure
+causes remain unobserved: no job log was available to this account.
 
 ## 4. Fuzz runtime
 
 ### Historical seven-target run (before H-14)
 
 Command: `scripts/fuzz.sh 60` (7 targets × 60 seconds, nightly
-`1.102.0-nightly`, cargo-fuzz `0.13.2`).
+`1.102.0-nightly`, cargo-fuzz `0.13.2`). The execution counts in this
+historical table are **author-reported**: the original logs were overwritten
+by later gate runs and are not in `bench/results/EVIDENCE.md`.
 
 | Target | Executions |
 |---|---:|
@@ -281,14 +315,16 @@ Command: `scripts/fuzz.sh 60` (7 targets × 60 seconds, nightly
 | **Total** | **18,520,025** |
 
 No crash, timeout, OOM or panic was reported; `fuzz/artifacts/` remained
-empty. Full logs are in `bench/results/fuzz/*.log`. These are historical
-results and were not repeated after H-14.
+empty. These are historical **author-reported** results and were not repeated
+after H-14; the current ignored `bench/results/fuzz/*.log` files were generated
+by later gates and do not back this table.
 
 ### H-14 parser targets (2026-11-22)
 
 Command: `scripts/fuzz.sh 60 fuzz_e01 fuzz_vhd fuzz_vmdk fuzz_split_names
 fuzz_open_image fuzz_fragment_join` (6 targets × 60 seconds, nightly
-`1.102.0-nightly`, cargo-fuzz `0.13.2`).
+`1.102.0-nightly`, cargo-fuzz `0.13.2`). These counts are also
+**author-reported** because those six logs were overwritten by later gate runs.
 
 | Target | Executions |
 |---|---:|
@@ -305,14 +341,14 @@ panic. No files were written under `fuzz/artifacts/`, so no minimised crash
 fixture or crash regression test was required. Real-tool E01/VMDK container
 seeds were SKIPPED because `ewfacquire`, `ewfexport` and `qemu-img` are not
 installed. The expanded fuzzer corpora were reset to the 22 deterministic
-committed seeds after the run. Logs are in `bench/results/fuzz/`; the CI
+committed seeds after the run. The original H-14 logs are not retained; the CI
 matrix lists all 13 targets, but no post-change GitHub run is claimed.
 
 ### H-30 full gate fuzz smoke (2026-11-22)
 
 Command: `scripts/gate.sh` with its default `scripts/fuzz.sh 60` invocation
 (13 targets × 60 seconds, nightly toolchain, cargo-fuzz;
-`/tmp/opencode/gate_h30_final.log`).
+`bench/results/gate_h30_final.log` in the evidence bundle).
 
 | Target | Executions |
 |---|---:|
@@ -340,15 +376,17 @@ targets for 60 s on push and pull request and for 600 s on the nightly schedule.
 Command: `scripts/coverage.sh 60` (cargo-llvm-cov `0.9.1`).
 
 The historical command used a 60% floor; H-30 raised the CI and gate floor to
-70%. A fresh `cargo llvm-cov report --summary-only` after H-29 measured
-12518 total lines with 3440 uncovered = **72.52% line coverage**. The H-30
-full gate ran `scripts/coverage.sh 70` and reported **COVERAGE COMPLETE:
-minimum 70% lines**. After R-01/R-02 the lcov report contained 4456/6391 lines
-= 69.72%; the post-B-06 measurement was 4111/6001 lines = 68.51%, post-B-04
-3802/5633 lines = 67.50%, and pre-B-04 0.2.0 was 2859/4508 lines = 63.42%.
-The earlier aspirational 80% target is not claimed; the next ratchet is 75%.
-Artifacts: `bench/results/coverage/lcov.info` and
-`bench/results/coverage/coverage.log`.
+70%. A fresh `cargo llvm-cov report --summary-only` after H-29
+**author-reported** 12518 total lines with 3440 uncovered = **72.52% line
+coverage**; that one-off report was not retained. The H-30 full gate ran
+`scripts/coverage.sh 70` and reported **COVERAGE COMPLETE: minimum 70% lines**
+(`bench/results/gate_h30_final.log`). The earlier historical percentages
+(4456/6391 = 69.72%, 4111/6001 = 68.51%, 3802/5633 = 67.50% and 2859/4508 =
+63.42%) are **author-reported** because their lcov files were overwritten. The
+earlier aspirational 80% target is not claimed; the next ratchet is 75%. The
+latest retained artefacts are `bench/results/coverage/lcov.info` and
+`bench/results/coverage/coverage.log`, both listed in
+`bench/results/EVIDENCE.md`.
 
 ## 6. Lockbox-v1 (single use)
 
@@ -363,6 +401,11 @@ Dataset command: `python3 bench/lockbox.py` after `protocol-v1.1`.
 - `bench/lockbox/lockbox.json` SHA-256:
   `3c98caaa693791a2198bb2dfdabf9797c5e25a6328785042b299ab176148b93c`.
 - `sha256sum -c SHA256SUMS` in `bench/lockbox/` passed for every entry.
+
+A tree-resident reconstruction of this section is committed as
+`bench/lockbox.log`. It is labelled "reconstructed, not independently
+observed" and is listed as such in `bench/results/EVIDENCE.md`; no lockbox data
+was regenerated to create it.
 
 Execution command: `scripts/lockbox_run.sh`, run exactly once into
 `bench/results/lockbox-v1`. It ran 100 tool/image combinations (20 images ×
@@ -397,7 +440,8 @@ Command: `scripts/benchmark_full.sh`, writing to the fresh directory
 `bench/results/full-0.2.0`. It ran 4 images × 5 tool/mode specs × 3
 repetitions = 60 runs, all successful. The result `SHA256SUMS` hashes to
 `01b6881bc42b8927a7ac600d5f484b17f942007c9545c74328858beb1f15844b` and
-`sha256sum -c SHA256SUMS` passed inside the result directory.
+`sha256sum -c SHA256SUMS` passed inside the result directory. These results and
+the frozen comparison directories are included in `bench/results/EVIDENCE.md`.
 
 | Tool / mode | Deleted | Kept | Outputs | TP | FP | FN | P | R | F1 | Runtime |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -417,6 +461,9 @@ evidence only; published figures remain those of 0.1.0.
 
 ## 8. What is still not claimed
 
+- Figures marked **author-reported** above or in `bench/results/EVIDENCE.md`
+  are not treated as artefact-backed, even when they are useful historical
+  context. No new claim is made from them.
 - D2–D7 datasets remain OPEN; lockbox-v1 uses the D1-style synthetic profile.
 - B-06 now has a small, reproducible D1-style development measurement (§2 and
   `bench/results/d1_fragment_profile.json`): recall 4/6 with a wide Wilson 95%
