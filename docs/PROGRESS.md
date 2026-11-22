@@ -157,6 +157,15 @@ Windows**.
 - Competitor FP classification re-verified by running the commands (C-04):
   Foremost 44, Scalpel 54 `unknown_fp` — see `docs/REPORT.md §6.2`.
 
+| H-05 | CRIT | 2026-11-21 source | NOT-REPRODUCED (current) | - | scripts/review_repro.py X02 | X02 did not reproduce on 0.3.0-dev; likely mitigated by R-02 bounded PNG decode. Needs adversarial confirmation per harness recipe. |
+| H-07 | HIGH | 2026-11-21 source | REPRODUCED | - | scripts/review_repro.py X04 | 4096 EOF markers in 64 MiB: 23-26s (target <=1s). |
+| H-11 | CRIT | 2026-11-21 source | STATIC-ONLY | - | scripts/review_repro.py X07 | Crafted minimal E01 did not crash; fixture likely insufficient. SRC confirms unbounded chunk allocation risk. |
+| H-12 | CRIT | 2026-11-21 source | STATIC-ONLY | - | scripts/review_repro.py X08 | Crafted VMDK completed quickly; RSS not measured. Needs proper RSS harness. |
+| H-16 | CRIT | 2026-11-21 source | OPEN | - | scripts/review_repro.py X24 | X24 interleaved fixture not flagged as decoded/complete; default structural-as-complete issue still present per SRC. Needs proper validity-model check. |
+| H-17 | HIGH | 2026-11-21 source | REPRODUCED | - | scripts/review_repro.py X10 | Bad CRC PNG reported decoded/complete score=85. |
+| H-20 | MED | 2026-11-21 source | REPRODUCED | - | scripts/review_repro.py X13 | CRLF/CR endings report partial/80; LF/none decoded/100. |
+| H-24 | MED | 2026-11-21 source | REPRODUCED | - | scripts/review_repro.py X18 | Raw scan with trailing `conectix` sector fails: VHD footer checksum mismatch. |
+
 ## Blockers / open questions
 
 - GitHub Actions has now run successfully on the pre-B-04/B-06 CI-fix commit
@@ -200,12 +209,15 @@ Windows**.
 |----|-----|---------------------|--------|--------|---------|----------------------------------|
 | H-01 | HIGH | 2026-11-21 source | IN_PROGRESS | - | - | harness placed; guide.md missing (user requested); D-33 added; gate header fixed |
 | H-02 | HIGH | 2026-11-21 source | IN_PROGRESS | - | - | SKIP semantics added to repro; check-msrv.sh added; G7 golden script added; full clean-checkout gate not yet proven |
-| H-03 | HIGH | - | OPEN | - | - | - |
+| H-03 | HIGH | - | OPEN | - | - | xfail scaffolding started in review_repro.py; full Rust regress_* builders not yet added |
 | H-04 | MED | 2026-11-21 source | IN_PROGRESS | - | - | URL/build.rs/version/dist notice done; dist rebuild deferred to release |
 
 ## Open xfail tests / scenarios
 
-(none added yet; Phase 0 reproduction pending)
+- `X04` (H-07): REPRODUCED on 0.3.0-dev - 4096 EOF markers, 64 MiB took ~23s.
+- `X10` (H-17): REPRODUCED - bad CRC PNG reported as decoded/complete (score 85).
+- `X13` (H-20): REPRODUCED - CRLF/CR PDF endings become partial/80 vs decoded/100.
+- `X18` (H-24): REPRODUCED - raw-mode scan of file with `conectix` last sector fails with VHD footer checksum mismatch.
 
 ## Blockers / open questions
 
