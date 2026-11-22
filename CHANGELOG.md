@@ -106,6 +106,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and VMDK container seeds were SKIPPED because the acquisition tools are not
   installed; the historical seven-target run is not presented as a
   post-change result.
+- H-15 X23 re-timing found no source-build slowdown (1 thread median 0.489 s,
+  default 0.156 s) and a 3.51x parallel slowdown only in the stale 0.2.0 musl
+  dist binary (0.694 s versus 2.436 s). No allocator change or dist rebuild
+  was made for this finding.
 
 ## [0.2.0] — 2026-11-19
 

@@ -647,3 +647,19 @@ decision, and the consequences.
   exercise the shared builders. The original seven-target run remains a
   historical result and is not presented as a post-change run. Full counts
   are in `docs/PROGRESS.md` and `docs/VALIDATION.md §4`.
+
+## D-42. H-15 parallel-carve performance scope
+
+- **Context:** the reviewer recorded a ~1.6x parallel slowdown in the 0.2.0
+  musl package, while several source-build reviews did not reproduce it. X23
+  was re-timed on 2026-11-22 with three runs per arm.
+- **Decision:** close H-15 as a measured, packaged-release issue. The current
+  glibc source build is faster with the default thread count (0.489 s at
+  `--threads 1` versus 0.156 s default on the X23 flood image); only the
+  stale 0.2.0 musl dist binary is slower (0.694 s versus 2.436 s, 3.51x).
+  That binary predates the streaming-write and buffer-reuse work in H-08, so
+  no source change is justified by this evidence.
+- **Constraint:** no allocator change is made without STOP-AND-ASK, and no
+  performance tuning is done on lockbox or published results. The approved
+  end-of-harness 0.3.0 dist rebuild must be timed separately before claiming
+  anything about the packaged 0.3.0 binary.

@@ -186,7 +186,7 @@ Windows**.
 | H-09 | HIGH | 2026-11-21 source / 2026-11-21 release build | CLOSED | 48deab5 | tests/work_budgets.rs; scripts/review_repro.py X05 | Red X05 (missing flags) before the fix; after: all four limits trip with coded warning, report and exit 3; time case sets `nondeterministic_stop`. D-39 defaults measured on D0/S9/S10. |
 | H-10 | HIGH | 2026-11-21 source / 2026-11-21 release build | CLOSED | 5f794a4 | tests/panic_containment.rs; scripts/review_repro.py X06 | Red test proved an escaping rayon panic before the fix. After: candidate/join panics become `internal_errors[]`, `CANDIDATE_PANIC`, counted in stats, exit 3; other candidates still carved. Open panics become typed errors; panic=unwind profile test added. |
 | H-14 | HIGH | 2026-11-22 source / nightly fuzz runtime | CLOSED | e2d3f1d | fuzz/fuzz_targets/fuzz_*.rs; src/image/fuzz_support.rs tests; scripts/fuzz.sh | Static gap: only 7 targets, none for the new parsers. Added 6 named targets, 22 committed seeds and structured property tests; each target ran 60 s clean (235,272 executions total, no crash/artifact). Real-tool E01/VMDK fixtures SKIPPED (`ewfacquire`/`ewfexport`/`qemu-img` missing); all 13 targets are listed in the CI fuzz matrix. |
-| H-15 | MED | 2026-11-21 source / 0.2.0 `dist/` | MEASURED (musl-only) | - | scripts/review_repro.py X23; conflict C5 | Source build: 1 thread 0.542 s, default 0.364 s. Packaged musl build: 1 thread 0.764 s, default 2.491 s (3.26x slower). No allocator change without STOP-AND-ASK; measured, not tuned. |
+| H-15 | MED | 2026-11-22 source / 0.2.0 `dist/` | CLOSED (measured; musl/dist-only) | PENDING_H15 | scripts/review_repro.py X23; direct X23 timing | Current glibc source: 1 thread median 0.489 s, default 0.156 s (0.32x). Stale 0.2.0 musl dist: 1 thread median 0.694 s, default 2.436 s (3.51x). Only the stale packaged release is slow; buffer reuse already landed in H-08. No allocator change without STOP-AND-ASK; no tuning or dist rebuild in this finding. |
 | H-18 | HIGH | 2026-11-21 source | IN_PROGRESS | 3724a06 | scripts/review_repro.py X12; scripts/jpeg_splice_property.py | Baseline splice rate 0.2180 [0.1935,0.2446] at a7a5c08; current rate 0.0010 [0.0002,0.0056]. Strict-scan unsupported variants are Unverified; step 2 is still needed because the current upper CI exceeds 0.1%. |
 | H-19 | HIGH | 2026-11-21 source | CLOSED (stage 1) | - | scripts/review_repro.py X11 | PDF decode no longer returns Decoded; returns Unverified with explicit lexical-only note (stage 1 honesty). S12/B-06 acceptance adjusted with E-1 note: PDF stitches accepted as lexical-validated Unverified, not Decoded. |
 | H-21 | HIGH | 2026-11-21 source | REPRODUCED | - | scripts/review_repro.py X14 | Repaired PDF missing `sha256_original`. |
@@ -196,6 +196,25 @@ Windows**.
 | H-23 | MED | 2026-11-21 source | CLOSED | 080b76a | tests/regress_vmdk_safety.rs | Missing grain table returned "index out of range"; now reads zeros like qemu-img. |
 
 ### Per-task reports
+
+Task: H-15 — Parallel carve slower than one thread
+Reviews: v2:N-03 (ONE); conflict C5 from v1/v4/v5
+Repro: X23 flood image, 4 MiB with a JPEG header every 512 B. Three direct
+  runs per arm on 2026-11-22, `--threads 1` versus default.
+Measurements: current glibc source build (`target/release/carvex`): medians
+  0.489 s (1 thread) and 0.156 s (default), ratio 0.32x; individual runs
+  0.480/0.489/0.501 s and 0.150/0.156/0.164 s. Stale 0.2.0 musl dist binary
+  (`dist/carvex-linux-x86_64`): medians 0.694 s and 2.436 s, ratio 3.51x;
+  individual runs 0.694/0.727/0.669 s and 2.436/2.432/2.471 s. The dist
+  binary predates H-08's streaming-write/buffer-reuse work.
+Change: none. This is condition (a) of the harness procedure: only the
+  packaged musl release is slow, so the finding is closed with measurements.
+  An allocator change needs STOP-AND-ASK and was not made; no tuning was done.
+Gate: green (fmt/clippy/tests/doc/actionlint/deny/audit/MSRV/release/repro/golden/smoke).
+Residual risk / next: the stale 0.2.0 dist binary is not a valid 0.3.0
+  performance artifact. The approved end-of-harness release rebuild must be
+  re-timed before any claim about the 0.3.0 musl package; this finding does
+  not claim that the future binary is fast.
 
 Task: H-14 — No fuzz targets for the new parsers
 Reviews: v1:R-19, v2:N-06, v4:F-14, v5:F-10 (SRC×4)
