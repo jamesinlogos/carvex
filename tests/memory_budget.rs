@@ -8,6 +8,7 @@ use carvex::scan::{run_scan, ScanContext, ScanInput, ScanMode, DEFAULT_MAX_CANDI
 use carvex::signatures::FileType;
 use common::{scan_options, MemSource, JPEG_1X1};
 use std::fs;
+use std::sync::{Arc, Mutex};
 
 fn vm_hwm_kib() -> Option<u64> {
     let status = fs::read_to_string("/proc/self/status").ok()?;
@@ -27,6 +28,7 @@ fn run_raw(image: Vec<u8>, opts: &carvex::scan::ScanOptions) -> anyhow::Result<(
     let src = MemSource::new(image);
     let dir = tempfile::tempdir()?;
     let ctx = ScanContext::default();
+    let regions = Arc::new(Mutex::new(Vec::new()));
     let input = ScanInput {
         source: &src,
         image: "dense.img",
@@ -35,6 +37,8 @@ fn run_raw(image: Vec<u8>, opts: &carvex::scan::ScanOptions) -> anyhow::Result<(
         volumes: &[],
         extra_extents: &[],
         out_dir: dir.path(),
+        unreadable_regions: &regions,
+        skip_unreadable: false,
     };
     run_scan(&input, opts, &ctx).map(|_| ())
 }

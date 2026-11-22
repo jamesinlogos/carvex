@@ -1,6 +1,7 @@
 use crate::fs::{self, FsInfo, PartitionSel};
 use crate::io::{
     open_image_with_options, sha256_source, InputFormat, OnReadError, OpenOptions, OpenedImage,
+    UnreadableRegion,
 };
 use crate::report;
 use crate::scan::{
@@ -641,8 +642,23 @@ fn scan(args: ScanArgs) -> Result<i32> {
         volumes: &volumes,
         extra_extents: &extra,
         out_dir: &args.output,
+        unreadable_regions: &image.unreadable_regions,
+        skip_unreadable: args.on_read_error == OnReadError::Skip,
     };
     let mut report = scan::run_scan(&input, &opts, &ctx)?;
+    let unreadable_regions: Vec<UnreadableRegion> = match image.unreadable_regions.lock() {
+        Ok(regions) => regions.clone(),
+        Err(_) => Vec::new(),
+    };
+    if !unreadable_regions.is_empty() {
+        warnings.push(Warning::new(
+            "UNREADABLE_REGION",
+            format!(
+                "{} source byte range(s) could not be read; affected outputs are not verified",
+                unreadable_regions.len()
+            ),
+        ));
+    }
     // A-07: every detected volume and region, with whether this run read it.
     report.volumes = volume_rows;
     report.regions = regions;

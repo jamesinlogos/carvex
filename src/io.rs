@@ -13,7 +13,7 @@ use std::path::Path;
 
 pub use crate::image::{
     open_image, open_image_with_options, InputFormat, OnReadError, OpenOptions, OpenedImage,
-    SourceIdentity, UnreadableRegion,
+    RegionLog, SourceIdentity, UnreadableRegion,
 };
 
 /// A random-access, read-only byte source.

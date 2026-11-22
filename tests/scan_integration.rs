@@ -7,6 +7,7 @@ use carvex::io::ImageSource;
 use carvex::scan::{run_scan, AlignMode, ScanContext, ScanInput, ScanMode, ScanOptions};
 use carvex::signatures::{FileType, Status, Validation, ValidationMode};
 use common::{fat32_volume, mixed_raw_image, pdf_min, png_1x1, scan_options, MemSource, JPEG_1X1};
+use std::sync::{Arc, Mutex};
 use tempfile::TempDir;
 
 fn run(
@@ -22,6 +23,7 @@ fn run(
         ..Default::default()
     };
     let volumes: &[fs::FsInfo] = fs_info.map(std::slice::from_ref).unwrap_or(&[]);
+    let regions = Arc::new(Mutex::new(Vec::new()));
     let input = ScanInput {
         source: &src,
         image: name,
@@ -30,6 +32,8 @@ fn run(
         volumes,
         extra_extents: &[],
         out_dir: dir.path(),
+        unreadable_regions: &regions,
+        skip_unreadable: false,
     };
     let report = run_scan(&input, &opts, &ctx).unwrap();
     (dir, report)

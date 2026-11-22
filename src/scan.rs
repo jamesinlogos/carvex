@@ -1,5 +1,5 @@
 use crate::fs::FsInfo;
-use crate::io::{read_exact_at, ImageSource};
+use crate::io::{read_exact_at, ImageSource, RegionLog, UnreadableRegion};
 use crate::signatures::{
     analyze, validate_deep_with_limits, Analysis, FileType, Need, PdfEofMode, Status, Validation,
     ValidationLimits, ValidationMode,
@@ -395,6 +395,8 @@ impl Warning {
                 | "VOLUME_UNSUPPORTED"
                 | "FS_DETECTION_FAILED"
                 | "IMAGE_MODIFIED"
+                | "UNREADABLE_REGION"
+                | "CANDIDATE_SKIPPED_UNREADABLE"
         )
     }
 }
@@ -507,6 +509,8 @@ pub struct ScanReport {
     pub volumes: Vec<VolumeSummary>,
     /// Top-level image regions with a `scanned` flag (A-07).
     pub regions: Vec<crate::fs::Region>,
+    /// Byte ranges that could not be read from the source (H-22).
+    pub unreadable_regions: Vec<UnreadableRegion>,
     pub warnings: Vec<Warning>,
     pub files: Vec<CarvedFile>,
 }
@@ -583,6 +587,10 @@ pub struct ScanInput<'a> {
     pub extra_extents: &'a [Extent],
     /// Directory where carved files are written.
     pub out_dir: &'a Path,
+    /// Byte ranges reported unreadable by the source reader (H-22).
+    pub unreadable_regions: &'a RegionLog,
+    /// Drop outputs that intersect an unreadable range instead of zero-filling.
+    pub skip_unreadable: bool,
 }
 
 /// Scan an image and write carved files plus a report.
@@ -603,6 +611,8 @@ pub fn run_scan(
         volumes,
         extra_extents,
         out_dir,
+        unreadable_regions,
+        skip_unreadable,
     } = *input;
     if opts.types.is_empty() {
         bail!("no file types selected");
@@ -725,6 +735,53 @@ pub fn run_scan(
             &mut warnings,
         )?;
     }
+    let unreadable_snapshot = match unreadable_regions.lock() {
+        Ok(regions) => regions.clone(),
+        Err(_) => Vec::new(),
+    };
+    // H-22: zero-filled bytes are not evidence.  Mark (or, under `skip`, drop)
+    // every output that intersects a region the source could not read.
+    if !unreadable_snapshot.is_empty() {
+        let mut skipped = Vec::new();
+        for (idx, data) in kept.iter_mut().enumerate() {
+            let start = data.candidate.offset;
+            let end = start.saturating_add(data.bytes.len() as u64);
+            let overlapping = unreadable_snapshot.iter().find(|region| {
+                start < region.offset.saturating_add(region.len) && region.offset < end
+            });
+            if let Some(region) = overlapping {
+                if skip_unreadable {
+                    skipped.push(idx);
+                } else {
+                    data.validation = Validation::Partial;
+                    data.validation_notes.push(format!(
+                        "output overlaps unreadable region at byte {} ({} bytes): not verified",
+                        region.offset, region.len
+                    ));
+                }
+            }
+        }
+        if skip_unreadable && !skipped.is_empty() {
+            let count = skipped.len();
+            for idx in skipped.into_iter().rev() {
+                let removed = kept.remove(idx);
+                stats.rejected = stats.rejected.saturating_add(1);
+                warnings.push(Warning::new(
+                    "CANDIDATE_SKIPPED_UNREADABLE",
+                    format!(
+                        "candidate at byte {} was skipped because it overlaps an unreadable region",
+                        removed.candidate.offset
+                    ),
+                ));
+            }
+            if count > 0 {
+                // Keep the warning list deterministic: one warning per skipped
+                // candidate is useful in verbose runs but noisy otherwise.
+                warnings.dedup_by(|a, b| a.code == b.code && a.message == b.message);
+            }
+        }
+    }
+
     if opts.verbose {
         for (idx, file) in kept.iter().enumerate() {
             eprintln!(
@@ -830,6 +887,7 @@ pub fn run_scan(
             .map(|(i, fs)| VolumeSummary::from_fs(i + 1, fs, true))
             .collect(),
         regions: Vec::new(),
+        unreadable_regions: unreadable_snapshot,
         warnings,
         files,
     })

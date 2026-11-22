@@ -11,6 +11,7 @@ use common::{
     scan_options, MemSource,
 };
 use std::collections::HashSet;
+use std::sync::{Arc, Mutex};
 use tempfile::TempDir;
 
 const CLUSTER: usize = 4096;
@@ -27,6 +28,7 @@ fn run_bgc(
         ..Default::default()
     };
     let volumes = std::slice::from_ref(&fs_info);
+    let regions = Arc::new(Mutex::new(Vec::new()));
     let input = ScanInput {
         source: &src,
         image: "s12.img",
@@ -35,6 +37,8 @@ fn run_bgc(
         volumes,
         extra_extents: &[],
         out_dir: dir.path(),
+        unreadable_regions: &regions,
+        skip_unreadable: false,
     };
     let report = run_scan(&input, opts, &ctx).unwrap();
     (dir, report)
@@ -165,6 +169,7 @@ fn invalid_bgc_limits_are_rejected() {
     let fs_info = fs::detect(&src, src.len(), None, None).unwrap();
     let dir = tempfile::tempdir().unwrap();
     let volumes = std::slice::from_ref(&fs_info);
+    let regions = Arc::new(Mutex::new(Vec::new()));
     let input = ScanInput {
         source: &src,
         image: "s12.img",
@@ -173,6 +178,8 @@ fn invalid_bgc_limits_are_rejected() {
         volumes,
         extra_extents: &[],
         out_dir: dir.path(),
+        unreadable_regions: &regions,
+        skip_unreadable: false,
     };
     let mut opts = scan_options(vec![FileType::Jpeg], ScanMode::Auto);
     opts.min_size = 1;

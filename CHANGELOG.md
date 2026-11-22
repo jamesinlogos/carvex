@@ -27,6 +27,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `--max-decode-bytes` (default `256M`) sets the expected PNG decoded-size
   bound for `--validate decode`; the effective value is recorded in report
   schema v2 (`options.max_decode_bytes`). Schema 1 is unchanged.
+- Report schema 2 adds `unreadable_regions[]` with the offset, length and reason
+  for each source range that could not be read. Outputs overlapping such a
+  range are labelled as not verified; `skip` drops them and emits
+  `CANDIDATE_SKIPPED_UNREADABLE`.
 - `--on-read-error abort|zero-fill|skip` controls how unreadable bytes from an
   evidence source are handled; the default is `zero-fill`. `--max-stdin-bytes`
   and `--spool-dir` bound and locate the temporary stdin spool file.

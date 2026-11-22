@@ -108,7 +108,7 @@ Windows**.
 | A-05 | DONE | green | R6 PASS: zero-tail trim + `--max-truncated-size 16M`; JPEG/PNG prefix salvage (R4a/R4b) with `status=truncated` + `validated_bytes`. |
 | A-06 | DONE | green | R5 0.48–0.79 s for 25,811 fake headers/64 MiB (target ≤1 s). Parallel carving via rayon, deterministic results (1 vs 4 thread test). R-01 fixed: `--max-memory` is a hard budget enforced before buffer allocation/growth and before retaining carved or stitched results; `--max-candidates`/`--time-budget` bound dense or long runs. Best-effort decode-temp reservation is applied, but third-party decoder internals are not fully accounted. |
 | A-07 | DONE (steps 1 + 2) | green | `detect_all()` → `VolumeSet{volumes,partitions,unsupported,errors,gaps}`; report schema 2 adds `volumes[]`, `regions[]`, `warnings[]` object; `*_NOT_SCANNED` ⇒ exit 3. **Step 2 approved (D-23):** default `--partition all` + gaps, S1 carves 60 files (30+30, `part1/`/`part2/`) exit 0; `--partition largest --no-gaps` restores 30 files + WARNING + exit 3. `--include-gaps` is still accepted. **Baselines:** red `docs/baseline/A-07_v0.1.0.txt`; step 1 green `docs/baseline/A-07_green_v0.2.0.txt`; step 2 green `docs/baseline/A-07_green_v0.2.0_step2.txt`. Fixture `target/a07/s1.img`. |
-| A-08 | PARTIAL | green | `trait ImageSource {len, read_at}` + unchanged `RawFile` default; `seek(End)` fallback when metadata len = 0. B-04 adds split raw, E01, VHD, VMDK and stdin sources under `src/image/`. No `BlockDevice`/`--sector-size`/`--on-read-error`/`unreadable_regions[]` yet; real device/Windows not tested. |
+| A-08 | PARTIAL | green | `trait ImageSource {len, read_at}` + unchanged `RawFile` default; `seek(End)` fallback when metadata len = 0. B-04 adds split raw, E01, VHD, VMDK and stdin sources under `src/image/`. `--on-read-error` and report `unreadable_regions[]` are now present (H-22); no `BlockDevice`/`--sector-size` yet and real device/Windows not tested. |
 | A-09 | PARTIAL | green | Fixed the NTFS sector off-by-one (`field+1`, D-21, unit test `volume_sector_count_includes_the_backup_boot_sector`); FS errors → `FS_DETECTION_FAILED`. No `$ATTRIBUTE_LIST`/multi-extent `$MFT`/`$MFTMirr`/backup boot/FAT #2 yet. |
 | A-10 | DONE | green | Lib crate + thin `main.rs`; pipeline `plan_extents → build_tasks → scan_task → carve_batch → postfilter → write_outputs`; format registry; `ScanInput<'a>` groups the input parameters for `run_scan`, with targeted `too_many_arguments` allows only on the two R-01/R-02 helpers that take explicit budget/deadline state; `cargo doc -D warnings` passes. |
 | A-11 | PARTIAL | green | **80 tests** (34 unit + 13 cli_contract + 5 evidence_formats + 8 fs_detect + 5 properties + 6 scan_integration + 2 fragment_recovery + 3 memory_budget + 4 png_decode_budget); `scripts/review_repro.py --assert/--xfail` 10/10; red baseline `docs/baseline/repro_v0.1.0.txt`. Post-R-01/R-02 `cargo-llvm-cov 0.9.1` measured 4456/6391 lines = **69.72%**; CI/local floor set to 60%, not the earlier aspirational 80%. |
@@ -163,7 +163,7 @@ Windows**.
 |----|----|---------------------|--------|--------|---------|---------------------------|
 | H-05 | CRIT | 2026-11-21 source | NOT-REPRODUCED (current) | - | scripts/review_repro.py X02 | X02 did not reproduce on 0.3.0-dev; likely mitigated by R-02 bounded PNG decode. Needs adversarial confirmation per harness recipe. |
 | H-07 | HIGH | 2026-11-21 source | CLOSED | - | scripts/review_repro.py X04 | 23-26s -> <1s after single-pass EOF indexing; A-01/R1-R8 and G7 unchanged. |
-| H-11 | CRIT | 2026-11-21 source / 2026-11-21 release build | CLOSED | pending | tests/regress_e01_safety.rs::hostile_chunk_size_is_rejected; X07 | Before: SIGABRT on a 64 GiB declared chunk (v5). After: typed error `EWF chunk size 68719476736 exceeds the 67108864-byte limit`; `info` 0.005 s / 12 MiB RSS, `scan` 0.005 s / 13 MiB RSS. |
+| H-11 | CRIT | 2026-11-21 source / 2026-11-21 release build | CLOSED | 4b86f2d | tests/regress_e01_safety.rs::hostile_chunk_size_is_rejected; X07 | Before: SIGABRT on a 64 GiB declared chunk (v5). After: typed error `EWF chunk size 68719476736 exceeds the 67108864-byte limit`; `info` 0.005 s / 12 MiB RSS, `scan` 0.005 s / 13 MiB RSS. |
 | H-16 | CRIT | 2026-11-21 source | OPEN | - | scripts/review_repro.py X24 | X24 interleaved fixture not flagged decoded/complete; default structural-as-complete issue still present per SRC. Needs proper validity-model check. |
 | H-17 | HIGH | 2026-11-21 source | CLOSED | - | scripts/review_repro.py X10 | Deep PNG validation now reports CRC mismatches as Validation::Partial; file still emitted. |
 | H-20 | MED | 2026-11-21 source | CLOSED | - | scripts/review_repro.py X13 | Trim trailing CR/LF/whitespace/NUL before %%EOF check; EOL variants now identical. |
@@ -179,7 +179,7 @@ Windows**.
 | H-18 | HIGH | 2026-11-21 source | CLOSED (partial) | - | scripts/review_repro.py X12 | Unsupported JPEG strict-scan variants now return Validation::Unverified; splice property/rate not yet measured. |
 | H-19 | HIGH | 2026-11-21 source | CLOSED (stage 1) | - | scripts/review_repro.py X11 | PDF decode no longer returns Decoded; returns Unverified with explicit lexical-only note (stage 1 honesty). S12/B-06 acceptance adjusted with E-1 note: PDF stitches accepted as lexical-validated Unverified, not Decoded. |
 | H-21 | HIGH | 2026-11-21 source | REPRODUCED | - | scripts/review_repro.py X14 | Repaired PDF missing `sha256_original`. |
-| H-22 | CRIT | 2026-11-21 in-memory fixture | IN_PROGRESS | pending | tests/regress_e01_safety.rs::partial_final_chunk_is_tolerated; X16 (real libewf SKIPPED) | Short final compressed/uncompressed chunks are now accepted; damaged chunks follow `--on-read-error`. `unreadable_regions[]` is logged in memory but not yet surfaced in JSON/CSV/warnings, and `skip` still behaves as zero-fill at the source. |
+| H-22 | CRIT | 2026-11-21 in-memory fixture | IN_PROGRESS | 4b86f2d+pending-report | tests/regress_e01_safety.rs::{partial_final_chunk_is_tolerated, damaged_chunk_is_reported_and_outputs_are_not_verified}; X16 (real libewf SKIPPED) | Short final chunks are accepted; damaged chunks follow `--on-read-error`; `unreadable_regions[]`, `UNREADABLE_REGION` and overlap downgrade are reported. Remaining: `abort` must still write a partial report, and real libewf fixtures are unavailable. |
 | H-25 | LOW | 2026-11-21 source | REPRODUCED | - | scripts/review_repro.py X22 | stdin report has `unchanged=true` with null `modified_unix`; missing `logical_size`. |
 | H-26 | MED | 2026-11-21 source | REPRODUCED | - | scripts/review_repro.py X19 | Corrupted NTFS in multi-volume disk: exit 0, no parse-failure warning. |
 | H-23 | MED | 2026-11-21 source | REPRODUCED | - | tests/regress_vmdk_safety.rs | Missing grain table returned "index out of range"; now reads zeros like qemu-img. |
@@ -214,9 +214,10 @@ New tests: `tests/regress_e01_safety.rs::partial_final_chunk_is_tolerated`
 Gate: green (SKIPPED: real E01 tool scenarios).
 Measurement: hard failure → short tail readable as zeros; damaged chunks no
   longer abort under the default policy.
-Residual risk / next: surface `unreadable_regions[]` and `UNREADABLE_REGION`
-  in the report/CSV, implement true `skip` semantics, add X16 to the Python
-  harness, and re-run with real libewf fixtures when available.
+Residual risk / next: `abort` still exits 1 without a partial report, the
+  Python harness lacks X16, and real libewf fixtures are unavailable. The
+  report now carries `unreadable_regions[]`, `UNREADABLE_REGION` and a
+  non-verified label for overlapping outputs; `skip` drops such outputs.
 
 ## Blockers / open questions
 

@@ -36,6 +36,7 @@ fn strip_v2_fields(value: &mut serde_json::Value) {
         "warnings",
         "volumes",
         "regions",
+        "unreadable_regions",
     ] {
         obj.remove(key);
     }
