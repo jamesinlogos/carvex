@@ -174,7 +174,7 @@ Windows**.
 | H-13 | HIGH | 2026-11-21 source | NOT-REPRODUCED (weak) | - | scripts/review_repro.py X09 | Absolute-path VMDK descriptor did not carve outside file in simple test; needs symlink/sibling/rename cases. |
 | H-14 | HIGH | - | OPEN | - | - | No new fuzz targets for image parsers yet. |
 | H-15 | MED | 2026-11-21 source | NOT-REPRODUCED | - | scripts/review_repro.py X23 | Default threads not slower than 1 thread on 4M flood source build. |
-| H-18 | HIGH | 2026-11-21 source | REPRODUCED | - | scripts/review_repro.py X12 | Progressive JPEG reported decoded under --validate decode. |
+| H-18 | HIGH | 2026-11-21 source | CLOSED (partial) | - | scripts/review_repro.py X12 | Unsupported JPEG strict-scan variants now return Validation::Unverified; splice property/rate not yet measured. |
 | H-19 | HIGH | 2026-11-21 source | REPRODUCED | - | scripts/review_repro.py X11 | Broken-xref PDF reported decoded (lexical-only validation). |
 | H-21 | HIGH | 2026-11-21 source | REPRODUCED | - | scripts/review_repro.py X14 | Repaired PDF missing `sha256_original`. |
 | H-22 | CRIT | - | OPEN | - | - | E01 partial/damaged chunk handling not reproduced (ewfacquire missing). |

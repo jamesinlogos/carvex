@@ -275,11 +275,23 @@ fn validate_jpeg(data: &[u8], analysis: &Analysis) -> (Validation, Vec<String>) 
                     vec!["JPEG decoder returned no pixels".into()],
                 );
             }
-            if let Some(Err(reason)) = jpeg::strict_baseline_scan(data) {
-                return (
-                    Validation::Partial,
-                    vec![format!("baseline scan does not match the frame: {reason}")],
-                );
+            match jpeg::strict_baseline_scan(data) {
+                Some(Err(reason)) => {
+                    return (
+                        Validation::Partial,
+                        vec![format!("baseline scan does not match the frame: {reason}")],
+                    );
+                }
+                Some(Ok(())) => {}
+                None => {
+                    return (
+                        Validation::Unverified,
+                        vec![
+                            "JPEG strict scan unsupported for this variant; content not checked"
+                                .into(),
+                        ],
+                    );
+                }
             }
             (
                 Validation::Decoded,
