@@ -166,6 +166,8 @@ Windows**.
 | H-20 | MED | 2026-11-21 source | REPRODUCED | - | scripts/review_repro.py X13 | CRLF/CR endings report partial/80; LF/none decoded/100. |
 | H-24 | MED | 2026-11-21 source | REPRODUCED | - | scripts/review_repro.py X18 | Raw scan with trailing `conectix` sector fails: VHD footer checksum mismatch. |
 
+| P0.7 | - | 2026-11-21 source | DONE | - | scripts/perf_gate.py | Perf baseline recorded (s9_4m median ~0.39s, rand64m ~0.03s); thresholds.toml committed; x04 marked xfail in thresholds. |
+
 ## Blockers / open questions
 
 - GitHub Actions has now run successfully on the pre-B-04/B-06 CI-fix commit

@@ -1,0 +1,11 @@
+{
+  "recorded_at": "2026-11-21",
+  "commit": "a7a5c08",
+  "host": "linux-x86_64-container",
+  "notes": "Quick Phase 0 baseline on 0.3.0-dev source build; medians of 3 runs.",
+  "scenarios": {
+    "s9_4m": {"median_seconds": 0.392, "runs_seconds": [0.309, 0.438, 0.392], "threads_default": true},
+    "rand64m": {"median_seconds": 0.030, "runs_seconds": [0.042, 0.026, 0.030], "threads_default": true},
+    "x04_e4096_64m": {"median_seconds": 23.0, "status": "RED_H07"}
+  }
+}

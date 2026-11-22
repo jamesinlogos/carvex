@@ -1,0 +1,18 @@
+# P0.7 performance thresholds (committed before enabling G8).
+# Absolute thresholds are generous for CI; relative regressions checked separately.
+
+[scenarios.s9_4m]
+max_seconds = 3.0
+max_rss_mib = 256
+
+[scenarios.s10]
+max_seconds = 3.0
+max_rss_mib = 256
+
+[scenarios.rand64m]
+max_regression_ratio = 1.10
+baseline_seconds = 0.03
+
+[scenarios.x04]
+max_seconds = 1.0
+xfail = true  # H-07 reproduced; remove when fixed
