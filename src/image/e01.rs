@@ -306,7 +306,10 @@ impl E01Image {
     /// Apply the configured `--on-read-error` policy for an unreadable chunk.
     fn unreadable_or_bail(&self, offset: u64, len: u64, reason: String) -> Result<Vec<u8>> {
         match self.on_read_error {
-            OnReadError::Abort => bail!(reason),
+            OnReadError::Abort => {
+                record_unreadable(&self.unreadable, offset, len, &reason);
+                bail!(reason)
+            }
             OnReadError::ZeroFill | OnReadError::Skip => {
                 record_unreadable(&self.unreadable, offset, len, &reason);
                 let mut out = Vec::new();

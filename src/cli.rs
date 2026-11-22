@@ -401,6 +401,22 @@ fn announce_fs(args: &ScanArgs, f: &FsInfo) {
     );
 }
 
+fn write_reports(report: &scan::ScanReport, args: &ScanArgs) -> Result<()> {
+    if let Some(path) = &args.json_report {
+        report::write_json(report, path, args.report_schema)?;
+        if !args.quiet {
+            println!("JSON report: {}", path.display());
+        }
+    }
+    if let Some(path) = &args.csv_report {
+        report::write_csv(report, path)?;
+        if !args.quiet {
+            println!("CSV report : {}", path.display());
+        }
+    }
+    Ok(())
+}
+
 fn scan(args: ScanArgs) -> Result<i32> {
     if !args.fragment_recovery
         && (args.max_gap != DEFAULT_MAX_GAP_CLUSTERS
@@ -654,7 +670,7 @@ fn scan(args: ScanArgs) -> Result<i32> {
         unreadable_regions: &image.unreadable_regions,
         skip_unreadable: args.on_read_error == OnReadError::Skip,
     };
-    let mut report = scan::run_scan(&input, &opts, &ctx)?;
+    let run_result = scan::run_scan(&input, &opts, &ctx);
     let unreadable_regions: Vec<UnreadableRegion> = match image.unreadable_regions.lock() {
         Ok(regions) => regions.clone(),
         Err(_) => Vec::new(),
@@ -668,6 +684,31 @@ fn scan(args: ScanArgs) -> Result<i32> {
             ),
         ));
     }
+
+    let mut report = match run_result {
+        Ok(report) => report,
+        Err(err) => {
+            // `abort` intentionally returns exit 1, but the run must still
+            // leave a schema-valid partial report when unreadable bytes were
+            // the reason it stopped.
+            if args.on_read_error == OnReadError::Abort && !unreadable_regions.is_empty() {
+                let first = &unreadable_regions[0];
+                let mut partial_warnings = warnings;
+                partial_warnings.push(Warning::new(
+                    "READ_ABORTED",
+                    format!(
+                        "scan aborted at byte {} after an unreadable source range: {}",
+                        first.offset, first.reason
+                    ),
+                ));
+                let mut partial = scan::partial_report(&input, &opts, &ctx, partial_warnings);
+                partial.volumes = volume_rows;
+                partial.regions = regions;
+                write_reports(&partial, &args)?;
+            }
+            return Err(err);
+        }
+    };
     // A-07: every detected volume and region, with whether this run read it.
     report.volumes = volume_rows;
     report.regions = regions;
@@ -678,18 +719,7 @@ fn scan(args: ScanArgs) -> Result<i32> {
     for warning in &report.warnings {
         eprintln!("warning[{}]: {}", warning.code, warning.message);
     }
-    if let Some(path) = &args.json_report {
-        report::write_json(&report, path, args.report_schema)?;
-        if !args.quiet {
-            println!("JSON report: {}", path.display());
-        }
-    }
-    if let Some(path) = &args.csv_report {
-        report::write_csv(&report, path)?;
-        if !args.quiet {
-            println!("CSV report : {}", path.display());
-        }
-    }
+    write_reports(&report, &args)?;
     // Exit 3 = finished but incomplete: evidence was left unscanned (A-07).
     Ok(if report.warnings.iter().any(|w| w.incomplete()) {
         3

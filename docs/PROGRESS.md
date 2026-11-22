@@ -64,15 +64,15 @@ scripts/coverage.sh 60                                OK (4456/6391 lines = 69.7
 scripts/fuzz.sh 60                                   7 targets x 60 s, 18,520,025 runs, no crashes/artifacts
 ```
 
-Current gate after H-21 (2026-11-22): **GATE GREEN**, 120 tests
-(41 unit + 13 cli_contract + 5 evidence_formats + 2 fragment_recovery +
+Current gate after H-22 (2026-11-22): **GATE GREEN**, 123 tests
+(43 unit + 13 cli_contract + 5 evidence_formats + 2 fragment_recovery +
 8 fs_detect + 2 jpeg_frame_budget + 4 memory_budget + 3 panic_containment +
 2 png_crc_validity + 4 png_decode_budget + 2 png_validator_budget +
-8 pdf_structure_validation + 5 properties + 3 regress_e01_safety +
+8 pdf_structure_validation + 5 properties + 4 regress_e01_safety +
 4 regress_vmdk_safety + 3 repair_validation + 6 scan_integration +
 1 validity_model + 4 work_budgets), 34 repro scenarios with 0 failures/
 2 SKIPs/0 XPASS, G7 and benchmark smoke green. `scripts/perf_gate.py
---carvex target/release/carvex` reported **PERF GREEN**: s9_4m median 0.155 s
+--carvex target/release/carvex` reported **PERF GREEN**: s9_4m median 0.151 s
 (limit 3.0 s), rand64m median 0.034 s.
 
 ### Pre-execution protocol correction (protocol-v1.1)
@@ -119,10 +119,10 @@ Windows**.
 | A-05 | DONE | green | R6 PASS: zero-tail trim + `--max-truncated-size 16M`; JPEG/PNG prefix salvage (R4a/R4b) with `status=truncated` + `validated_bytes`. |
 | A-06 | DONE | green | R5 0.48–0.79 s for 25,811 fake headers/64 MiB (target ≤1 s). Parallel carving via rayon, deterministic results (1 vs 4 thread test). R-01 fixed: `--max-memory` is a hard budget enforced before buffer allocation/growth and before retaining carved or stitched results; `--max-candidates`/`--time-budget` bound dense or long runs. Best-effort decode-temp reservation is applied, but third-party decoder internals are not fully accounted. |
 | A-07 | DONE (steps 1 + 2) | green | `detect_all()` → `VolumeSet{volumes,partitions,unsupported,errors,gaps}`; report schema 2 adds `volumes[]`, `regions[]`, `warnings[]` object; `*_NOT_SCANNED` ⇒ exit 3. **Step 2 approved (D-23):** default `--partition all` + gaps, S1 carves 60 files (30+30, `part1/`/`part2/`) exit 0; `--partition largest --no-gaps` restores 30 files + WARNING + exit 3. `--include-gaps` is still accepted. **Baselines:** red `docs/baseline/A-07_v0.1.0.txt`; step 1 green `docs/baseline/A-07_green_v0.2.0.txt`; step 2 green `docs/baseline/A-07_green_v0.2.0_step2.txt`. Fixture `target/a07/s1.img`. |
-| A-08 | PARTIAL | green | `trait ImageSource {len, read_at}` + unchanged `RawFile` default; `seek(End)` fallback when metadata len = 0. B-04 adds split raw, E01, VHD, VMDK and stdin sources under `src/image/`. `--on-read-error` and report `unreadable_regions[]` are now present (H-22); no `BlockDevice`/`--sector-size` yet and real device/Windows not tested. |
+| A-08 | PARTIAL | green | `trait ImageSource {len, read_at}` + unchanged `RawFile` default; `seek(End)` fallback when metadata len = 0. B-04 adds split raw, E01, VHD, VMDK and stdin sources under `src/image/`. `--on-read-error` and report `unreadable_regions[]` are present (H-22); raw/split reads are retried per 512-byte sector, and abort leaves a partial report. No `BlockDevice`/`--sector-size` yet and real device/Windows not tested. |
 | A-09 | PARTIAL | green | Fixed the NTFS sector off-by-one (`field+1`, D-21, unit test `volume_sector_count_includes_the_backup_boot_sector`); FS errors → `FS_DETECTION_FAILED`. No `$ATTRIBUTE_LIST`/multi-extent `$MFT`/`$MFTMirr`/backup boot/FAT #2 yet. |
 | A-10 | DONE | green | Lib crate + thin `main.rs`; pipeline `plan_extents → build_tasks → scan_task → carve_batch → postfilter → write_outputs`; format registry; `ScanInput<'a>` groups the input parameters for `run_scan`, with targeted `too_many_arguments` allows only on the two R-01/R-02 helpers that take explicit budget/deadline state; `cargo doc -D warnings` passes. |
-| A-11 | PARTIAL | green | **120 tests** in the current gate (41 unit + 13 cli_contract + 5 evidence_formats + 2 fragment_recovery + 8 fs_detect + 2 jpeg_frame_budget + 4 memory_budget + 3 panic_containment + 2 png_crc_validity + 4 png_decode_budget + 2 png_validator_budget + 8 pdf_structure_validation + 5 properties + 3 regress_e01_safety + 4 regress_vmdk_safety + 3 repair_validation + 6 scan_integration + 1 validity_model + 4 work_budgets); `scripts/review_repro.py --assert/--xfail --carvex` 34 scenarios, 0 failures, 2 SKIPs, 0 XPASS; red baseline `docs/baseline/repro_v0.1.0.txt`. Post-R-01/R-02 `cargo-llvm-cov 0.9.1` measured 4456/6391 lines = **69.72%**; CI/local floor set to 60%, not the earlier aspirational 80%. No new coverage run after H-14/H-16/H-17/H-18/H-19/H-21. |
+| A-11 | PARTIAL | green | **123 tests** in the current gate (43 unit + 13 cli_contract + 5 evidence_formats + 2 fragment_recovery + 8 fs_detect + 2 jpeg_frame_budget + 4 memory_budget + 3 panic_containment + 2 png_crc_validity + 4 png_decode_budget + 2 png_validator_budget + 8 pdf_structure_validation + 5 properties + 4 regress_e01_safety + 4 regress_vmdk_safety + 3 repair_validation + 6 scan_integration + 1 validity_model + 4 work_budgets); `scripts/review_repro.py --assert/--xfail --carvex` 34 scenarios, 0 failures, 2 SKIPs, 0 XPASS; red baseline `docs/baseline/repro_v0.1.0.txt`. Post-R-01/R-02 `cargo-llvm-cov 0.9.1` measured 4456/6391 lines = **69.72%**; CI/local floor set to 60%, not the earlier aspirational 80%. No new coverage run after H-14/H-16/H-17/H-18/H-19/H-21/H-22. |
 | A-12 | PARTIAL | green | MSRV 1.85 (`rust-version`, README corrected from "Rust 1.74"); `cargo +1.85 check` in the gate; `.github/workflows/ci.yml` adds actionlint + coverage and uses a pinned direct actionlint install; `rustfmt.toml`/`clippy.toml`/`deny.toml`; dist 0.2.0 + `SHA256SUMS`. Local `cargo deny check`, `cargo audit` and `actionlint 1.7.12` pass. Real GitHub run `44548142275` on commit `42376a9` succeeded (all jobs; push-event fuzz matrix skipped), but it predates B-04, B-06 and R-01/R-02. Distributed Windows binary not executed; no SBOM/signatures yet; removing binaries from `dist/` is STOP-AND-ASK (kept). |
 | A-13 | PARTIAL | green | Exit 0/1/2/3/4 documented + CLI contract tests; coded warnings; `RAW_SCANS_ALLOCATED` informational (D-20). No `thiserror`/leveled logger/`ProgressSink`/partial report on interrupt yet. |
 | A-14 | DONE | green | Report schema v2: `schema_version`, `argv`, `options`, `tool_info`, `input` (before–after SHA-256), ISO-8601, `case_id`, `examiner`, `warnings[]` object, `volumes[]`, `regions[]`, `lba`, real `cluster`, `partition_index`, `extent_id`, `allocated`, `source`, `fragments`. `docs/report.schema.json` + key-matching test; atomic write; `--manifest` generates `SHA256SUMS`; `--report-schema 1`. `unreadable_regions[]` belongs to A-08 (not present). |
@@ -191,7 +191,7 @@ Windows**.
 | H-18 | HIGH | 2026-11-22 source | CLOSED | 01ea6b3 | src/signatures/jpeg.rs unit tests; scripts/review_repro.py X12; scripts/jpeg_splice_property.py | Baseline 0.2180 [0.1935,0.2446] at a7a5c08; final 4,000-pair rate 0.0013 [0.0005,0.0029]. Unsupported variants are Unverified; RSTn/MCU/EOI checks verified by unit tests. D-45 records the disclosed residual accepted cases and decision not to add a false-positive-prone detector. |
 | H-19 | HIGH | 2026-11-22 source | CLOSED | cb591a3 | tests/pdf_structure_validation.rs; tests/fragment_recovery.rs; tests/scan_integration.rs; scripts/review_repro.py X11 | Stage 1 removed the false Decoded label; stage 2 adds bounded classic/xref-stream/ObjStm/trailer/catalog/length checking. Clean PDFs are `decoded`/`verified`; mismatches are `partial`/`suspect`; unsupported or budget-limited checks are `unverified`/`structural`. All 10 corpus PDFs were verified with no suspect result; qpdf/pdftoppm controls SKIPPED. |
 | H-21 | HIGH | 2026-11-22 source | CLOSED | 3b0c15c | tests/repair_validation.rs; scripts/review_repro.py X14 | Red tests proved the static footer produced an invalid PDF labelled `repaired` with no `sha256_original`. Now PDF repair rebuilds classic xref/trailer; JPEG/PNG append real footers; every repair is revalidated before `repaired`. Failed repair stays `truncated`/`partial` with `repair attempted, not validated`; `sha256_original` is emitted whenever output bytes change. X14 passes with pypdf 6.9.2 and validator checks. Generic `--salvage` is a disclosed `[SHOULD]` skip (D-47). |
-| H-22 | CRIT | 2026-11-21 in-memory fixture | IN_PROGRESS | 4b86f2d+97b2b04 | tests/regress_e01_safety.rs::{partial_final_chunk_is_tolerated, damaged_chunk_is_reported_and_outputs_are_not_verified}; X16 (real libewf SKIPPED) | Short final chunks are accepted; damaged chunks follow `--on-read-error`; `unreadable_regions[]`, `UNREADABLE_REGION` and overlap downgrade are reported. Remaining: `abort` must still write a partial report, and real libewf fixtures are unavailable; X16 is now present in the Python harness. |
+| H-22 | CRIT | 2026-11-22 in-memory fixture | CLOSED | - | tests/regress_e01_safety.rs::{partial_final_chunk_is_tolerated, damaged_chunk_is_reported_and_outputs_are_not_verified, abort_writes_partial_report_and_exits_one}; tests/image/mod.rs raw-policy unit tests; X16 | Short final chunks are accepted; damaged E01 chunks and raw/split read errors follow `--on-read-error`; `unreadable_regions[]`, `UNREADABLE_REGION` and overlap downgrade are reported. `abort` exits 1 and writes a schema-2 partial report with `READ_ABORTED`; `skip` drops overlapping candidates; `zero-fill` remains the default. Real libewf/.E02 fixtures are SKIPPED because `ewfacquire` is unavailable. |
 | H-25 | LOW | 2026-11-21 source | REPRODUCED | - | scripts/review_repro.py X22 | stdin report has `unchanged=true` with null `modified_unix`; missing `logical_size`. |
 | H-26 | MED | 2026-11-21 source | REPRODUCED | - | scripts/review_repro.py X19 | Corrupted NTFS in multi-volume disk: exit 0, no parse-failure warning. |
 | H-23 | MED | 2026-11-21 source | CLOSED | 080b76a | tests/regress_vmdk_safety.rs | Missing grain table returned "index out of range"; now reads zeros like qemu-img. |
@@ -507,16 +507,23 @@ Repro: REPRODUCED (in-memory) — short final chunks and damaged-chunk policy
   are SKIPPED because the tool is not installed.
 Change: `src/image/e01.rs` reads the logical final-chunk length, accepts both
   checksum variants and routes inflate/checksum failures to
-  `--on-read-error`; `src/image/mod.rs` records unreadable ranges.
+  `--on-read-error`; `src/image/mod.rs` records unreadable ranges and wraps raw
+  and split sources in a per-sector error policy. On `abort`, E01 and raw
+  readers record the failed range before returning an error, and the CLI writes
+  a schema-2 partial report containing `READ_ABORTED` before propagating exit 1.
 New tests: `tests/regress_e01_safety.rs::partial_final_chunk_is_tolerated`
-  (red before / green after).
-Gate: green (SKIPPED: real E01 tool scenarios).
+  (red before / green after), `damaged_chunk_is_reported_and_outputs_are_not_verified`,
+  and `abort_writes_partial_report_and_exits_one` (red first: no report was
+  written). Two `src/image/mod.rs` unit tests use a failing mock `ImageSource`.
+Gate: green, 123 tests, 34 repro scenarios, 0 failures/2 SKIPs/0 XPASS, G7 green;
+  G8 PERF GREEN (s9_4m median 0.151 s, rand64m median 0.034 s). X16 now checks
+  zero-fill, abort and skip against the same damaged E01 fixture.
 Measurement: hard failure → short tail readable as zeros; damaged chunks no
-  longer abort under the default policy.
-Residual risk / next: `abort` still exits 1 without a partial report, the
-  Python harness lacks X16, and real libewf fixtures are unavailable. The
-  report now carries `unreadable_regions[]`, `UNREADABLE_REGION` and a
-  non-verified label for overlapping outputs; `skip` drops such outputs.
+  longer abort under the default policy; abort exits 1 with a partial report.
+Residual risk / next: real libewf and multi-segment `.E02` fixtures remain
+  SKIPPED because `ewfacquire` is unavailable; Windows, real block devices and
+  raw-device error injection are not tested. VHD/VMDK readers keep their own
+  container-specific error semantics and are not wrapped by `PolicySource`.
 
 ### Conflict measurements (C1-C13)
 

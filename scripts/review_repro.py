@@ -1475,6 +1475,41 @@ def case_x16(carvex: Path, work: Path, corpus: Path, ntfs: Path | None) -> str:
     for file in res.report.get("files", []):
         if file.get("validation") == "decoded":
             return "output overlapping unreadable bytes was labelled decoded"
+
+    for policy, expected_exit in (("abort", 1), ("skip", 3)):
+        variant = run_carvex(
+            carvex,
+            img,
+            work,
+            [
+                "--input-format", "e01", "--mode", "raw", "--no-fs",
+                "--min-size", "1", "--on-read-error", policy,
+            ],
+            timeout=60,
+        )
+        if variant.report is None:
+            return f"{policy}: no partial report was written"
+        if variant.proc.returncode != expected_exit:
+            return (
+                f"{policy}: exit {variant.proc.returncode}, "
+                f"expected {expected_exit}"
+            )
+        codes = {w.get("code") for w in variant.report.get("warnings", [])}
+        if "UNREADABLE_REGION" not in codes:
+            return f"{policy}: missing UNREADABLE_REGION (codes={codes})"
+        if not variant.report.get("unreadable_regions"):
+            return f"{policy}: missing unreadable_regions[]"
+        if policy == "abort":
+            if variant.report.get("schema_version") != 2:
+                return "abort partial report is not schema 2"
+            if "READ_ABORTED" not in codes:
+                return f"abort: missing READ_ABORTED (codes={codes})"
+            if variant.report.get("files"):
+                return "abort partial report unexpectedly contains files"
+        else:
+            for file in variant.report.get("files", []):
+                if file.get("validation") == "decoded" or file.get("validity") == "verified":
+                    return f"skip: overlapping candidate was not skipped: {file}"
     return ""
 
 

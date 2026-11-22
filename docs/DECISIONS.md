@@ -779,3 +779,28 @@ decision, and the consequences.
   policy is outside X14's contract. The `[SHOULD]` is therefore explicitly
   skipped rather than silently ignored; it should be revisited as a separate
   finding with its own acceptance cases.
+
+## D-48. Abort reports and raw read-error scope (H-22)
+
+- **Context:** `--on-read-error abort` stopped the process with exit 1 before
+  the CLI built a report, so the reviewer's requirement for a partial report
+  was not met. Raw and split sources also had no read-error policy: a failing
+  `ImageSource` returned a plain I/O error without an unreadable range.
+- **Decision:** E01 and raw/split readers record the failed range before
+  aborting. Raw and split sources are wrapped in a policy source that retries
+  the failing request one 512-byte sector at a time; good sectors keep their
+  bytes, bad sectors become zeroes under `zero-fill` (the default) or are
+  recorded for `skip`. E01 is not wrapped because it already knows its chunk
+  granularity. VHD and VMDK retain their container-specific error semantics.
+- **Partial report:** when an abort occurs and at least one unreadable range is
+  logged, the CLI writes a schema-2 report with no carved files, the recorded
+  `unreadable_regions[]`, `UNREADABLE_REGION`, and a new `READ_ABORTED` warning
+  naming the first failed offset and reason. It then returns the original error
+  so `main` still exits 1. `READ_ABORTED` is marked incomplete for report
+  consistency, but the abort exit code is deliberately not converted to 3.
+- **Compatibility:** default `zero-fill`, scores, emission, output names, CSV
+  columns, warning-code meanings, published figures and the ordinary raw path
+  are unchanged. The additive warning only appears on an aborted run with a
+  recorded unreadable range. Real libewf and `.E02` controls remain SKIPPED
+  because `ewfacquire` is unavailable; synthetic E01 fixtures and mock-source
+  unit tests are the executed evidence.

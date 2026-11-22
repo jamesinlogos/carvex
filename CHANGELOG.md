@@ -49,6 +49,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - H-21: report schema 2 adds optional per-file `sha256_original`, the hash of
   the bytes read before a revalidated repair changed the output. CSV appends it
   after `validity`; schema 1 omits it.
+- H-22: a read-error `abort` now writes a schema-2 partial report with the
+  recorded unreadable ranges, `UNREADABLE_REGION` and `READ_ABORTED`, then exits
+  1. The report contains no carved files because the run stopped before a
+  complete candidate set existed.
 
 ### Changed
 
@@ -62,12 +66,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Auto-detection selects a container from magic bytes and segment naming;
   explicit `--input-format raw` remains available. Ordinary raw images still
   use the unchanged `RawFile` path, so frozen benchmark behavior is preserved.
-- Updated test count to 120. Re-measured line coverage after R-01/R-02 is
+- Updated test count to 123. Re-measured line coverage after R-01/R-02 is
   4456/6391 lines = 69.72%; the honest CI/local floor remains 60%.
 - E01 read errors now follow `--on-read-error`; the default changed from
   failing the whole run to zero-filling the affected chunk and recording it.
   Use `--on-read-error abort` for the previous behaviour. Chunk sizes declared
   in an E01 header are capped at 64 MiB before allocation.
+- H-22: raw and split image reads now use the same read-error policy. A failed
+  request is retried one 512-byte sector at a time; good sectors are retained,
+  bad sectors are zero-filled or recorded for `skip`/`abort`. VHD and VMDK keep
+  their container-specific error semantics.
 - H-16: default `structure` rows are now labelled `structural` and printed as
   "content not checked" rather than presented as complete/verified. Scores,
   emission decisions and legacy `validation`/`status` values are unchanged.
@@ -118,8 +126,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   allocation; stdin spooling accepts an explicit byte limit and spool directory;
   short final E01 chunks are read at their logical length; checksum/inflate
   failures are handled by the configured read-error policy instead of aborting
-  unconditionally. Two `tests/regress_e01_safety.rs` tests cover the hostile
-  header and the short final chunk.
+  unconditionally. Four `tests/regress_e01_safety.rs` tests cover the hostile
+  header, the short final chunk, damaged-chunk reporting and the abort partial
+  report.
 - H-06: JPEG decode validation now checks the claimed SOF frame size against
   `--max-validator-memory` and an optimistic entropy capacity before invoking
   the decoder; oversized or implausible claims are `unverified`. Arithmetic

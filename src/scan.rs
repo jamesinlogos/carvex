@@ -479,6 +479,35 @@ fn fuzz_u64_at(data: &[u8], offset: usize) -> u64 {
     u64::from_le_bytes(bytes)
 }
 
+fn build_input_info(
+    image: &str,
+    image_len: u64,
+    image_identity: Option<&crate::io::SourceIdentity>,
+    ctx: &ScanContext,
+) -> InputInfo {
+    let (size_after, modified_unix_after, unchanged) = match image_identity {
+        Some(identity) => {
+            let (size, mtime, readable) = identity.current();
+            (
+                size,
+                mtime,
+                readable && size == identity.initial_size() && mtime == identity.initial_mtime(),
+            )
+        }
+        // Stdin has no backing path; the spool is controlled by this process.
+        None => (image_len, ctx.image_mtime, true),
+    };
+    InputInfo {
+        path: image.to_string(),
+        size: image_len,
+        sha256: ctx.image_sha256.clone(),
+        modified_unix: ctx.image_mtime,
+        size_after,
+        modified_unix_after,
+        unchanged,
+    }
+}
+
 /// Run-specific metadata that is not a scanning option.
 #[derive(Debug, Clone, Default)]
 pub struct ScanContext {
@@ -579,6 +608,7 @@ impl Warning {
                 | "FS_DETECTION_FAILED"
                 | "IMAGE_MODIFIED"
                 | "UNREADABLE_REGION"
+                | "READ_ABORTED"
                 | "CANDIDATE_SKIPPED_UNREADABLE"
                 | "CANDIDATE_SKIPPED_BUDGET"
                 | "SOURCE_CHANGED"
@@ -1122,27 +1152,7 @@ pub fn run_scan(
         0.0
     };
 
-    let (size_after, mtime_after, unchanged) = match image_identity {
-        Some(identity) => {
-            let (size, mtime, readable) = identity.current();
-            (
-                size,
-                mtime,
-                readable && size == identity.initial_size() && mtime == identity.initial_mtime(),
-            )
-        }
-        // Stdin has no backing path; the spool is controlled by this process.
-        None => (image_len, ctx.image_mtime, true),
-    };
-    let input = InputInfo {
-        path: image.to_string(),
-        size: image_len,
-        sha256: ctx.image_sha256.clone(),
-        modified_unix: ctx.image_mtime,
-        size_after,
-        modified_unix_after: mtime_after,
-        unchanged,
-    };
+    let input = build_input_info(image, image_len, image_identity, ctx);
     if !input.unchanged {
         warnings.push(Warning::new(
             "IMAGE_MODIFIED",
@@ -1186,6 +1196,72 @@ pub fn run_scan(
         nondeterministic_stop,
         files,
     })
+}
+
+/// Build the schema-valid report left behind when a read-error `abort` stops
+/// the scan. It intentionally contains no carved files: work stopped before a
+/// complete candidate set could be produced.
+pub fn partial_report(
+    input: &ScanInput<'_>,
+    opts: &ScanOptions,
+    ctx: &ScanContext,
+    warnings: Vec<Warning>,
+) -> ScanReport {
+    let started = unix_timestamp();
+    let unreadable_regions = match input.unreadable_regions.lock() {
+        Ok(regions) => regions.clone(),
+        Err(_) => Vec::new(),
+    };
+    let mut warnings = warnings;
+    let input_info = build_input_info(input.image, input.image_len, input.image_identity, ctx);
+    if !input_info.unchanged {
+        warnings.push(Warning::new(
+            "IMAGE_MODIFIED",
+            "source image size or mtime changed during the scan",
+        ));
+    }
+    let mode = if opts.mode == ScanMode::Auto && input.volumes.is_empty() {
+        ScanMode::Raw
+    } else {
+        opts.mode
+    };
+    ScanReport {
+        schema_version: SCHEMA_VERSION,
+        tool: format!("CarveX {}", env!("CARGO_PKG_VERSION")),
+        tool_info: ToolInfo {
+            name: "CarveX".into(),
+            version: env!("CARGO_PKG_VERSION").into(),
+            commit: option_env!("CARVEX_GIT_COMMIT").unwrap_or("unknown").into(),
+        },
+        image: input.image.to_string(),
+        input: input_info,
+        image_size: input.image_len,
+        filesystem: input.volumes.first().cloned(),
+        mode: mode.as_str().to_string(),
+        output_dir: input.out_dir.display().to_string(),
+        argv: ctx.argv.clone(),
+        options: opts.report_options(),
+        case_id: ctx.case_id.clone(),
+        examiner: ctx.examiner.clone(),
+        started_at: crate::util::iso8601_utc(started),
+        started_at_unix: started,
+        duration_ms: 0,
+        bytes_scanned: 0,
+        throughput_mib_s: 0.0,
+        stats: ScanStats::default(),
+        volumes: input
+            .volumes
+            .iter()
+            .enumerate()
+            .map(|(i, fs)| VolumeSummary::from_fs(i + 1, fs, true))
+            .collect(),
+        regions: Vec::new(),
+        unreadable_regions,
+        warnings,
+        internal_errors: Vec::new(),
+        nondeterministic_stop: false,
+        files: Vec::new(),
+    }
 }
 
 fn plan_extents(

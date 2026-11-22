@@ -98,6 +98,78 @@ pub(crate) fn record_unreadable(log: &RegionLog, offset: u64, len: u64, reason: 
     }
 }
 
+const READ_ERROR_SECTOR: u64 = 512;
+
+/// Applies `--on-read-error` to sources that do not implement it themselves.
+///
+/// E01 already knows its chunk boundaries, so it is not wrapped. Raw and split
+/// sources are retried one sector at a time: good sectors keep their bytes,
+/// bad sectors become zeroes (or are recorded and skipped/aborted).
+struct PolicySource {
+    inner: Box<dyn ImageSource>,
+    policy: OnReadError,
+    regions: RegionLog,
+}
+
+impl PolicySource {
+    fn new(inner: Box<dyn ImageSource>, policy: OnReadError, regions: RegionLog) -> Self {
+        Self {
+            inner,
+            policy,
+            regions,
+        }
+    }
+
+    fn handle_error(&self, offset: u64, buf: &mut [u8], error: &io::Error) -> io::Result<usize> {
+        let reason = format!("read error at byte {offset}: {error}");
+        if self.policy == OnReadError::Abort {
+            record_unreadable(&self.regions, offset, buf.len() as u64, &reason);
+            return Err(io::Error::new(
+                error.kind(),
+                format!("read aborted: {reason}"),
+            ));
+        }
+
+        buf.fill(0);
+        let end = offset.saturating_add(buf.len() as u64);
+        let mut cursor = offset;
+        let mut sector = [0u8; READ_ERROR_SECTOR as usize];
+        while cursor < end {
+            let sector_start = cursor / READ_ERROR_SECTOR * READ_ERROR_SECTOR;
+            let sector_end = sector_start.saturating_add(READ_ERROR_SECTOR).min(end);
+            let lo = cursor.max(sector_start);
+            let hi = sector_end;
+            let want = (hi - lo) as usize;
+            let tmp = &mut sector[..want];
+            let ok = matches!(self.inner.read_at(lo, tmp), Ok(n) if n == want);
+            if ok {
+                let from = (lo - offset) as usize;
+                buf[from..from + want].copy_from_slice(tmp);
+            } else {
+                record_unreadable(&self.regions, lo, want as u64, &reason);
+            }
+            cursor = hi;
+        }
+        Ok(buf.len())
+    }
+}
+
+impl ImageSource for PolicySource {
+    fn len(&self) -> u64 {
+        self.inner.len()
+    }
+
+    fn read_at(&self, offset: u64, buf: &mut [u8]) -> io::Result<usize> {
+        if buf.is_empty() {
+            return Ok(0);
+        }
+        match self.inner.read_at(offset, buf) {
+            Ok(n) => Ok(n),
+            Err(error) => self.handle_error(offset, buf, &error),
+        }
+    }
+}
+
 /// Explicit image container selection for `info` and `scan`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum InputFormat {
@@ -276,12 +348,28 @@ fn open_image_inner(
     let regions: RegionLog = Arc::new(Mutex::new(Vec::new()));
     let (source, len, paths): (Box<dyn ImageSource>, u64, Vec<PathBuf>) = match chosen {
         InputFormat::Auto => unreachable!("auto was resolved above"),
-        InputFormat::Raw => (Box::new(probe), len, vec![path.to_path_buf()]),
+        InputFormat::Raw => (
+            Box::new(PolicySource::new(
+                Box::new(probe),
+                options.on_read_error,
+                Arc::clone(&regions),
+            )),
+            len,
+            vec![path.to_path_buf()],
+        ),
         InputFormat::Split => {
             let image = SplitRaw::open(path)?;
             let len = image.len();
             let paths = image.source_paths();
-            (Box::new(image), len, paths)
+            (
+                Box::new(PolicySource::new(
+                    Box::new(image),
+                    options.on_read_error,
+                    Arc::clone(&regions),
+                )),
+                len,
+                paths,
+            )
         }
         InputFormat::E01 => {
             let image = E01Image::open_with(path, options.on_read_error, Arc::clone(&regions))?;
@@ -477,4 +565,73 @@ pub(crate) fn adler32(data: &[u8]) -> u32 {
 pub(crate) fn ones_complement(buf: &[u8]) -> u32 {
     let sum: u64 = buf.iter().map(|b| u64::from(*b)).sum();
     !(sum as u32)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct FailingSource {
+        data: Vec<u8>,
+        fail_at: u64,
+    }
+
+    impl ImageSource for FailingSource {
+        fn len(&self) -> u64 {
+            self.data.len() as u64
+        }
+
+        fn read_at(&self, offset: u64, buf: &mut [u8]) -> io::Result<usize> {
+            if (offset..offset + buf.len() as u64).contains(&self.fail_at) {
+                return Err(io::Error::other("mock read failure"));
+            }
+            let start = offset as usize;
+            let n = buf.len().min(self.data.len().saturating_sub(start));
+            if n == 0 {
+                return Ok(0);
+            }
+            buf[..n].copy_from_slice(&self.data[start..start + n]);
+            Ok(n)
+        }
+    }
+
+    fn source() -> FailingSource {
+        FailingSource {
+            data: vec![0xA5; READ_ERROR_SECTOR as usize * 3],
+            fail_at: READ_ERROR_SECTOR * 2,
+        }
+    }
+
+    #[test]
+    fn raw_read_error_policy_zero_fills_one_sector() {
+        let regions: RegionLog = Arc::new(Mutex::new(Vec::new()));
+        let source = PolicySource::new(
+            Box::new(source()),
+            OnReadError::ZeroFill,
+            Arc::clone(&regions),
+        );
+        let mut buf = vec![1u8; READ_ERROR_SECTOR as usize];
+        assert_eq!(
+            source.read_at(READ_ERROR_SECTOR * 2, &mut buf).unwrap(),
+            buf.len()
+        );
+        assert!(buf.iter().all(|b| *b == 0));
+        let regions = regions.lock().unwrap();
+        assert_eq!(regions.len(), 1);
+        assert_eq!(regions[0].offset, READ_ERROR_SECTOR * 2);
+        assert_eq!(regions[0].len, READ_ERROR_SECTOR);
+    }
+
+    #[test]
+    fn raw_read_error_policy_abort_records_the_region() {
+        let regions: RegionLog = Arc::new(Mutex::new(Vec::new()));
+        let source =
+            PolicySource::new(Box::new(source()), OnReadError::Abort, Arc::clone(&regions));
+        let mut buf = vec![0u8; READ_ERROR_SECTOR as usize];
+        assert!(source.read_at(READ_ERROR_SECTOR * 2, &mut buf).is_err());
+        let regions = regions.lock().unwrap();
+        assert_eq!(regions.len(), 1);
+        assert_eq!(regions[0].offset, READ_ERROR_SECTOR * 2);
+        assert_eq!(regions[0].len, READ_ERROR_SECTOR);
+    }
 }

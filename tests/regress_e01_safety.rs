@@ -290,3 +290,47 @@ fn damaged_chunk_is_reported_and_outputs_are_not_verified() {
         );
     }
 }
+
+/// H-22: `abort` must stop with exit 1 while still leaving a partial report.
+#[test]
+fn abort_writes_partial_report_and_exits_one() {
+    let dir = tmp_dir("h22_abort");
+    let image = damaged_chunk_e01(&dir);
+    let output = dir.join("out");
+    let report = dir.join("report.json");
+    let status = std::process::Command::new(env!("CARGO_BIN_EXE_carvex"))
+        .args([
+            "scan",
+            image.to_str().unwrap(),
+            "--input-format",
+            "e01",
+            "--mode",
+            "raw",
+            "--no-fs",
+            "--min-size",
+            "1",
+            "--on-read-error",
+            "abort",
+            "--quiet",
+            "--json-report",
+            report.to_str().unwrap(),
+            "-o",
+            output.to_str().unwrap(),
+        ])
+        .status()
+        .unwrap();
+    assert_eq!(status.code(), Some(1), "expected abort exit code");
+
+    let bytes = fs::read(&report).expect("abort must write a partial report");
+    let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(value["schema_version"], 2, "partial report uses schema 2");
+    let warnings = value["warnings"].as_array().unwrap();
+    assert!(
+        warnings.iter().any(|w| w["code"] == "READ_ABORTED"),
+        "missing READ_ABORTED warning: {warnings:?}"
+    );
+    let regions = value["unreadable_regions"].as_array().unwrap();
+    assert_eq!(regions.len(), 1, "unexpected regions: {regions:?}");
+    assert_eq!(regions[0]["offset"], 4096);
+    assert_eq!(regions[0]["len"], 4096);
+}

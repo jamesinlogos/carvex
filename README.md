@@ -120,6 +120,7 @@ Main options:
 |---|---|---|
 | `-o, --output DIR` | required | Output directory; must be empty unless `--force` is given |
 | `--input-format FMT` | `auto` | Image container: `auto`, `raw`, `split`, `e01`, `vhd`, `vmdk`, `stdin`; use `-` as `IMAGE` for stdin |
+| `--on-read-error POLICY` | `zero-fill` | `abort`, `zero-fill` or `skip` for unreadable bytes; `abort` exits 1 but writes a partial report |
 | `-t, --types LIST` | `jpeg,png,pdf` | File types to search for; accepts the alias `jpg` |
 | `--mode MODE` | `auto` | `auto`, `unallocated`, `raw`, `allocated` |
 | `--min-size SIZE` | `256` | Minimum size of a written file; supports `K/M/G` suffixes |
@@ -311,7 +312,8 @@ The JSON report (schema 2, default) has these main fields:
 - `image`, `image_size`, `filesystem`, `mode`, `duration_ms`, `throughput_mib_s`;
 - `stats`: candidate count, carved file count, filtering reasons, extent count, bytes scanned;
 - `volumes[]` and `regions[]`: every detected volume/partition/gap and the `scanned` flag for this run (A-07);
-- `warnings[]`: a list of `{code, message}`; `*_NOT_SCANNED`-style codes correspond to exit code 3;
+- `warnings[]`: a list of `{code, message}`; `*_NOT_SCANNED`-style codes correspond to exit code 3, while `READ_ABORTED` accompanies an exit-1 partial report;
+- `unreadable_regions[]`: `{offset, len, reason}` for each failed source range (H-22);
 - `files[]`: `seq`, `type`, `offset`, `size`, `carved_size`, `sha256`, `status` (`complete`/`truncated`/`repaired`), `score`, `width`, `height`, `notes`, `path`, `validation`, `validity`, `checks[]`, and optional `sha256_original` after a revalidated repair.
 
 `--report-schema 1` emits the legacy 0.1.0 format (omitting v2 fields, including `sha256_original`). The published JSON Schema is at [`docs/report.schema.json`](docs/report.schema.json).

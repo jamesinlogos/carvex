@@ -465,7 +465,27 @@ validation label becomes `decoded` for a decoded-mode repair; emitted scores,
 output names and the benchmark's exact metric are unchanged. Use `--repair`
 only when opening the file matters more than byte-exact evidence.
 
-### 3.9. CLI and reporting
+### 3.9. Read-error policy (H-22)
+
+`--on-read-error {abort|zero-fill|skip}` defaults to `zero-fill`, the behavior
+confirmed by the user during the review. E01 inflate/checksum failures and raw/split read
+errors are converted into a recorded `{offset, len, reason}` range plus an
+`UNREADABLE_REGION` warning. E01 failures are recorded at chunk granularity;
+raw and split reads are retried one 512-byte sector at a time, so good sectors
+in a failed request are retained. Zero-filled bytes are never treated as
+evidence: any output intersecting an unreadable range is not `verified` and
+carries an `overlaps_unreadable_region: false` check. With `skip`, candidates
+needing the unreadable bytes are dropped while unaffected files are unchanged.
+
+With `abort`, the reader records the failed range before returning an error.
+The CLI then writes a schema-2 partial report with no carved files, the recorded
+`unreadable_regions[]`, `UNREADABLE_REGION` and `READ_ABORTED`, and returns the
+original error so the process exits 1. A completed run with unreadable ranges
+still exits 3 as an incomplete run. VHD and VMDK keep their own
+container-specific error semantics; real libewf and `.E02` controls are
+SKIPPED because `ewfacquire` is unavailable.
+
+### 3.10. CLI and reporting
 
 - Three commands: `info`, `scan`, `signatures`.
 - `--json-report` outputs all metadata and the file list.
@@ -791,6 +811,14 @@ Reporting both avoids misjudging tools that append padding bytes. However, usabl
     file of that type; it does not prove that missing payload bytes were
     recovered. Repaired outputs are excluded from exactness claims and the
     published benchmark does not enable `--repair`.
+13. **Read-error scope (H-22).** The executed evidence uses synthetic E01
+    sections and a failing mock `ImageSource`; no libewf-made E01, `.E02`
+    multi-segment image, real block device or Windows read failure was
+    available. Raw/split sectors are retried at a fixed 512-byte granularity,
+    which may be narrower or wider than a device's native failure unit. VHD and
+    VMDK errors are governed by their container readers, not by
+    `PolicySource`, and an abort partial report contains no carved files
+    because the run stopped before a complete candidate set existed.
 
 ---
 
