@@ -1665,19 +1665,56 @@ def case_x20(carvex: Path, work: Path, corpus: Path, ntfs: Path | None) -> str:
     if FAT32_IMAGE is None or not FAT32_IMAGE.is_file():
         return "SKIP: FAT32 fixture missing"
     res = run_carvex(carvex, FAT32_IMAGE, work, [], timeout=120)
+    if res.proc.returncode != 0:
+        return f"exit {res.proc.returncode}: {res.proc.stderr!r}"
     if res.report is None:
         return "no JSON report"
-    regions = res.report.get("regions", [])
+    report = res.report
+    regions = report.get("regions", [])
     if not regions:
         return "no regions recorded"
+    image_len = report.get("image_size")
     end = 0
     for region in regions:
-        if region["offset"] < end:
-            return "regions overlap or are unsorted"
+        for key in ("kind", "offset", "len", "scanned", "partition_index",
+                    "may_contain_allocated", "extent_id", "summarized"):
+            if key not in region:
+                return f"region omits {key}: {region!r}"
+        if region["offset"] != end:
+            return f"regions overlap or are not contiguous at {region['offset']} (expected {end})"
         end = region["offset"] + region["len"]
+    if end != image_len:
+        return f"regions cover {end} of {image_len} bytes"
     scanned = sum(r["len"] for r in regions if r.get("scanned"))
-    if scanned != res.report.get("bytes_scanned"):
-        return f"scanned regions {scanned} != bytes_scanned {res.report.get('bytes_scanned')}"
+    expected = report.get("bytes_scanned")
+    stats_bytes = report.get("stats", {}).get("bytes_in_extents")
+    if scanned != expected or expected != stats_bytes:
+        return f"scanned regions {scanned} != report {expected} / stats {stats_bytes}"
+    expected_free = [(e["offset"], e["len"])
+                     for e in report["filesystem"]["free_extents"]]
+    actual_free = [(r["offset"], r["len"]) for r in regions if r["kind"] == "free"]
+    if actual_free != expected_free:
+        return f"free regions are not real extents: {actual_free!r} != {expected_free!r}"
+
+    # H-27: a cap is allowed to summarise when every byte has the same scanned
+    # state (raw mode), and must preserve the same exact accounting.
+    capped_work = work / "capped"
+    capped_work.mkdir(exist_ok=True)
+    capped = run_carvex(carvex, FAT32_IMAGE, capped_work,
+                        ["--mode", "raw", "--max-regions", "1"], timeout=120)
+    if capped.proc.returncode != 0 or capped.report is None:
+        return f"cap run failed: exit {capped.proc.returncode} {capped.proc.stderr!r}"
+    if capped.report.get("options", {}).get("max_regions") != 1:
+        return f"cap was not recorded: {capped.report.get('options')!r}"
+    capped_regions = capped.report.get("regions", [])
+    if len(capped_regions) != 1:
+        return f"max-regions 1 produced {len(capped_regions)} regions"
+    if not capped_regions[0].get("summarized"):
+        return f"cap did not mark the summarised region: {capped_regions[0]!r}"
+    if capped_regions[0]["offset"] != 0 or capped_regions[0]["len"] != image_len:
+        return f"summarised region does not cover the image: {capped_regions[0]!r}"
+    if sum(r["len"] for r in capped_regions if r.get("scanned")) != capped.report.get("bytes_scanned"):
+        return "summarised regions changed the scanned-byte sum"
     return ""
 
 

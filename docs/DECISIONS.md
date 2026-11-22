@@ -862,3 +862,32 @@ decision, and the consequences.
   and the strengthened X19 control. X19 uses real `mkfs.vfat`/`mkntfs`
   fixtures; the deterministic tests use an in-memory NTFS boot sector whose
   `$MFT` record cannot be parsed.
+
+## D-51. Regions are a plan-backed coverage map (H-27)
+
+- **Context:** `VolumeSet::regions` emitted one `free` and one `allocated` row
+  spanning the entire volume for every filesystem. The rows overlapped, the
+  sum of scanned row lengths exceeded `bytes_scanned`, and `info --json`
+  reported the whole volume as free even when most clusters were allocated.
+- **Decision:** make `scan::plan_extents` the single source of read extents and
+  pass it to `VolumeSet::regions_with_plan`. Regions are now the merged free
+  extents, their allocated complement, gap extents and unsupported partitions,
+  sorted and made non-overlapping, with holes in malformed metadata filled as
+  unscanned gap rows. The union always covers the logical image. A scanned
+  row's `extent_id` is the index of the scanner extent that reads it; unscanned
+  rows use `null`.
+- **Summarisation:** `--max-regions` defaults to 4096, accepts 0 for unlimited
+  detail, and merges adjacent rows that share a `scanned` state. Merged rows
+  set `summarized: true`; different kinds merge to the additive `mixed` kind.
+  Coverage and `Σ len(regions where scanned) == bytes_scanned` are hard
+  invariants. If scanned/unscanned states alternate more often than the
+  requested cap, exact accounting takes precedence over the numeric cap and
+  the cap is treated as best-effort rather than silently corrupting the map.
+- **Compatibility:** carved bytes, scores, emission, output names, CSV columns,
+  warning-code meanings, schema 1 and the default raw path are unchanged.
+  Schema 2 gains `options.max_regions`, `regions[].extent_id`,
+  `regions[].summarized` and the `mixed` kind; all are additive.
+- **Evidence:** three red-first CLI tests in `tests/region_coverage.rs` and the
+  strengthened X20 control. X20 now checks full-image coverage, exact
+  report/stats byte sums, real free extents and a raw-mode cap run; it was
+  removed from xfail.

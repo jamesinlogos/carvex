@@ -60,6 +60,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - H-26: unparsable partitions emit `VOLUME_PARSE_FAILED` with the partition
   index, byte offset and parser reason. Schema-2 `regions[]` adds
   `may_contain_allocated`, true for the raw fallback region of a parse failure.
+- H-27: `--max-regions` (default `4096`, `0` = unlimited) controls how many
+  detailed `regions[]` rows are kept. Schema 2 adds `options.max_regions`,
+  `regions[].extent_id`, `regions[].summarized` and the additive `mixed` region
+  kind. Regions are generated from the scanner's actual read plan.
 
 ### Changed
 
@@ -79,7 +83,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - H-26: a degraded scan now exits 3 instead of silently finishing with exit 0;
   `info` still exits 1 when no volume can be selected but names the recognised
   boot sector and failed metadata. S8/S8b still do not abort.
-- Updated test count to 128. Re-measured line coverage after R-01/R-02 is
+- H-27: `regions[]` is now a disjoint, sorted coverage map of the whole image,
+  built from the same extents the scanner reads. Real free extents, their
+  allocated complement, gaps and unsupported partitions are reported with
+  exact `bytes_scanned` accounting. Summarisation never changes coverage.
+- Updated test count to 131. Re-measured line coverage after R-01/R-02 is
   4456/6391 lines = 69.72%; the honest CI/local floor remains 60%.
 - E01 read errors now follow `--on-read-error`; the default changed from
   failing the whole run to zero-filling the affected chunk and recording it.

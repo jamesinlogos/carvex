@@ -149,6 +149,7 @@ Main options:
 | `--partition SEL` | `all` | `all` (default: all volumes, written to `part1/`, `part2/`, …), `largest` (0.1.0 behavior), or a 1-based partition number |
 | `--include-gaps` | on | Still accepted (not needed since it is the default); use it to state intent explicitly in scripts |
 | `--no-gaps` | off | Disable scanning of gaps/unsupported partitions; use with `--partition largest` to restore the old behavior |
+| `--max-regions N` | `4096` | Maximum detailed `regions[]` rows before same-state rows are summarised (`0` = unlimited); coverage and byte totals are preserved (H-27) |
 | `--offset BYTES` | automatic | Force the byte offset of the volume boot sector |
 | `--no-fs` | off | Skip filesystem detection and scan raw |
 | `--hash-image` | off | Hash the entire source image (streaming, can be slow) |
@@ -199,7 +200,8 @@ For images with a partition table, CarveX 0.2.0 does not skip any volume or imag
 - To restore the historical 0.1.0 behavior, use `--partition largest --no-gaps`: every unscanned volume/gap is reported with a **coded warning** on stderr and in `warnings[]` (`VOLUME_NOT_SCANNED`, `GAP_NOT_SCANNED`, `VOLUME_UNSUPPORTED`, `FS_DETECTION_FAILED`, `IMAGE_MODIFIED`), and the program exits 3.
 - A recognised but unparsable partition always emits `VOLUME_PARSE_FAILED` with its index, byte offset and underlying reason, even when another volume parses. The scan exits 3 but is not aborted (H-26).
 - To skip only gaps but still scan all volumes: `--no-gaps` (can be used with `--partition all`). `--include-gaps` remains accepted for compatibility with old scripts.
-- Report schema 2 always lists `volumes[]` in full (which volumes were/were not scanned) and `regions[]` (`free`/`allocated`/`gap`/`unsupported` with a `scanned` flag). Each region also carries `may_contain_allocated`; it is true for an `unsupported` fallback region where a filesystem parse failed, so readers know raw carving mixes allocated and deleted bytes (H-26).
+- Report schema 2 always lists `volumes[]` in full (which volumes were/were not scanned) and `regions[]` (`free`/`allocated`/`gap`/`unsupported`/`mixed` with a `scanned` flag). Each region also carries `may_contain_allocated`; it is true for an `unsupported` fallback region where a filesystem parse failed, so readers know raw carving mixes allocated and deleted bytes (H-26).
+- `regions[]` is a coverage map built from the extents the scanner actually reads: real merged free extents, the allocated complement, gaps and unsupported partitions. Rows are sorted, disjoint and cover the whole image; scanned rows sum exactly to `bytes_scanned`. Each row adds `extent_id` and `summarized`, and `info --json` uses the same free-extent map (H-27). `--max-regions` summarises adjacent rows with the same `scanned` state without changing coverage or totals.
 
 | Exit code | Meaning |
 |---|---|
@@ -316,7 +318,7 @@ The JSON report (schema 2, default) has these main fields:
   `format`, and backing `files[]` (`path`, `size`, `modified_unix`). `unchanged`
   is a boolean for disk-backed images and `null` for stdin;
 - `stats`: candidate count, carved file count, filtering reasons, extent count, bytes scanned;
-- `volumes[]` and `regions[]`: every detected volume/partition/gap, the `scanned` flag and the additive `may_contain_allocated` flag for this run (A-07/H-26);
+- `volumes[]` and `regions[]`: every detected volume/partition/gap as a disjoint full-image coverage map, with `scanned`, the additive `may_contain_allocated` flag (A-07/H-26) and the additive `extent_id`/`summarized` fields (H-27);
 - `warnings[]`: a list of `{code, message}`; `*_NOT_SCANNED`-style codes correspond to exit code 3, while `READ_ABORTED` accompanies an exit-1 partial report;
 - `unreadable_regions[]`: `{offset, len, reason}` for each failed source range (H-22);
 - `files[]`: `seq`, `type`, `offset`, `size`, `carved_size`, `sha256`, `status` (`complete`/`truncated`/`repaired`), `score`, `width`, `height`, `notes`, `path`, `validation`, `validity`, `checks[]`, and optional `sha256_original` after a revalidated repair.
@@ -503,10 +505,14 @@ carvex/
 cargo test
 ```
 
-The current suite has 80 tests (34 unit + 13 `cli_contract` +
-5 `evidence_formats` + 8 `fs_detect` + 5 `properties` +
-6 `scan_integration` + 2 `fragment_recovery` + 3 `memory_budget` +
-4 `png_decode_budget`).
+The current suite has 131 tests (43 unit + 13 `cli_contract` +
+7 `evidence_formats` + 2 `fragment_recovery` + 8 `fs_detect` +
+2 `jpeg_frame_budget` + 4 `memory_budget` + 3 `panic_containment` +
+2 `png_crc_validity` + 4 `png_decode_budget` + 2 `png_validator_budget` +
+8 `pdf_structure_validation` + 5 `properties` + 4 `regress_e01_safety` +
+4 `regress_vmdk_safety` + 3 `repair_validation` + 6 `scan_integration` +
+1 `validity_model` + 4 `work_budgets` + 3 `volume_parse_errors` +
+3 `region_coverage`).
 Run the full release gate with `bash scripts/gate.sh`. The suite covers, among other things:
 
 - JPEG baseline, progressive, EXIF thumbnail, truncated data, fake headers;
@@ -515,6 +521,7 @@ Run the full release gate with `bash scripts/gate.sh`. The suite covers, among o
 - Extent merge/complement utilities and size parsing;
 - Byte-for-byte round-trips for split raw, E01, VHD, VMDK and stdin sources.
 - Exact S12-style interleaved JPEG, PNG and PDF recovery with B-06 enabled.
+- Full-image `regions[]` coverage, real free extents and exact `bytes_scanned` accounting, including `--max-regions` summarisation.
 - Bounded-memory assertions for dense candidate budgets and PNG decompression,
   plus rejection of extreme dimensions and invalid filter bytes.
 

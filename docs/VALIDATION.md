@@ -61,13 +61,13 @@ invalid filter byte. Smoke output remained metric-identical to the frozen 0.2.0
 behavior.
 
 The gate was re-run after H-14, H-16, H-17, H-18, H-19 stage 2, H-21, H-22,
-H-25 and H-26 on 2026-11-22 and remained green.
-The current test count is 128: 43 unit, 13 CLI contract, 7 evidence-format,
+H-25, H-26 and H-27 on 2026-11-22 and remained green.
+The current test count is 131: 43 unit, 13 CLI contract, 7 evidence-format,
 2 fragment recovery, 8 filesystem detection, 2 JPEG frame budget, 4 memory
 budget, 3 panic containment, 2 PNG CRC validity, 4 PNG decode budget,
 2 PNG validator budget, 8 PDF structure validation, 5 property, 4 E01 safety,
 4 VMDK safety, 3 repair validation, 6 scan integration, 1 validity-model,
-4 work-budget and 3 volume-parse-error tests.
+4 work-budget, 3 volume-parse-error and 3 region-coverage tests.
 The H-16 red test
 `tests/validity_model.rs::default_structure_rows_are_labeled_content_not_checked`
 failed before the fix with `left: Null` for `validity`; the H-17 red test
@@ -109,12 +109,20 @@ cause behind "no FAT32/NTFS filesystem found", and `info` gave the same generic
 message. After the fix, X19 asserts exit 3, a `VOLUME_PARSE_FAILED` warning with
 partition 2/offset/`$MFT`, a scanned `unsupported` region with
 `may_contain_allocated: true`, and a single-volume `info` exit 1 with the
-specific cause; X19 was removed from `scripts/repro_xfail.txt`. The repro
-harness ran 34 scenarios with 0 failures, 2 SKIPs and 0 XPASS; G7 and the
-benchmark smoke were green. `scripts/perf_gate.py --carvex
-target/release/carvex` reported **PERF GREEN**: s9_4m median 0.138 s and
-rand64m median 0.033 s. No new coverage measurement was made for
-H-14/H-16/H-17/H-18/H-19/H-21/H-22/H-25/H-26.
+specific cause; X19 was removed from `scripts/repro_xfail.txt`. H-27 added three
+red-first CLI tests in `tests/region_coverage.rs`. Before the fix they failed
+with `region 0 starts at 1048576, expected 0`, an `info --json` free region
+spanning the whole volume, and clap rejecting `--max-regions`. After the fix,
+regions are disjoint, sorted and cover the image; free rows equal the
+filesystem's real `free_extents`; and scanned lengths equal both
+`bytes_scanned` and `stats.bytes_in_extents` in auto, allocated, raw,
+largest/no-gaps and no-filesystem modes. X20 now asserts that contract plus a
+raw-mode `--max-regions 1` run and was removed from `scripts/repro_xfail.txt`.
+The repro harness ran 34 scenarios with 0 failures, 2 SKIPs and 0 XPASS; G7 and
+the benchmark smoke were green. `scripts/perf_gate.py --carvex
+target/release/carvex` reported **PERF GREEN**: s9_4m median 0.140 s and
+rand64m median 0.039 s. No new coverage measurement was made for
+H-14/H-16/H-17/H-18/H-19/H-21/H-22/H-25/H-26/H-27.
 
 ## 3. GitHub Actions
 

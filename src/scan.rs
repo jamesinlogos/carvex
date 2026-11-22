@@ -79,6 +79,8 @@ pub const DEFAULT_MAX_WORK_PER_CANDIDATE: u64 = 256 * 1024 * 1024;
 pub const DEFAULT_MAX_OUTPUT: u64 = 4 * 1024 * 1024 * 1024;
 /// Default overall scan wall-clock budget in seconds (0 = unlimited).
 pub const DEFAULT_TIME_BUDGET_SECS: u64 = 0;
+/// Default cap on detailed `regions[]` rows (0 = unlimited; H-27).
+pub const DEFAULT_MAX_REGIONS: u64 = 4096;
 
 fn effective_max_candidates(opts: &ScanOptions) -> u64 {
     if opts.max_candidates == 0 {
@@ -331,6 +333,9 @@ pub struct ScanOptions {
     pub max_output: u64,
     /// Overall scan wall-clock budget (0 = unlimited).
     pub time_budget: Duration,
+    /// Cap on detailed `regions[]` rows; summarisation preserves coverage and
+    /// scanned-byte accounting (0 = unlimited; H-27).
+    pub max_regions: u64,
     /// Opt in to bounded bifragment gap carving (B-06).
     pub fragment_recovery: bool,
     /// Largest permitted gap between two joined fragments, in clusters.
@@ -371,6 +376,7 @@ impl ScanOptions {
             max_work_per_candidate: self.max_work_per_candidate,
             max_output: self.max_output,
             time_budget_ms: self.time_budget.as_millis() as u64,
+            max_regions: self.max_regions,
             // B-06 fields are omitted entirely when the stage is disabled so
             // the default report remains byte-for-byte compatible.
             fragment_recovery: self.fragment_recovery.then_some(true),
@@ -415,6 +421,7 @@ impl Default for ScanOptions {
             max_work_per_candidate: DEFAULT_MAX_WORK_PER_CANDIDATE,
             max_output: DEFAULT_MAX_OUTPUT,
             time_budget: Duration::from_secs(DEFAULT_TIME_BUDGET_SECS),
+            max_regions: DEFAULT_MAX_REGIONS,
             fragment_recovery: true,
             max_gap: DEFAULT_MAX_GAP_CLUSTERS,
             max_frag_candidates: DEFAULT_MAX_FRAG_CANDIDATES,
@@ -613,6 +620,8 @@ pub struct ReportOptions {
     pub max_work_per_candidate: u64,
     pub max_output: u64,
     pub time_budget_ms: u64,
+    /// Effective `regions[]` detail cap (0 = unlimited; H-27).
+    pub max_regions: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fragment_recovery: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1315,7 +1324,11 @@ pub fn partial_report(
     }
 }
 
-fn plan_extents(
+/// Resolve the exact byte extents a scan will read.
+///
+/// This is public because `regions[]` must be built from the same plan;
+/// carving itself is unchanged by the coverage report (H-27).
+pub fn plan_extents(
     mode: ScanMode,
     volumes: &[FsInfo],
     extra: &[Extent],

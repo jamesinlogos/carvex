@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://example.invalid/carvex/report-v2.schema.json",
   "title": "CarveX scan report",
-  "description": "Schema 2 (CarveX 0.2.0 plus additive H-16/H-21/H-22/H-25/H-26 fields). Schema 1 is the legacy shape produced by --report-schema 1: it omits schema_version, tool_info, input, argv, options, case_id, examiner, started_at, warnings, volumes, regions and unreadable_regions, and removes the validation/validity/checks/allocated-source/sha256_original fields from files.",
+  "description": "Schema 2 (CarveX 0.2.0 plus additive H-16/H-21/H-22/H-25/H-26/H-27 fields). Schema 1 is the legacy shape produced by --report-schema 1: it omits schema_version, tool_info, input, argv, options, case_id, examiner, started_at, warnings, volumes, regions and unreadable_regions, and removes the validation/validity/checks/allocated-source/sha256_original fields from files.",
   "type": "object",
   "required": [
     "schema_version",
@@ -169,7 +169,8 @@
         "max_memory", "max_decode_bytes", "chunk_size", "threads", "min_score", "repair",
         "complete_only", "pdf_eof", "dedupe_hashes", "suppress_nested",
         "validate", "align", "partition", "include_gaps",
-        "max_candidates", "max_work_per_candidate", "max_output", "time_budget_ms"
+        "max_candidates", "max_work_per_candidate", "max_output", "time_budget_ms",
+        "max_regions"
       ],
       "additionalProperties": false,
       "properties": {
@@ -197,6 +198,7 @@
         "max_work_per_candidate": { "type": "integer", "minimum": 0, "description": "Analyzer + validator byte budget per candidate (0 = unlimited)" },
         "max_output": { "type": "integer", "minimum": 0, "description": "Cap on bytes written by the scan (0 = unlimited)" },
         "time_budget_ms": { "type": "integer", "minimum": 0, "description": "Overall scan time budget in milliseconds (0 = unlimited)" },
+        "max_regions": { "type": "integer", "minimum": 0, "description": "Detailed regions[] cap before same-state rows are summarised (0 = unlimited; H-27)" },
         "fragment_recovery": { "type": "boolean", "description": "B-06 was enabled (omitted otherwise)" },
         "max_gap": { "type": "integer", "minimum": 1, "description": "B-06 maximum gap in clusters" },
         "max_frag_candidates": { "type": "integer", "minimum": 1, "description": "B-06 candidate-join bound" },
@@ -223,15 +225,17 @@
     },
     "region": {
       "type": "object",
-      "required": ["kind", "offset", "len", "scanned", "partition_index", "may_contain_allocated"],
+      "required": ["kind", "offset", "len", "scanned", "partition_index", "may_contain_allocated", "extent_id", "summarized"],
       "additionalProperties": false,
       "properties": {
-        "kind": { "enum": ["free", "allocated", "gap", "unsupported"] },
+        "kind": { "enum": ["free", "allocated", "gap", "unsupported", "mixed"] },
         "offset": { "type": "integer", "minimum": 0 },
         "len": { "type": "integer", "minimum": 0 },
         "scanned": { "type": "boolean" },
         "partition_index": { "type": ["integer", "null"], "minimum": 1 },
-        "may_contain_allocated": { "type": "boolean", "description": "True when a failed filesystem parse leaves allocated and unallocated bytes mixed in this raw region (H-26)" }
+        "may_contain_allocated": { "type": "boolean", "description": "True when a failed filesystem parse leaves allocated and unallocated bytes mixed in this raw region (H-26)" },
+        "extent_id": { "type": ["integer", "null"], "minimum": 0, "description": "Scanner extent whose bytes this region represents; null for unread or summarised rows (H-27)" },
+        "summarized": { "type": "boolean", "description": "True when --max-regions merged multiple detailed extents into this row (H-27)" }
       }
     },
     "unreadable_region": {

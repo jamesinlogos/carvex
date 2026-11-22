@@ -64,16 +64,16 @@ scripts/coverage.sh 60                                OK (4456/6391 lines = 69.7
 scripts/fuzz.sh 60                                   7 targets x 60 s, 18,520,025 runs, no crashes/artifacts
 ```
 
-Current gate after H-26 (2026-11-22): **GATE GREEN**, 128 tests
+Current gate after H-27 (2026-11-22): **GATE GREEN**, 131 tests
 (43 unit + 13 cli_contract + 7 evidence_formats + 2 fragment_recovery +
 8 fs_detect + 2 jpeg_frame_budget + 4 memory_budget + 3 panic_containment +
 2 png_crc_validity + 4 png_decode_budget + 2 png_validator_budget +
 8 pdf_structure_validation + 5 properties + 4 regress_e01_safety +
 4 regress_vmdk_safety + 3 repair_validation + 6 scan_integration +
-1 validity_model + 4 work_budgets + 3 volume_parse_errors), 34 repro
-scenarios with 0 failures/2 SKIPs/0 XPASS, G7 and benchmark smoke green.
+1 validity_model + 4 work_budgets + 3 volume_parse_errors + 3 region_coverage),
+34 repro scenarios with 0 failures/2 SKIPs/0 XPASS, G7 and benchmark smoke green.
 `scripts/perf_gate.py --carvex target/release/carvex` reported **PERF GREEN**:
-s9_4m median 0.138 s (limit 3.0 s), rand64m median 0.033 s.
+s9_4m median 0.140 s (limit 3.0 s), rand64m median 0.039 s.
 
 ### Pre-execution protocol correction (protocol-v1.1)
 
@@ -122,7 +122,7 @@ Windows**.
 | A-08 | PARTIAL | green | `trait ImageSource {len, read_at}` + unchanged `RawFile` default; `seek(End)` fallback when metadata len = 0. B-04 adds split raw, E01, VHD, VMDK and stdin sources under `src/image/`. `--on-read-error` and report `unreadable_regions[]` are present (H-22); raw/split reads are retried per 512-byte sector, and abort leaves a partial report. No `BlockDevice`/`--sector-size` yet and real device/Windows not tested. |
 | A-09 | PARTIAL | green | Fixed the NTFS sector off-by-one (`field+1`, D-21, unit test `volume_sector_count_includes_the_backup_boot_sector`); FS errors → `FS_DETECTION_FAILED`. No `$ATTRIBUTE_LIST`/multi-extent `$MFT`/`$MFTMirr`/backup boot/FAT #2 yet. |
 | A-10 | DONE | green | Lib crate + thin `main.rs`; pipeline `plan_extents → build_tasks → scan_task → carve_batch → postfilter → write_outputs`; format registry; `ScanInput<'a>` groups the input parameters for `run_scan`, with targeted `too_many_arguments` allows only on the two R-01/R-02 helpers that take explicit budget/deadline state; `cargo doc -D warnings` passes. |
-| A-11 | PARTIAL | green | **128 tests** in the current gate (43 unit + 13 cli_contract + 7 evidence_formats + 2 fragment_recovery + 8 fs_detect + 2 jpeg_frame_budget + 4 memory_budget + 3 panic_containment + 2 png_crc_validity + 4 png_decode_budget + 2 png_validator_budget + 8 pdf_structure_validation + 5 properties + 4 regress_e01_safety + 4 regress_vmdk_safety + 3 repair_validation + 6 scan_integration + 1 validity_model + 4 work_budgets + 3 volume_parse_errors); `scripts/review_repro.py --assert/--xfail --carvex` 34 scenarios, 0 failures, 2 SKIPs, 0 XPASS; red baseline `docs/baseline/repro_v0.1.0.txt`. Post-R-01/R-02 `cargo-llvm-cov 0.9.1` measured 4456/6391 lines = **69.72%**; CI/local floor set to 60%, not the earlier aspirational 80%. No new coverage run after H-14/H-16/H-17/H-18/H-19/H-21/H-22/H-25/H-26. |
+| A-11 | PARTIAL | green | **131 tests** in the current gate (43 unit + 13 cli_contract + 7 evidence_formats + 2 fragment_recovery + 8 fs_detect + 2 jpeg_frame_budget + 4 memory_budget + 3 panic_containment + 2 png_crc_validity + 4 png_decode_budget + 2 png_validator_budget + 8 pdf_structure_validation + 5 properties + 4 regress_e01_safety + 4 regress_vmdk_safety + 3 repair_validation + 6 scan_integration + 1 validity_model + 4 work_budgets + 3 volume_parse_errors + 3 region_coverage); `scripts/review_repro.py --assert/--xfail --carvex` 34 scenarios, 0 failures, 2 SKIPs, 0 XPASS; red baseline `docs/baseline/repro_v0.1.0.txt`. Post-R-01/R-02 `cargo-llvm-cov 0.9.1` measured 4456/6391 lines = **69.72%**; CI/local floor set to 60%, not the earlier aspirational 80%. No new coverage run after H-14/H-16/H-17/H-18/H-19/H-21/H-22/H-25/H-26/H-27. |
 | A-12 | PARTIAL | green | MSRV 1.85 (`rust-version`, README corrected from "Rust 1.74"); `cargo +1.85 check` in the gate; `.github/workflows/ci.yml` adds actionlint + coverage and uses a pinned direct actionlint install; `rustfmt.toml`/`clippy.toml`/`deny.toml`; dist 0.2.0 + `SHA256SUMS`. Local `cargo deny check`, `cargo audit` and `actionlint 1.7.12` pass. Real GitHub run `44548142275` on commit `42376a9` succeeded (all jobs; push-event fuzz matrix skipped), but it predates B-04, B-06 and R-01/R-02. Distributed Windows binary not executed; no SBOM/signatures yet; removing binaries from `dist/` is STOP-AND-ASK (kept). |
 | A-13 | PARTIAL | green | Exit 0/1/2/3/4 documented + CLI contract tests; coded warnings; `RAW_SCANS_ALLOCATED` informational (D-20). No `thiserror`/leveled logger/`ProgressSink`/partial report on interrupt yet. |
 | A-14 | DONE | green | Report schema v2: `schema_version`, `argv`, `options`, `tool_info`, `input` (before–after SHA-256), ISO-8601, `case_id`, `examiner`, `warnings[]` object, `volumes[]`, `regions[]`, `lba`, real `cluster`, `partition_index`, `extent_id`, `allocated`, `source`, `fragments`. `docs/report.schema.json` + key-matching test; atomic write; `--manifest` generates `SHA256SUMS`; `--report-schema 1`. `unreadable_regions[]` belongs to A-08 (not present). |
@@ -194,6 +194,7 @@ Windows**.
 | H-22 | CRIT | 2026-11-22 in-memory fixture | CLOSED | d7d991e | tests/regress_e01_safety.rs::{partial_final_chunk_is_tolerated, damaged_chunk_is_reported_and_outputs_are_not_verified, abort_writes_partial_report_and_exits_one}; tests/image/mod.rs raw-policy unit tests; X16 | Short final chunks are accepted; damaged E01 chunks and raw/split read errors follow `--on-read-error`; `unreadable_regions[]`, `UNREADABLE_REGION` and overlap downgrade are reported. `abort` exits 1 and writes a schema-2 partial report with `READ_ABORTED`; `skip` drops overlapping candidates; `zero-fill` remains the default. Real libewf/.E02 fixtures are SKIPPED because `ewfacquire` is unavailable. |
 | H-25 | LOW | 2026-11-22 source | CLOSED | e65f0f2 | tests/evidence_formats.rs::{compressed_e01_report_records_logical_and_physical_identity, vmdk_report_records_logical_and_physical_identity}; stdin schema test; X22 | Red tests failed with `left: Null, right: "e01"/"vmdk"/"stdin"`. Schema 2 now adds `input.logical_size`, `physical_size`, both `_after` fields, `format` and `files[]`; legacy `size`/`size_after` keep their meanings. Stdin reports `unchanged: null`. X22 checks compressed E01, VMDK and stdin and was removed from xfail. |
 | H-26 | MED | 2026-11-22 source | CLOSED | eb649f1 | tests/volume_parse_errors.rs; scripts/review_repro.py X19 | Red tests: multi-volume scan exited 0 with no warning, the single-volume message was generic, and `info` hid the cause. Parse errors now emit `VOLUME_PARSE_FAILED`, exit 3, flag the fallback region, and give a specific `FS_DETECTION_FAILED`/`info` cause. X19 was strengthened and removed from xfail. |
+| H-27 | MED | 2026-11-22 source/bench FAT32 | CLOSED | - | tests/region_coverage.rs; scripts/review_repro.py X20 | X20 reported `regions overlap or are unsorted`; the scanned rows summed to 102,760,448 B vs 95,367,168 B scanned on the v5 disk. Red tests also showed regions starting at the volume, not byte 0, and `info --json` calling the whole volume free. Regions now come from the scanner extent plan, cover the image exactly, carry `extent_id`/`summarized`, and preserve `Σ scanned == bytes_scanned`; X20 was removed from xfail. |
 | H-23 | MED | 2026-11-21 source | CLOSED | 080b76a | tests/regress_vmdk_safety.rs | Missing grain table returned "index out of range"; now reads zeros like qemu-img. |
 
 ### Per-task reports
@@ -582,6 +583,40 @@ Residual risk / next: recovery of allocated metadata inside an unparsable
   volume remains unavailable; the run only declares that the raw fallback
   mixes allocated and deleted bytes. No backup-boot-sector, `$MFTMirr` or
   `$ATTRIBUTE_LIST` fallback was added.
+
+Task: H-27 — Faithful `regions[]` coverage
+Reviews: v5:F-16 (RT + SRC)
+Repro: REPRODUCED — the baseline X20 on `bench/images/all-deleted_fat32.img`
+  returned `regions overlap or are unsorted`. The v5 report summed scanned
+  rows to 102,760,448 B against 95,367,168 B actually scanned; `info --json`
+  reported a 64 MiB free region when only 59.4 MiB was free.
+Change: `scan::plan_extents` is public and supplies the exact scanner extents
+  to `VolumeSet::regions_with_plan`. Regions now contain the merged free
+  extents, the allocated complement, gaps and unsupported partitions as
+  disjoint, sorted, whole-image-covering rows. Every scanned row carries the
+  scanner `extent_id`; additive `summarized` identifies rows merged by
+  `--max-regions` (default 4096, 0 = unlimited). A `mixed` kind is used only
+  when summarisation joins different row kinds. Summarisation never changes
+  coverage or the sum of scanned lengths; when scanned/unscanned states
+  alternate more often than the requested cap, exact accounting wins over
+  the soft cap.
+New tests: `tests/region_coverage.rs` has three red-first CLI cases. Before
+  the fix they failed with `region 0 starts at 1048576, expected 0`, a
+  whole-volume `info` free row, and clap rejecting `--max-regions`. X20 was
+  strengthened to assert full coverage, all additive fields, real free
+  extents, exact report/stats byte sums and a raw-mode cap control; it was
+  removed from xfail.
+Gate: green, 131 tests, 34 repro scenarios, 0 failures/2 SKIPs/0 XPASS, G7 green;
+  G8 PERF GREEN (s9_4m median 0.140 s, rand64m median 0.039 s). Carving output,
+  scores, emission, output names, CSV and schema 1 are unchanged.
+Measurement: on the FAT32 benchmark image the new report has 16 disjoint
+  regions covering all 67,108,864 bytes; auto mode sums 66,087,936 scanned
+  bytes, allocated mode 3,118,080, raw mode 67,108,864, and
+  `--partition largest --no-gaps` 63,990,784 — each equal to `bytes_scanned`.
+Residual risk / next: the merged `mixed` kind is additive schema-2 metadata;
+  consumers that reject an unknown enum value must stay on schema 1 or avoid
+  `--max-regions` values that force summarisation. No output or scan behavior
+  changed.
 
 ### Conflict measurements (C1-C13)
 

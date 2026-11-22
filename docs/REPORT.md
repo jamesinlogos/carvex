@@ -528,7 +528,31 @@ generic "no FAT32/NTFS filesystem found" text. Explicit `--partition` and
 reconstruction, backup boot sector, `$MFTMirr` fallback or scoring change was
 added.
 
-### 3.12. CLI and reporting
+### 3.12. Coverage regions (H-27)
+
+`regions[]` is now generated from the same `scan::plan_extents` result that
+creates scanner work. A supported volume contributes its merged free extents
+and the allocated complement inside that volume; gaps and unsupported
+partitions contribute their own extents. The rows are sorted, disjoint and
+cover the whole logical image. Holes left by malformed partition metadata are
+filled with unscanned gap rows. `info --json` uses the same builder, so a
+standalone FAT32 volume reports its real free extents rather than the whole
+volume.
+
+Each scanned region carries the `extent_id` of the scanner extent that reads
+it, matching the `extent_id` used by carved-file records. Unscanned regions
+have `extent_id: null`. `--max-regions` (default 4096, 0 = unlimited) merges
+adjacent rows with the same `scanned` state and sets `summarized: true` on the
+result; a merge across different original kinds uses the additive `mixed`
+kind. Coverage and `Σ len(scanned regions) == bytes_scanned` are never
+relaxed. When the requested cap is smaller than the number of scanned/unscanned
+alternations, the exact map is retained instead of inventing a lossy summary.
+
+Carving itself is untouched: the extents, tasks, scores, digests, emission
+rules, output names, CSV and schema 1 remain byte-for-byte compatible. Schema 2
+adds `options.max_regions`, the two region fields and the `mixed` kind.
+
+### 3.13. CLI and reporting
 
 - Three commands: `info`, `scan`, `signatures`.
 - `--json-report` outputs all metadata and the file list.

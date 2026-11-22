@@ -7,7 +7,7 @@ use crate::report;
 use crate::scan::{
     self, AlignMode, ScanContext, ScanMode, ScanOptions, VolumeSummary, Warning,
     DEFAULT_FRAG_TIME_LIMIT_MS, DEFAULT_MAX_FRAG_CANDIDATES, DEFAULT_MAX_GAP_CLUSTERS,
-    SCHEMA_VERSION,
+    DEFAULT_MAX_REGIONS, SCHEMA_VERSION,
 };
 use crate::signatures::{FileType, PdfEofMode, ValidationMode};
 use crate::util::{human_size, parse_size, Extent};
@@ -193,6 +193,10 @@ struct ScanArgs {
     /// partitions (use with `--partition largest`)
     #[arg(long, conflicts_with = "include_gaps")]
     no_gaps: bool,
+    /// Maximum detailed `regions[]` rows before adjacent rows of the same
+    /// scanned state are summarised (0 = unlimited; H-27)
+    #[arg(long, value_parser = clap::value_parser!(u64), default_value_t = DEFAULT_MAX_REGIONS)]
+    max_regions: u64,
     /// Opt in to bounded bifragment gap carving (B-06)
     #[arg(long)]
     fragment_recovery: bool,
@@ -462,7 +466,31 @@ fn scan(args: ScanArgs) -> Result<i32> {
             .context("filesystem detection failed")?;
         announce_fs(&args, &f);
         volume_rows.push(VolumeSummary::from_fs(1, &f, true));
-        volumes.push(f);
+        volumes.push(f.clone());
+        // A forced offset opts out of partition accounting, but H-27 still
+        // reports the real allocation extents of that single volume.
+        let single = fs::VolumeSet {
+            volumes: vec![f],
+            partitions: Vec::new(),
+            unsupported: Vec::new(),
+            errors: Vec::new(),
+            gaps: Vec::new(),
+            superfloppy: true,
+            image_len: len,
+        };
+        let whole = args.mode == ScanMode::Raw;
+        let scans_free = matches!(args.mode, ScanMode::Auto | ScanMode::Unallocated);
+        let scans_alloc = args.mode == ScanMode::Allocated;
+        let (_, planned) = scan::plan_extents(args.mode, &volumes, &[], len)?;
+        regions = single.regions_with_plan(
+            &volumes,
+            whole,
+            scans_free,
+            scans_alloc,
+            false,
+            &planned,
+            args.max_regions,
+        );
     } else {
         let selection = args.partition.unwrap_or(PartitionSel::All);
         let explicit = args.partition.is_some();
@@ -505,7 +533,16 @@ fn scan(args: ScanArgs) -> Result<i32> {
                             .enumerate()
                             .map(|(i, v)| VolumeSummary::from_fs(i + 1, v, true))
                             .collect();
-                        regions = set.regions(&[], true, false, false, include_gaps);
+                        let (_, planned) = scan::plan_extents(ScanMode::Raw, &[], &[], len)?;
+                        regions = set.regions_with_plan(
+                            &[],
+                            true,
+                            false,
+                            false,
+                            include_gaps,
+                            &planned,
+                            args.max_regions,
+                        );
                     }
                     Ok(selected) => {
                         volumes = selected;
@@ -530,12 +567,15 @@ fn scan(args: ScanArgs) -> Result<i32> {
                                 VolumeSummary::from_fs(i + 1, v, whole_image || chosen)
                             })
                             .collect();
-                        regions = set.regions(
+                        let (_, planned) = scan::plan_extents(args.mode, &volumes, &extra, len)?;
+                        regions = set.regions_with_plan(
                             &volumes,
                             whole_image,
                             scans_free,
                             scans_alloc,
                             include_gaps,
+                            &planned,
+                            args.max_regions,
                         );
 
                         // A-07: say out loud what this run does not read.
@@ -603,6 +643,27 @@ fn scan(args: ScanArgs) -> Result<i32> {
         ));
     }
 
+    // No filesystem metadata (or detection failed outright): the scanner
+    // reads whole-image extents, so report them as scanned gap regions rather
+    // than leaving `regions[]` empty (H-27).
+    if regions.is_empty() {
+        let (_, planned) = scan::plan_extents(args.mode, &volumes, &extra, len)?;
+        regions = planned
+            .iter()
+            .enumerate()
+            .map(|(extent_id, extent)| fs::Region {
+                kind: fs::RegionKind::Gap,
+                offset: extent.offset,
+                len: extent.len,
+                scanned: true,
+                partition_index: None,
+                may_contain_allocated: false,
+                extent_id: Some(extent_id),
+                summarized: false,
+            })
+            .collect();
+    }
+
     let image_mtime = image
         .identity
         .as_ref()
@@ -648,6 +709,7 @@ fn scan(args: ScanArgs) -> Result<i32> {
         max_work_per_candidate: args.max_work_per_candidate,
         max_output: args.max_output,
         time_budget: std::time::Duration::from_secs(args.time_budget),
+        max_regions: args.max_regions,
         fragment_recovery: args.fragment_recovery,
         max_gap: args.max_gap,
         max_frag_candidates: args.max_frag_candidates as usize,

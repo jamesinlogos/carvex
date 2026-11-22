@@ -8,7 +8,7 @@ pub mod fat32;
 pub mod ntfs;
 
 use crate::io::{read_vec_at, ImageSource};
-use crate::util::{human_size, Extent};
+use crate::util::{complement_extents, human_size, merge_extents, Extent};
 use anyhow::{bail, Context, Result};
 use serde::Serialize;
 use std::collections::BTreeMap;
@@ -133,6 +133,9 @@ pub enum RegionKind {
     Gap,
     /// Partition bytes with no supported filesystem.
     Unsupported,
+    /// Adjacent extents of different kinds merged by `--max-regions` (H-27).
+    /// The `summarized` flag on the region identifies these rows.
+    Mixed,
 }
 
 impl std::fmt::Display for RegionKind {
@@ -142,6 +145,7 @@ impl std::fmt::Display for RegionKind {
             RegionKind::Allocated => write!(f, "allocated"),
             RegionKind::Gap => write!(f, "gap"),
             RegionKind::Unsupported => write!(f, "unsupported"),
+            RegionKind::Mixed => write!(f, "mixed"),
         }
     }
 }
@@ -160,6 +164,20 @@ pub struct Region {
     /// True when raw bytes here mix allocated and unallocated content because
     /// a filesystem parser failed (H-26).
     pub may_contain_allocated: bool,
+    /// Index of the scanner extent that reads this region (H-27). `None` means
+    /// the region was not read by this run, or that a summarised row spans
+    /// several scanner extents.
+    pub extent_id: Option<usize>,
+    /// True when `--max-regions` merged multiple detailed extents into this
+    /// row. Coverage and scanned-byte sums remain exact (H-27).
+    pub summarized: bool,
+}
+
+impl Region {
+    /// Exclusive end offset, saturating on overflow.
+    pub fn end(&self) -> u64 {
+        self.offset.saturating_add(self.len)
+    }
 }
 
 /// A filesystem probe that recognised a boot sector but could not parse it.
@@ -198,6 +216,8 @@ pub struct VolumeSet {
     pub gaps: Vec<Extent>,
     /// True when a volume was found directly at offset 0.
     pub superfloppy: bool,
+    /// Logical image length. Used to make `regions[]` cover the whole image.
+    pub image_len: u64,
 }
 
 impl VolumeSet {
@@ -231,51 +251,276 @@ impl VolumeSet {
         scans_allocated: bool,
         include_gaps: bool,
     ) -> Vec<Region> {
-        let mut out = Vec::new();
+        self.regions_with_plan(
+            selected,
+            whole_image_scanned,
+            scans_free,
+            scans_allocated,
+            include_gaps,
+            &[],
+            0,
+        )
+    }
+
+    /// Build the H-27 coverage map from the same extents the scanner reads.
+    ///
+    /// `plan` is the output of `scan::plan_extents`; when it is empty (for
+    /// `info`) `extent_id` is left unset. `max_regions == 0` keeps every
+    /// detailed extent. Adjacent rows with the same `scanned` state may be
+    /// summarised, but coverage and the sum of scanned lengths are exact.
+    #[allow(clippy::too_many_arguments)]
+    pub fn regions_with_plan(
+        &self,
+        selected: &[FsInfo],
+        whole_image_scanned: bool,
+        scans_free: bool,
+        scans_allocated: bool,
+        include_gaps: bool,
+        plan: &[Extent],
+        max_regions: u64,
+    ) -> Vec<Region> {
+        let mut tagged: Vec<TaggedRegion> = Vec::new();
         let parse_failed = |index: usize| self.errors.iter().any(|e| e.partition_index == index);
+        let volume_end = |v: &FsInfo| {
+            v.offset
+                .saturating_add(v.length)
+                .min(self.image_len)
+                .max(v.offset.min(self.image_len))
+        };
+
         for v in &self.volumes {
             let chosen = selected
                 .iter()
                 .any(|s| s.offset == v.offset && s.length == v.length);
-            out.push(Region {
-                kind: RegionKind::Free,
-                offset: v.offset,
-                len: v.length,
-                scanned: whole_image_scanned || (chosen && scans_free),
-                partition_index: v.partition_index,
-                may_contain_allocated: false,
-            });
-            out.push(Region {
-                kind: RegionKind::Allocated,
-                offset: v.offset,
-                len: v.length,
-                scanned: whole_image_scanned || (chosen && scans_allocated),
-                partition_index: v.partition_index,
-                may_contain_allocated: false,
-            });
+            let end = volume_end(v);
+            if end <= v.offset {
+                continue;
+            }
+            let free = merge_extents(
+                v.free_extents
+                    .iter()
+                    .filter_map(|e| clamp_extent(*e, v.offset, end))
+                    .collect(),
+            );
+            for extent in &free {
+                tagged.push(TaggedRegion {
+                    extent: *extent,
+                    kind: RegionKind::Free,
+                    scanned: whole_image_scanned || (chosen && scans_free),
+                    partition_index: v.partition_index,
+                    may_contain_allocated: false,
+                });
+            }
+            for extent in complement_extents(v.offset, end - v.offset, &free) {
+                tagged.push(TaggedRegion {
+                    extent,
+                    kind: RegionKind::Allocated,
+                    scanned: whole_image_scanned || (chosen && scans_allocated),
+                    partition_index: v.partition_index,
+                    may_contain_allocated: false,
+                });
+            }
         }
+
         for p in &self.unsupported {
-            out.push(Region {
-                kind: RegionKind::Unsupported,
-                offset: p.byte_offset(512),
-                len: p.byte_len(512),
-                scanned: whole_image_scanned || include_gaps,
-                partition_index: Some(p.index),
-                may_contain_allocated: parse_failed(p.index),
-            });
+            let offset = p.byte_offset(512);
+            let end = offset.saturating_add(p.byte_len(512)).min(self.image_len);
+            if end > offset {
+                tagged.push(TaggedRegion {
+                    extent: Extent {
+                        offset,
+                        len: end - offset,
+                    },
+                    kind: RegionKind::Unsupported,
+                    scanned: whole_image_scanned || include_gaps,
+                    partition_index: Some(p.index),
+                    may_contain_allocated: parse_failed(p.index),
+                });
+            }
         }
         for g in &self.gaps {
+            if let Some(extent) = clamp_extent(*g, 0, self.image_len) {
+                tagged.push(TaggedRegion {
+                    extent,
+                    kind: RegionKind::Gap,
+                    scanned: whole_image_scanned || include_gaps,
+                    partition_index: None,
+                    may_contain_allocated: false,
+                });
+            }
+        }
+
+        let mut regions = flatten_regions(tagged, self.image_len, whole_image_scanned);
+        if !plan.is_empty() {
+            for region in &mut regions {
+                if region.scanned {
+                    region.extent_id = plan
+                        .iter()
+                        .position(|e| e.offset <= region.offset && region.offset < e.end());
+                }
+            }
+        }
+        summarise_regions(regions, max_regions)
+    }
+}
+
+#[derive(Debug, Clone)]
+struct TaggedRegion {
+    extent: Extent,
+    kind: RegionKind,
+    scanned: bool,
+    partition_index: Option<usize>,
+    may_contain_allocated: bool,
+}
+
+fn clamp_extent(extent: Extent, start: u64, end: u64) -> Option<Extent> {
+    let from = extent.offset.max(start);
+    let to = extent.end().min(end);
+    (to > from).then_some(Extent {
+        offset: from,
+        len: to - from,
+    })
+}
+
+/// Remove `covered` byte ranges from `base`. Used only to make pathological
+/// overlapping partition metadata produce a non-overlapping coverage map.
+fn subtract_extents(base: Extent, covered: &[Extent]) -> Vec<Extent> {
+    let mut parts = vec![base];
+    for cut in covered {
+        let cut_start = cut.offset;
+        let cut_end = cut.end();
+        let mut next = Vec::new();
+        for part in parts {
+            if cut_start >= part.end() || cut_end <= part.offset {
+                next.push(part);
+                continue;
+            }
+            if cut_start > part.offset {
+                next.push(Extent {
+                    offset: part.offset,
+                    len: cut_start - part.offset,
+                });
+            }
+            if cut_end < part.end() {
+                next.push(Extent {
+                    offset: cut_end,
+                    len: part.end() - cut_end,
+                });
+            }
+        }
+        parts = next;
+    }
+    parts
+}
+
+fn flatten_regions(
+    mut tagged: Vec<TaggedRegion>,
+    image_len: u64,
+    whole_image_scanned: bool,
+) -> Vec<Region> {
+    // Lower priority wins when malformed partition metadata overlaps.
+    tagged.sort_by_key(|r| (r.extent.offset, r.kind != RegionKind::Free));
+    let mut covered: Vec<Extent> = Vec::new();
+    let mut out = Vec::new();
+    for item in tagged {
+        for extent in subtract_extents(item.extent, &covered) {
+            covered.push(extent);
             out.push(Region {
-                kind: RegionKind::Gap,
-                offset: g.offset,
-                len: g.len,
-                scanned: whole_image_scanned || include_gaps,
-                partition_index: None,
-                may_contain_allocated: false,
+                kind: item.kind,
+                offset: extent.offset,
+                len: extent.len,
+                scanned: item.scanned,
+                partition_index: item.partition_index,
+                may_contain_allocated: item.may_contain_allocated,
+                extent_id: None,
+                summarized: false,
             });
         }
-        out
     }
+
+    // Any hole in the metadata is still image bytes. Mark it unscanned unless
+    // this run really read the whole image.
+    let mut cursor = 0u64;
+    for extent in merge_extents(covered) {
+        if extent.offset > cursor {
+            out.push(Region {
+                kind: RegionKind::Gap,
+                offset: cursor,
+                len: extent.offset - cursor,
+                scanned: whole_image_scanned,
+                partition_index: None,
+                may_contain_allocated: false,
+                extent_id: None,
+                summarized: false,
+            });
+        }
+        cursor = cursor.max(extent.end());
+    }
+    if cursor < image_len {
+        out.push(Region {
+            kind: RegionKind::Gap,
+            offset: cursor,
+            len: image_len - cursor,
+            scanned: whole_image_scanned,
+            partition_index: None,
+            may_contain_allocated: false,
+            extent_id: None,
+            summarized: false,
+        });
+    }
+    out.sort_by_key(|r| r.offset);
+    out
+}
+
+fn summarise_regions(regions: Vec<Region>, max_regions: u64) -> Vec<Region> {
+    if max_regions == 0 || regions.len() <= max_regions as usize {
+        return regions;
+    }
+    let mut out = Vec::new();
+    let mut index = 0usize;
+    while let Some(first) = regions.get(index) {
+        let scanned = first.scanned;
+        let mut end = index.saturating_add(1);
+        while regions
+            .get(end)
+            .map(|r| r.scanned == scanned)
+            .unwrap_or(false)
+        {
+            end = end.saturating_add(1);
+        }
+        let Some(group) = regions.get(index..end) else {
+            break;
+        };
+        if group.len() == 1 {
+            out.push(first.clone());
+        } else if let (Some(first), Some(last)) = (group.first(), group.last()) {
+            let same_kind = group.iter().all(|r| r.kind == first.kind);
+            let same_partition = group
+                .iter()
+                .all(|r| r.partition_index == first.partition_index);
+            let same_extent = group.iter().all(|r| r.extent_id == first.extent_id);
+            out.push(Region {
+                kind: if same_kind {
+                    first.kind
+                } else {
+                    RegionKind::Mixed
+                },
+                offset: first.offset,
+                len: last.end().saturating_sub(first.offset),
+                scanned: first.scanned,
+                partition_index: if same_partition {
+                    first.partition_index
+                } else {
+                    None
+                },
+                may_contain_allocated: group.iter().any(|r| r.may_contain_allocated),
+                extent_id: if same_extent { first.extent_id } else { None },
+                summarized: true,
+            });
+        }
+        index = end;
+    }
+    out
 }
 
 /// Everything a filesystem parser needs to read one volume.
@@ -427,6 +672,7 @@ pub fn detect_all(source: &dyn ImageSource, len: u64) -> Result<VolumeSet> {
             errors: Vec::new(),
             gaps: Vec::new(),
             superfloppy: true,
+            image_len: len,
         });
     }
 
@@ -466,6 +712,7 @@ pub fn detect_all(source: &dyn ImageSource, len: u64) -> Result<VolumeSet> {
         errors,
         gaps,
         superfloppy: false,
+        image_len: len,
     })
 }
 
