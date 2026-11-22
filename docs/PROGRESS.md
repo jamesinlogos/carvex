@@ -199,7 +199,7 @@ Windows**.
 | ID | Pri | Repro (date, build) | Status | Commit | Test(s) | Before → After (± CI) / evidence |
 |----|-----|---------------------|--------|--------|---------|----------------------------------|
 | H-01 | HIGH | 2026-11-21 source | IN_PROGRESS | - | - | harness placed; guide.md missing (user requested); D-33 added; gate header fixed |
-| H-02 | HIGH | 2026-11-21 source | IN_PROGRESS | - | - | SKIP semantics added to repro; check-msrv.sh added; full clean-checkout gate not yet proven |
+| H-02 | HIGH | 2026-11-21 source | IN_PROGRESS | - | - | SKIP semantics added to repro; check-msrv.sh added; G7 golden script added; full clean-checkout gate not yet proven |
 | H-03 | HIGH | - | OPEN | - | - | - |
 | H-04 | MED | 2026-11-21 source | IN_PROGRESS | - | - | URL/build.rs/version/dist notice done; dist rebuild deferred to release |
 

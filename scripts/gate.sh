@@ -78,6 +78,13 @@ else
 fi
 python3 scripts/review_repro.py "${REPRO_ARGS[@]}"
 
+echo "== golden (G7) =="
+if [ -f "bench/images/all-deleted_fat32.json" ]; then
+    python3 scripts/golden.py --carvex target/release/carvex
+else
+    echo "SKIPPED golden (bench images missing)"
+fi
+
 echo "== benchmark smoke =="
 if python3 -c "import json, hashlib" >/dev/null 2>&1; then
     if ! python3 bench/run_benchmark.py --smoke; then
