@@ -175,6 +175,52 @@ Windows**.
 - A-07 step 2 was approved by the user and implemented (D-23); STOP-AND-ASK
   §3.5 has no items awaiting confirmation.
 
+## Harness baseline (2026-11-21)
+
+- Harness: `harness.md` copied to repo root (745 lines, `HARNESS-EOF` verified).
+- `docs/guide.md`: **MISSING** in repo; user asked to supply the 924-line file
+  (sha256 `22ee8122209e9eda11d6f32a1e650e8f8e48f5610bd808309d94f436e5e78265`).
+  Continuing with harness (self-contained) per H-01/§3.5-8.
+- Baseline: `a7a5c08` (clean tree) = `706a12a` + R-01/R-02 commit.
+- P0.1 environment (2026-11-21): cargo/rustc 1.100.0; rustup auto-installed
+  toolchain from `rust-toolchain.toml`; tools present: mkfs.vfat, mkntfs, mcopy,
+  mdel, ntfs-3g, foremost, scalpel, photorec, cargo-fuzz, cargo-deny,
+  cargo-audit, cargo-llvm-cov, python3/Pillow/pypdf/numpy; missing:
+  ewfacquire, ewfverify, qemu-img, qpdf, pdftoppm.
+- P0.2/P0.9 started: harness placed in root; gate header updated;
+  `scripts/check-msrv.sh`, `scripts/check_commit_ids.sh` added;
+  `review_repro.py` now treats SKIP as non-failure unless `--require-all`;
+  `rust-toolchain.toml` added; `build.rs` emits `CARVEX_GIT_COMMIT`; Cargo
+  version set to `0.3.0-dev`; repository URL fixed; `dist/README.md` marked
+  stale (binaries not replaced).
+
+## Findings (H-xx)
+
+| ID | Pri | Repro (date, build) | Status | Commit | Test(s) | Before → After (± CI) / evidence |
+|----|-----|---------------------|--------|--------|---------|----------------------------------|
+| H-01 | HIGH | 2026-11-21 source | IN_PROGRESS | - | - | harness placed; guide.md missing (user requested); D-33 added; gate header fixed |
+| H-02 | HIGH | 2026-11-21 source | IN_PROGRESS | - | - | SKIP semantics added to repro; check-msrv.sh added; full clean-checkout gate not yet proven |
+| H-03 | HIGH | - | OPEN | - | - | - |
+| H-04 | MED | 2026-11-21 source | IN_PROGRESS | - | - | URL/build.rs/version/dist notice done; dist rebuild deferred to release |
+
+## Open xfail tests / scenarios
+
+(none added yet; Phase 0 reproduction pending)
+
+## Blockers / open questions
+
+- `docs/guide.md` missing from repo; user must supply the 924-line file with the
+  expected sha256 before H-01 can be closed (§3.5 item 8).
+- Harness scope is large (Phases 0-4, 34 findings); this session begins Phase 0.
+
+## New findings outside this harness (N-xx + evidence + proposed priority)
+
+(none)
+
+## Decisions → docs/DECISIONS.md
+
+- D-33 supersedes D-01 for active remediation.
+
 ## Decisions
 
-See `docs/DECISIONS.md` (D-01…D-32).
+See `docs/DECISIONS.md` (D-01…D-33).

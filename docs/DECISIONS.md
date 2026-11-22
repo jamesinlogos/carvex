@@ -452,3 +452,20 @@ decision, and the consequences.
   bound and are not claimed to be fully instrumented. `--validate structure`
   remains the default; the frozen benchmark, lockbox results, figures, protocol
   text and dist binaries are unchanged.
+
+## D-33. Adopt `harness.md` as the remediation baseline (supersedes D-01)
+
+- **Context:** `harness.md` (745 lines, SHA-256 recorded by the user in the
+  harness header check) was supplied on 2026-11-21 as the unified remediation
+  harness merged from five independent reviews. `docs/guide.md` is not present
+  in the repository at the time of adoption; the harness is self-contained for
+  the work it requires, and the user was asked to supply `docs/guide.md` (924
+  lines, expected sha256 `22ee8122209e9eda11d6f32a1e650e8f8e48f5610bd808309d94f436e5e78265`).
+- **Decision:** Place `harness.md` at the repository root and follow its phase
+  order. D-01 remains historical context for the pre-harness guide-v1/v2/v3
+  work; from this point the harness is the active instruction set. HEAD is
+  `0.3.0-dev` (P0.9/ADR-H9) to distinguish it from released 0.2.0.
+- **Consequences:** Phase 0 baseline work starts from commit `a7a5c08` (clean
+  tree, one commit ahead of `706a12a` with R-01/R-02 already applied). Any
+  finding not reproduced is recorded as `NOT-REPRODUCED` with evidence, not
+  silently dropped.
