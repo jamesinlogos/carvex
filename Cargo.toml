@@ -1,13 +1,13 @@
 [package]
 name = "carvex"
-version = "0.2.0"
+version = "0.3.0-dev"
 edition = "2021"
 rust-version = "1.85"
 authors = ["CarveX Project"]
 description = "Header/footer file carver for JPEG, PNG and PDF with FAT32/NTFS awareness"
 license = "MIT"
 readme = "README.md"
-repository = "https://example.invalid/carvex"
+repository = "https://github.com/jamesinlogos/carvex"
 categories = ["command-line-utilities", "filesystem"]
 keywords = ["forensics", "carving", "fat32", "ntfs", "recovery"]
 
