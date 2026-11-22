@@ -40,6 +40,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `checks[]` (`{name, ok, note}`), with `ok` allowed to be `null` for checks
   that were not performed or are unsupported. CSV, console, summary counts and
   manifest comments show the same label.
+- H-17: PNG decode validation emits a structured `chunk_crc` check for every
+  chunk whose stored CRC disagrees with the recomputed value.
 
 ### Changed
 
@@ -64,6 +66,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   emission decisions and legacy `validation`/`status` values are unchanged.
   The B-06 check-count field is serialized as `fragment_checks` so `checks` can
   be the structured array; schema 1 omits all additive validity fields.
+- H-17: a PNG chunk-CRC mismatch is now `validation=partial` and
+  `validity=suspect` in both structure and decode modes. The file and its
+  historical score are unchanged. Decode mode sets `validated_bytes` to the
+  contiguous prefix ending at the last chunk with a good CRC instead of zero.
 
 ### Fixed
 

@@ -327,7 +327,12 @@ console line or benchmark. Default `--validate structure` output is therefore
 `structural` and is printed as **content not checked**, even when its legacy
 status is `complete` and its score is 100. `validated_bytes` counts only bytes
 verified contiguously from offset zero; it is zero when no content check ran.
-An output intersecting an unreadable source range is at best `suspect` and
+For PNG, every chunk-CRC mismatch adds a `chunk_crc` check naming the chunk
+type and byte offset and sets `validation=partial`/`validity=suspect` without
+changing the score or suppressing the file. Decode mode recomputes all CRCs
+and reports the contiguous prefix ending at the last good chunk; structure
+mode reports zero decoded bytes. An output intersecting an unreadable source
+range is at best `suspect` and
 carries `overlaps_unreadable_region: false`.
 
 ### 3.5. Scoring

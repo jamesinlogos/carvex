@@ -1,5 +1,5 @@
 #![deny(clippy::indexing_slicing, clippy::unwrap_used, clippy::expect_used)]
-use super::{Analysis, Need};
+use super::{png_chunk_crc_check, Analysis, Need, ValidationCheck};
 use crc32fast::Hasher;
 
 const PNG_MAGIC: &[u8] = &[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
@@ -22,6 +22,9 @@ pub fn analyze(data: &[u8], at_limit: bool) -> Need {
     let mut pos = 8usize;
     let mut chunks = 0u32;
     let mut bad_crc = 0u32;
+    let mut crc_checks: Vec<ValidationCheck> = Vec::new();
+    let mut good_crc_prefix = 8u64;
+    let mut crc_failed = false;
     let mut ihdr = false;
     let mut idat = false;
     let mut plte = false;
@@ -40,6 +43,8 @@ pub fn analyze(data: &[u8], at_limit: bool) -> Need {
                     bad_crc,
                     width,
                     height,
+                    checks: crc_checks.clone(),
+                    validated_prefix: good_crc_prefix,
                 },
                 at_limit,
                 "truncated chunk header",
@@ -54,6 +59,8 @@ pub fn analyze(data: &[u8], at_limit: bool) -> Need {
                     bad_crc,
                     width,
                     height,
+                    checks: crc_checks.clone(),
+                    validated_prefix: good_crc_prefix,
                 },
                 at_limit,
                 "truncated chunk header",
@@ -69,6 +76,8 @@ pub fn analyze(data: &[u8], at_limit: bool) -> Need {
                     bad_crc,
                     width,
                     height,
+                    checks: crc_checks.clone(),
+                    validated_prefix: good_crc_prefix,
                 },
                 at_limit,
                 "truncated chunk header",
@@ -86,6 +95,8 @@ pub fn analyze(data: &[u8], at_limit: bool) -> Need {
                         bad_crc,
                         width,
                         height,
+                        checks: crc_checks.clone(),
+                        validated_prefix: good_crc_prefix,
                     },
                     at_limit,
                     "invalid chunk type after IDAT",
@@ -107,6 +118,8 @@ pub fn analyze(data: &[u8], at_limit: bool) -> Need {
                         bad_crc,
                         width,
                         height,
+                        checks: crc_checks.clone(),
+                        validated_prefix: good_crc_prefix,
                     },
                     at_limit,
                     "truncated chunk payload",
@@ -122,6 +135,8 @@ pub fn analyze(data: &[u8], at_limit: bool) -> Need {
                     bad_crc,
                     width,
                     height,
+                    checks: crc_checks.clone(),
+                    validated_prefix: good_crc_prefix,
                 },
                 at_limit,
                 "truncated chunk payload",
@@ -136,6 +151,8 @@ pub fn analyze(data: &[u8], at_limit: bool) -> Need {
                     bad_crc,
                     width,
                     height,
+                    checks: crc_checks.clone(),
+                    validated_prefix: good_crc_prefix,
                 },
                 at_limit,
                 "truncated chunk CRC",
@@ -148,6 +165,10 @@ pub fn analyze(data: &[u8], at_limit: bool) -> Need {
         let calc_crc = hasher.finalize();
         if calc_crc != stored_crc {
             bad_crc += 1;
+            crc_failed = true;
+            crc_checks.push(png_chunk_crc_check(ctype, pos));
+        } else if !crc_failed {
+            good_crc_prefix = chunk_end as u64;
         }
 
         if chunks == 0 && ctype != b"IHDR" {
@@ -251,6 +272,10 @@ pub fn analyze(data: &[u8], at_limit: bool) -> Need {
         height: Some(height),
         notes,
         repair_suffix: IEND_SUFFIX,
+        integrity_checks: crc_checks,
+        // Decode mode recomputes CRCs and supplies its own checked prefix;
+        // structural mode does not claim decoded content bytes.
+        validated_prefix: 0,
     })
 }
 
@@ -261,6 +286,8 @@ struct PngProgress {
     bad_crc: u32,
     width: u32,
     height: u32,
+    checks: Vec<ValidationCheck>,
+    validated_prefix: u64,
 }
 
 fn truncated(p: PngProgress, at_limit: bool, why: &str) -> Need {
@@ -289,6 +316,8 @@ fn truncated(p: PngProgress, at_limit: bool, why: &str) -> Need {
         height: if p.height > 0 { Some(p.height) } else { None },
         notes,
         repair_suffix: IEND_SUFFIX,
+        integrity_checks: p.checks,
+        validated_prefix: p.validated_prefix,
     })
 }
 
@@ -353,6 +382,15 @@ mod tests {
                 assert!(a.complete);
                 assert!(a.score < 100);
                 assert!(a.notes.iter().any(|n| n.contains("CRC")));
+                assert!(a.integrity_failed());
+                let check = a
+                    .integrity_checks
+                    .iter()
+                    .find(|c| c.name == "chunk_crc")
+                    .expect("bad CRC must have a structured check");
+                assert_eq!(check.ok, Some(false));
+                assert!(check.note.contains("IDAT"));
+                assert!(check.note.contains("byte"));
             }
             _ => panic!("expected PNG with CRC error"),
         }

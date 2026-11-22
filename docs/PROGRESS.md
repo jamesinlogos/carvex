@@ -64,10 +64,10 @@ scripts/coverage.sh 60                                OK (4456/6391 lines = 69.7
 scripts/fuzz.sh 60                                   7 targets x 60 s, 18,520,025 runs, no crashes/artifacts
 ```
 
-Current gate after H-16 (2026-11-22): **GATE GREEN**, 105 tests
+Current gate after H-17 (2026-11-22): **GATE GREEN**, 107 tests
 (39 unit + 13 cli_contract + 5 evidence_formats + 2 fragment_recovery +
 8 fs_detect + 2 jpeg_frame_budget + 4 memory_budget + 3 panic_containment +
-4 png_decode_budget + 2 png_validator_budget + 5 properties +
+2 png_crc_validity + 4 png_decode_budget + 2 png_validator_budget + 5 properties +
 3 regress_e01_safety + 4 regress_vmdk_safety + 6 scan_integration +
 1 validity_model + 4 work_budgets), 34 repro scenarios with 0 failures/2 SKIPs/0 XPASS,
 G7 and benchmark smoke green. `scripts/perf_gate.py --carvex
@@ -121,7 +121,7 @@ Windows**.
 | A-08 | PARTIAL | green | `trait ImageSource {len, read_at}` + unchanged `RawFile` default; `seek(End)` fallback when metadata len = 0. B-04 adds split raw, E01, VHD, VMDK and stdin sources under `src/image/`. `--on-read-error` and report `unreadable_regions[]` are now present (H-22); no `BlockDevice`/`--sector-size` yet and real device/Windows not tested. |
 | A-09 | PARTIAL | green | Fixed the NTFS sector off-by-one (`field+1`, D-21, unit test `volume_sector_count_includes_the_backup_boot_sector`); FS errors → `FS_DETECTION_FAILED`. No `$ATTRIBUTE_LIST`/multi-extent `$MFT`/`$MFTMirr`/backup boot/FAT #2 yet. |
 | A-10 | DONE | green | Lib crate + thin `main.rs`; pipeline `plan_extents → build_tasks → scan_task → carve_batch → postfilter → write_outputs`; format registry; `ScanInput<'a>` groups the input parameters for `run_scan`, with targeted `too_many_arguments` allows only on the two R-01/R-02 helpers that take explicit budget/deadline state; `cargo doc -D warnings` passes. |
-| A-11 | PARTIAL | green | **105 tests** in the current gate (39 unit + 13 cli_contract + 5 evidence_formats + 2 fragment_recovery + 8 fs_detect + 2 jpeg_frame_budget + 4 memory_budget + 3 panic_containment + 4 png_decode_budget + 2 png_validator_budget + 5 properties + 3 regress_e01_safety + 4 regress_vmdk_safety + 6 scan_integration + 1 validity_model + 4 work_budgets); `scripts/review_repro.py --assert/--xfail --carvex` 34 scenarios, 0 failures, 2 SKIPs, 0 XPASS; red baseline `docs/baseline/repro_v0.1.0.txt`. Post-R-01/R-02 `cargo-llvm-cov 0.9.1` measured 4456/6391 lines = **69.72%**; CI/local floor set to 60%, not the earlier aspirational 80%. No new coverage run after H-14/H-16. |
+| A-11 | PARTIAL | green | **107 tests** in the current gate (39 unit + 13 cli_contract + 5 evidence_formats + 2 fragment_recovery + 8 fs_detect + 2 jpeg_frame_budget + 4 memory_budget + 3 panic_containment + 2 png_crc_validity + 4 png_decode_budget + 2 png_validator_budget + 5 properties + 3 regress_e01_safety + 4 regress_vmdk_safety + 6 scan_integration + 1 validity_model + 4 work_budgets); `scripts/review_repro.py --assert/--xfail --carvex` 34 scenarios, 0 failures, 2 SKIPs, 0 XPASS; red baseline `docs/baseline/repro_v0.1.0.txt`. Post-R-01/R-02 `cargo-llvm-cov 0.9.1` measured 4456/6391 lines = **69.72%**; CI/local floor set to 60%, not the earlier aspirational 80%. No new coverage run after H-14/H-16/H-17. |
 | A-12 | PARTIAL | green | MSRV 1.85 (`rust-version`, README corrected from "Rust 1.74"); `cargo +1.85 check` in the gate; `.github/workflows/ci.yml` adds actionlint + coverage and uses a pinned direct actionlint install; `rustfmt.toml`/`clippy.toml`/`deny.toml`; dist 0.2.0 + `SHA256SUMS`. Local `cargo deny check`, `cargo audit` and `actionlint 1.7.12` pass. Real GitHub run `44548142275` on commit `42376a9` succeeded (all jobs; push-event fuzz matrix skipped), but it predates B-04, B-06 and R-01/R-02. Distributed Windows binary not executed; no SBOM/signatures yet; removing binaries from `dist/` is STOP-AND-ASK (kept). |
 | A-13 | PARTIAL | green | Exit 0/1/2/3/4 documented + CLI contract tests; coded warnings; `RAW_SCANS_ALLOCATED` informational (D-20). No `thiserror`/leveled logger/`ProgressSink`/partial report on interrupt yet. |
 | A-14 | DONE | green | Report schema v2: `schema_version`, `argv`, `options`, `tool_info`, `input` (before–after SHA-256), ISO-8601, `case_id`, `examiner`, `warnings[]` object, `volumes[]`, `regions[]`, `lba`, real `cluster`, `partition_index`, `extent_id`, `allocated`, `source`, `fragments`. `docs/report.schema.json` + key-matching test; atomic write; `--manifest` generates `SHA256SUMS`; `--report-schema 1`. `unreadable_regions[]` belongs to A-08 (not present). |
@@ -175,7 +175,7 @@ Windows**.
 | H-07 | HIGH | 2026-11-21 source | CLOSED | fa18436 | scripts/review_repro.py X04 | 23-26s -> <1s after single-pass EOF indexing; A-01/R1-R8 and G7 unchanged. |
 | H-11 | CRIT | 2026-11-21 source / 2026-11-21 release build | CLOSED | 4b86f2d | tests/regress_e01_safety.rs::hostile_chunk_size_is_rejected; X07 | Before: SIGABRT on a 64 GiB declared chunk (v5). After: typed error `EWF chunk size 68719476736 exceeds the 67108864-byte limit`; `info` 0.005 s / 12 MiB RSS, `scan` 0.005 s / 13 MiB RSS. |
 | H-16 | CRIT | 2026-11-22 source | CLOSED | 3f47e51 | tests/validity_model.rs; tests/cli_contract.rs; scripts/review_repro.py X10–X14/X24 | Red test proved `validity` was absent and default `complete/structure/100` rows had no "content not checked" text. Added authoritative `validity` + `checks[]`, validity-aware summary/console/CSV/manifest, and schema conformance; scores and emission unchanged. |
-| H-17 | HIGH | 2026-11-21 source | CLOSED | b2a6547 | scripts/review_repro.py X10 | Deep PNG validation now reports CRC mismatches as Validation::Partial; file still emitted. |
+| H-17 | HIGH | 2026-11-22 source | CLOSED | PENDING_H17 | tests/png_crc_validity.rs; src/signatures/png.rs unit test; scripts/review_repro.py X10 | Bad PNG CRC is now `validation=partial`/`validity=suspect` in structure and decode modes, with a `chunk_crc` check naming type/offset; decode `validated_bytes` stops at the last good chunk. Score and emission unchanged. Earlier b2a6547 partial fix retained and extended. |
 | H-20 | MED | 2026-11-21 source | CLOSED | cee916a | scripts/review_repro.py X13 | Trim trailing CR/LF/whitespace/NUL before %%EOF check; EOL variants now identical. |
 | H-24 | MED | 2026-11-21 source | CLOSED | 56ee94a | scripts/review_repro.py X18 | Auto-detect now validates VHD footer checksum and requires strong VMDK descriptor markers before classifying. |
 
@@ -196,6 +196,29 @@ Windows**.
 | H-23 | MED | 2026-11-21 source | CLOSED | 080b76a | tests/regress_vmdk_safety.rs | Missing grain table returned "index out of range"; now reads zeros like qemu-img. |
 
 ### Per-task reports
+
+Task: H-17 — PNG bad CRC still `complete` / `decoded`
+Reviews: v1:R-03, v2:R-03, v3:R-02, v4:F-03, v5:F-06
+Repro: `tests/png_crc_validity.rs` corrupted the first IDAT CRC of the embedded
+  1x1 PNG. Before the fix, structure mode reported `complete/structure/85`
+  with `validity=structural` and no `chunk_crc` check; the red assertion failed
+  with `left: String("structure")`, `right: "partial"`. Decode mode reported
+  `partial` but `validated_bytes=0` and no check detail. The clean control
+  passed before and after.
+Change: the structural PNG parser now records a `chunk_crc` check for every
+  mismatch and marks `Analysis::integrity_failed()`; the scanner maps that to
+  legacy `validation=partial` while keeping `status` and the score. Decode
+  validation separately recomputes every CRC and returns a checked prefix that
+  stops at the first bad chunk; `validated_bytes` now reports that prefix.
+  Added a detailed validator result API without changing the historical tuple
+  API. The existing `reports_bad_crc_but_keeps_file` unit test was extended,
+  not weakened. README limitation 4 now describes the suspect label.
+Tests: `tests/png_crc_validity.rs` covers both modes and the clean control;
+  X10 now checks both modes, the check name and the decode prefix.
+Gate: green (fmt/clippy/tests/doc/actionlint/deny/audit/MSRV/release/repro/golden/smoke),
+  107 tests, 34 repro scenarios, 0 failures/2 SKIPs/0 XPASS, G7 green.
+Residual risk / next: only PNG CRC semantics changed. JPEG strict scan (H-18),
+  PDF xref validation (H-19) and repair revalidation (H-21) remain open.
 
 Task: H-16 — Validity model absent; default output reads "complete / 100"
 Reviews: v1:R-08, v2:R-08, v3:R-08, v4:F-08, v5:F-08 + F-17 (RT×3)

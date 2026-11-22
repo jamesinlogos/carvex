@@ -87,6 +87,8 @@ pub fn analyze(data: &[u8], at_limit: bool) -> Need {
                         sof_name, width, height, scans, app_segments
                     )],
                     repair_suffix: EOI,
+                    integrity_checks: Vec::new(),
+                    validated_prefix: 0,
                 });
             }
             // Standalone markers (TEM, RSTn).
@@ -224,6 +226,8 @@ pub fn analyze(data: &[u8], at_limit: bool) -> Need {
                                 sof_name, width, height, scans, app_segments
                             )],
                             repair_suffix: EOI,
+                            integrity_checks: Vec::new(),
+                            validated_prefix: 0,
                         });
                     }
                     _ => {
@@ -307,6 +311,8 @@ fn truncated(
             sof, sos
         )],
         repair_suffix: EOI,
+        integrity_checks: Vec::new(),
+        validated_prefix: 0,
     })
 }
 

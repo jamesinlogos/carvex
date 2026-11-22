@@ -29,6 +29,8 @@ fn analysis(width: u32, height: u32) -> Analysis {
         height: Some(height),
         notes: Vec::new(),
         repair_suffix: &[],
+        integrity_checks: Vec::new(),
+        validated_prefix: 0,
     }
 }
 

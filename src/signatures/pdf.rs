@@ -151,6 +151,8 @@ pub fn analyze(data: &[u8], at_limit: bool, mode: PdfEofMode) -> Need {
         height: None,
         notes,
         repair_suffix: EOF_SUFFIX,
+        integrity_checks: Vec::new(),
+        validated_prefix: 0,
     })
 }
 
@@ -281,6 +283,8 @@ fn truncated(end: usize, at_limit: bool, prefix: &[u8], version: &str, why: &str
             "truncated PDF {version} ({why}); {objects} object(s); repair appends %%EOF"
         )],
         repair_suffix: EOF_SUFFIX,
+        integrity_checks: Vec::new(),
+        validated_prefix: 0,
     })
 }
 

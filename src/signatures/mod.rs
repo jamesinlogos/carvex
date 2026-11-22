@@ -259,6 +259,30 @@ impl ValidationCheck {
     }
 }
 
+/// Detailed result of a decode-validation pass.
+///
+/// `notes` preserves the historical human-readable result. `checks` and
+/// `validated_bytes` carry the H-16/H-17 additions without changing the public
+/// tuple API used by older callers.
+#[derive(Debug, Clone)]
+pub struct ValidationDetail {
+    pub validation: Validation,
+    pub notes: Vec<String>,
+    pub checks: Vec<ValidationCheck>,
+    pub validated_bytes: u64,
+}
+
+impl ValidationDetail {
+    pub fn new(validation: Validation, notes: Vec<String>) -> Self {
+        Self {
+            validation,
+            notes,
+            checks: Vec::new(),
+            validated_bytes: 0,
+        }
+    }
+}
+
 /// Build the checks that were actually performed for a legacy validation
 /// result. Later findings append format-specific checks; this baseline never
 /// claims a check that the current validator does not implement.
@@ -322,6 +346,19 @@ pub fn base_validity_checks(
     checks
 }
 
+/// Structured check for one PNG chunk CRC mismatch. Used by both the
+/// structural parser and decode validator so their notes agree.
+pub(crate) fn png_chunk_crc_check(ctype: &[u8], offset: usize) -> ValidationCheck {
+    ValidationCheck::new(
+        "chunk_crc",
+        Some(false),
+        format!(
+            "PNG chunk {} at byte {offset} has CRC mismatch",
+            String::from_utf8_lossy(ctype)
+        ),
+    )
+}
+
 #[derive(Debug, Clone)]
 pub struct Analysis {
     /// Number of input bytes that belong to the file (before any repair suffix).
@@ -333,9 +370,20 @@ pub struct Analysis {
     pub notes: Vec<String>,
     /// Appended when --repair is enabled and the file is truncated.
     pub repair_suffix: &'static [u8],
+    /// Integrity failures found while parsing (for example PNG chunk CRCs).
+    pub integrity_checks: Vec<ValidationCheck>,
+    /// Length of the contiguous prefix covered by structural integrity checks.
+    pub validated_prefix: u64,
 }
 
 impl Analysis {
+    /// True when a structural integrity check failed.
+    pub fn integrity_failed(&self) -> bool {
+        self.integrity_checks
+            .iter()
+            .any(|check| check.ok == Some(false))
+    }
+
     pub fn status(&self, repaired: bool) -> Status {
         if self.complete {
             Status::Complete
@@ -386,10 +434,22 @@ pub fn validate_deep_with_limits(
     analysis: &Analysis,
     limits: ValidationLimits,
 ) -> (Validation, Vec<String>) {
+    let detail = validate_deep_detail(kind, data, analysis, limits);
+    (detail.validation, detail.notes)
+}
+
+/// Detailed decode validation, including structured checks and the checked
+/// byte prefix. This is the entry point used by the scanner.
+pub fn validate_deep_detail(
+    kind: FileType,
+    data: &[u8],
+    analysis: &Analysis,
+    limits: ValidationLimits,
+) -> ValidationDetail {
     match kind {
-        FileType::Jpeg => validate_jpeg(data, analysis, limits),
-        FileType::Png => validate_png(data, analysis, limits),
-        FileType::Pdf => validate_pdf(data, analysis),
+        FileType::Jpeg => validate_jpeg_detail(data, analysis, limits),
+        FileType::Png => validate_png_detail(data, analysis, limits),
+        FileType::Pdf => validate_pdf_detail(data, analysis),
     }
 }
 
@@ -479,6 +539,25 @@ fn validate_jpeg(
             Validation::Partial,
             vec![format!("JPEG decode failed: {e}")],
         ),
+    }
+}
+
+fn validate_jpeg_detail(
+    data: &[u8],
+    analysis: &Analysis,
+    limits: ValidationLimits,
+) -> ValidationDetail {
+    let (validation, notes) = validate_jpeg(data, analysis, limits);
+    let validated_bytes = if validation == Validation::Decoded {
+        analysis.end as u64
+    } else {
+        0
+    };
+    ValidationDetail {
+        validation,
+        notes,
+        checks: Vec::new(),
+        validated_bytes,
     }
 }
 
@@ -629,6 +708,81 @@ fn validate_png(
             state.expected
         )],
     )
+}
+
+fn validate_png_detail(
+    data: &[u8],
+    analysis: &Analysis,
+    limits: ValidationLimits,
+) -> ValidationDetail {
+    let (validation, notes) = validate_png(data, analysis, limits);
+    let (checks, crc_prefix) = png_crc_scan(data);
+    // A clean decode validates the whole carved image. When an integrity
+    // check fails, validated_bytes stops at the last chunk whose CRC passed.
+    let validated_bytes = if checks.iter().all(|check| check.ok != Some(false)) {
+        if validation == Validation::Decoded {
+            analysis.end as u64
+        } else {
+            0
+        }
+    } else {
+        crc_prefix
+    };
+    ValidationDetail {
+        validation,
+        notes,
+        checks,
+        validated_bytes,
+    }
+}
+
+/// Recompute every PNG chunk CRC before decode claims success. The scan is
+/// bounded by the already-parsed length and materializes no image data.
+fn png_crc_scan(data: &[u8]) -> (Vec<ValidationCheck>, u64) {
+    let mut checks = Vec::new();
+    let mut good_prefix = 8u64;
+    let mut crc_failed = false;
+    let mut pos = 8usize;
+    while pos + 12 <= data.len() {
+        let Some(len_bytes) = data.get(pos..pos + 4) else {
+            break;
+        };
+        let Ok(len_arr) = <[u8; 4]>::try_from(len_bytes) else {
+            break;
+        };
+        let len = u32::from_be_bytes(len_arr) as usize;
+        let Some(ctype) = data.get(pos + 4..pos + 8) else {
+            break;
+        };
+        let Some(chunk_end) = pos
+            .checked_add(12)
+            .and_then(|v| v.checked_add(len))
+            .filter(|&v| v <= data.len())
+        else {
+            break;
+        };
+        let Some(chunk_data) = data.get(pos + 8..pos + 8 + len) else {
+            break;
+        };
+        let stored = data
+            .get(pos + 8 + len..pos + 12 + len)
+            .and_then(|b| <[u8; 4]>::try_from(b).ok())
+            .map(u32::from_be_bytes);
+        let mut hasher = crc32fast::Hasher::new();
+        hasher.update(ctype);
+        hasher.update(chunk_data);
+        let computed = hasher.finalize();
+        if stored == Some(computed) {
+            if !crc_failed {
+                good_prefix = chunk_end as u64;
+            }
+        } else {
+            crc_failed = true;
+            checks.push(png_chunk_crc_check(ctype, pos));
+        }
+        pos = chunk_end;
+    }
+    (checks, good_prefix)
 }
 
 const PNG_INFLATE_BUFFER: usize = 64 * 1024;
@@ -904,6 +1058,11 @@ fn validate_pdf(data: &[u8], analysis: &Analysis) -> (Validation, Vec<String>) {
             ],
         )
     }
+}
+
+fn validate_pdf_detail(data: &[u8], analysis: &Analysis) -> ValidationDetail {
+    let (validation, notes) = validate_pdf(data, analysis);
+    ValidationDetail::new(validation, notes)
 }
 
 fn expected_png_raw_size(

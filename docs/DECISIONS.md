@@ -685,3 +685,19 @@ decision, and the consequences.
   does not claim full PNG CRC coverage, strict JPEG scan support or real PDF
   xref validation; those are H-17–H-19. No repair is claimed to re-validate
   until H-21.
+
+## D-44. PNG CRC integrity failure (H-17)
+
+- **Context:** the structural PNG parser already recomputed every chunk CRC
+  and only lowered the score; decode mode returned `Partial` but did not say
+  which chunk failed, and `validated_bytes` was zero. Reviewers could therefore
+  see a bad-CRC PNG as `complete/decoded`.
+- **Decision:** a CRC mismatch is an integrity failure in both modes: the file
+  keeps its historical score and is still emitted, but `validation=partial`
+  and `validity=suspect`. Both modes attach a `chunk_crc` check naming the
+  chunk type and byte offset. Decode mode recomputes all CRCs and sets
+  `validated_bytes` to the contiguous prefix ending at the last good chunk;
+  structural mode still reports zero because it does not claim decoded bytes.
+- **Compatibility:** no score, emission, CSV prefix, schema shape or published
+  benchmark figure changes. The earlier H-17 partial fix is retained and
+  extended rather than reverted.

@@ -1,8 +1,9 @@
 use crate::fs::FsInfo;
 use crate::io::{read_exact_at, ImageSource, RegionLog, UnreadableRegion};
 use crate::signatures::{
-    analyze, base_validity_checks, validate_deep_with_limits, Analysis, FileType, Need, PdfEofMode,
-    Status, Validation, ValidationCheck, ValidationLimits, ValidationMode, Validity,
+    analyze, base_validity_checks, validate_deep_detail, Analysis, FileType, Need, PdfEofMode,
+    Status, Validation, ValidationCheck, ValidationDetail, ValidationLimits, ValidationMode,
+    Validity,
 };
 use crate::util::{
     complement_extents, hex, human_size, merge_extents, sha256_hex, sha256_hex_with_suffix,
@@ -1588,37 +1589,53 @@ fn carve_one(
                         limit: work_limit,
                     });
                 }
-                let (validation, mut validation_notes) = if opts.validate == ValidationMode::Decode
-                {
+                let detail = if opts.validate == ValidationMode::Decode {
                     if analysis.complete {
-                        validate_deep_with_limits(cand.kind, &buf[..end], &analysis, limits)
+                        validate_deep_detail(cand.kind, &buf[..end], &analysis, limits)
                     } else {
-                        (
+                        ValidationDetail::new(
                             Validation::Partial,
                             vec!["file is truncated; decode validation skipped".into()],
                         )
                     }
                 } else if analysis.complete {
-                    (Validation::Structure, Vec::new())
+                    // The PNG structural parser already recomputes every chunk
+                    // CRC. A failure is an integrity failure even in the
+                    // default mode, while no decoded byte count is claimed.
+                    let notes = analysis
+                        .integrity_checks
+                        .iter()
+                        .map(|check| check.note.clone())
+                        .collect();
+                    ValidationDetail {
+                        validation: if analysis.integrity_failed() {
+                            Validation::Partial
+                        } else {
+                            Validation::Structure
+                        },
+                        notes,
+                        checks: analysis.integrity_checks.clone(),
+                        validated_bytes: 0,
+                    }
                 } else {
-                    (Validation::Partial, vec!["file is truncated".into()])
+                    ValidationDetail::new(Validation::Partial, vec!["file is truncated".into()])
                 };
+                let ValidationDetail {
+                    validation,
+                    notes: mut validation_notes,
+                    checks: detail_checks,
+                    validated_bytes,
+                } = detail;
                 let status = analysis.status(repaired);
                 let validity = Validity::from_legacy(validation, status);
-                let validated_bytes = if validation == Validation::Decoded {
-                    end as u64
-                } else {
-                    0
-                };
-                let validation_checks =
+                let mut validation_checks =
                     base_validity_checks(cand.kind, validation, status, &validation_notes);
-                if opts.validate == ValidationMode::Decode
-                    && analysis.complete
-                    && validation == Validation::Partial
-                {
-                    analysis.score = analysis.score.saturating_sub(20);
+                validation_checks.extend(detail_checks);
+                if analysis.complete && validation == Validation::Partial {
+                    if opts.validate == ValidationMode::Decode {
+                        analysis.score = analysis.score.saturating_sub(20);
+                    }
                     analysis.notes.append(&mut validation_notes);
-                    validation_notes = Vec::new();
                     if analysis.score < opts.min_score {
                         return Ok(CarveOutcome::LowScore(analysis.score));
                     }
@@ -1959,8 +1976,12 @@ fn try_fragment_join(
         });
     }
     let limits = ValidationLimits::new(opts.max_validator_memory.min(budget.limit()));
-    let (validation, validation_notes) =
-        validate_deep_with_limits(cand.kind, &bytes, &analysis, limits);
+    let ValidationDetail {
+        validation,
+        notes: validation_notes,
+        checks: detail_checks,
+        validated_bytes,
+    } = validate_deep_detail(cand.kind, &bytes, &analysis, limits);
     // B-06 requires deep validation. H-19 stage 1: PDF deep validation is
     // lexical-only and reports Unverified (never Decoded) until a real PDF
     // parser is integrated. Accept only the lexical-validated Unverified case
@@ -2000,12 +2021,9 @@ fn try_fragment_join(
     let output_len = analysis.end as u64;
     let status = analysis.status(false);
     let validity = Validity::from_legacy(validation, status);
-    let validated_bytes = if validation == Validation::Decoded {
-        output_len
-    } else {
-        0
-    };
-    let validation_checks = base_validity_checks(cand.kind, validation, status, &validation_notes);
+    let mut validation_checks =
+        base_validity_checks(cand.kind, validation, status, &validation_notes);
+    validation_checks.extend(detail_checks);
     Ok(JoinAttempt {
         data: Some(CarvedData {
             candidate: cand.clone(),

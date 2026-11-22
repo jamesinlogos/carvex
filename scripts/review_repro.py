@@ -751,18 +751,32 @@ def case_x10(carvex: Path, work: Path, corpus: Path, ntfs: Path | None) -> str:
         return "SKIP: no IDAT chunk found"
     img = work / "x10.img"
     img.write_bytes(b"\x00" * 4096 + bytes(data) + b"\x00" * 4096)
-    res = run_carvex(carvex, img, work, ["--mode", "raw", "--no-fs", "--types", "png", "--validate", "decode", "--min-score", "0"])
-    if res.proc.returncode != 0:
-        return f"exit {res.proc.returncode}: {res.stderr.strip()[:200]}"
-    files = res.report.get("files", []) if res.report else []
-    pngs = [f for f in files if f.get("type") == "png"]
-    if not pngs:
-        return "no PNG carved"
-    for f in pngs:
-        if f.get("validation") == "decoded":
-            return f"bad-CRC PNG reported as decoded (status={f.get('status')}, score={f.get('score')})"
-        if f.get("validity") != "suspect":
-            return f"bad-CRC PNG validity={f.get('validity')!r}, expected suspect"
+    for mode in ("structure", "decode"):
+        res = run_carvex(carvex, img, work, [
+            "--mode", "raw", "--no-fs", "--types", "png", "--validate", mode,
+            "--min-score", "0",
+        ])
+        if res.proc.returncode != 0:
+            return f"exit {res.proc.returncode}: {res.stderr.strip()[:200]}"
+        files = res.report.get("files", []) if res.report else []
+        pngs = [f for f in files if f.get("type") == "png"]
+        if not pngs:
+            return f"no PNG carved in {mode} mode"
+        for f in pngs:
+            if f.get("status") != "complete":
+                return f"bad-CRC PNG not emitted in {mode} mode"
+            if f.get("validation") != "partial":
+                return f"bad-CRC PNG validation={f.get('validation')!r} in {mode} mode"
+            if f.get("validity") != "suspect":
+                return f"bad-CRC PNG validity={f.get('validity')!r}, expected suspect"
+            names = [c.get("name") for c in f.get("checks", []) if isinstance(c, dict)]
+            if "chunk_crc" not in names:
+                return f"bad-CRC PNG has no chunk_crc check in {mode} mode: {names}"
+            if mode == "decode" and not 0 < f.get("validated_bytes", 0) < f.get("size", 0):
+                return (
+                    f"decode validated_bytes={f.get('validated_bytes')} does not stop "
+                    f"at the bad CRC (size={f.get('size')})"
+                )
     return ""
 
 
