@@ -174,6 +174,7 @@ Windows**.
 | H-06 | CRIT | 2026-11-21 source / 2026-11-21 release build | CLOSED | 3534717 | tests/jpeg_frame_budget.rs; scripts/review_repro.py X03 | Red test proved the decoder ran without a budget check. After: 20,000² and 65,535² SOF claims → `unverified`, 0.010 s / 8.9 MiB and 0.009 s / 9.0 MiB RSS. |
 | H-08 | CRIT | 2026-11-21 source / 2026-11-21 release build | CLOSED | e69e68b | tests/memory_budget.rs; scripts/review_repro.py X01 | Red test: 300 x ~60 KiB JPEGs (18 MiB output) with `--max-memory 16M` failed before the fix. After: all 300 written with bounded RSS; `SOURCE_CHANGED` verified by a changing-source test; G8 s9_4m 0.476s before vs 0.164s after. |
 | H-09 | HIGH | 2026-11-21 source / 2026-11-21 release build | CLOSED | 48deab5 | tests/work_budgets.rs; scripts/review_repro.py X05 | Red X05 (missing flags) before the fix; after: all four limits trip with coded warning, report and exit 3; time case sets `nondeterministic_stop`. D-39 defaults measured on D0/S9/S10. |
+| H-10 | HIGH | 2026-11-21 source / 2026-11-21 release build | CLOSED | b87ced9 | tests/panic_containment.rs; scripts/review_repro.py X06 | Red test proved an escaping rayon panic before the fix. After: candidate/join panics become `internal_errors[]`, `CANDIDATE_PANIC`, counted in stats, exit 3; other candidates still carved. Open panics become typed errors; panic=unwind profile test added. |
 | H-14 | HIGH | - | OPEN | - | - | No new fuzz targets for image parsers yet. |
 | H-15 | MED | 2026-11-21 source / 0.2.0 `dist/` | MEASURED (musl-only) | - | scripts/review_repro.py X23; conflict C5 | Source build: 1 thread 0.542 s, default 0.364 s. Packaged musl build: 1 thread 0.764 s, default 2.491 s (3.26x slower). No allocator change without STOP-AND-ASK; measured, not tuned. |
 | H-18 | HIGH | 2026-11-21 source | IN_PROGRESS | 3724a06 | scripts/review_repro.py X12; scripts/jpeg_splice_property.py | Baseline splice rate 0.2180 [0.1935,0.2446] at a7a5c08; current rate 0.0010 [0.0002,0.0056]. Strict-scan unsupported variants are Unverified; step 2 is still needed because the current upper CI exceeds 0.1%. |
@@ -185,6 +186,26 @@ Windows**.
 | H-23 | MED | 2026-11-21 source | CLOSED | 080b76a | tests/regress_vmdk_safety.rs | Missing grain table returned "index out of range"; now reads zeros like qemu-img. |
 
 ### Per-task reports
+
+Task: H-10 — No per-candidate or container panic containment
+Reviews: v1:R-07, v2:R-07, v3:R-07, v4:F-07, v5:F-05
+Repro: REPRODUCED red with a hidden test seam: the first
+  `tests/panic_containment.rs` run unwound out of the rayon worker and failed
+  the test; X06 previously skipped because no seam existed.
+Change: candidate analyse/validate and B-06 join attempts use
+  `catch_unwind(AssertUnwindSafe(…))` and produce `internal_errors[]` records
+  (offset, type, message), increment `stats.internal_errors`, emit the
+  incomplete `CANDIDATE_PANIC` warning and exit 3. Other candidates continue.
+  `open_image_with_options` converts container-parser panics into typed
+  errors. Explicit dev/release profiles keep `panic = "unwind"` (D-40).
+New tests: `tests/panic_containment.rs` covers candidate containment, typed
+  open errors and the profile invariant; X06 is active and verifies the CLI
+  report and exit code.
+Gate: green (fmt/clippy/tests/doc/MSRV/repro/golden/smoke). G8 after the
+  containment wrappers: s9_4m median 0.150 s, rand64m 0.031 s.
+Residual risk / next: no natural panic fixture and no fuzz runtime were used;
+  containment is defence in depth only. The panic hook still prints a panic
+  message to stderr before containment.
 
 Task: H-09 — Required work budgets
 Reviews: v5:F-04, v2 RT, v1/v3 R-01

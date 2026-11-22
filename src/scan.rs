@@ -13,13 +13,53 @@ use clap::ValueEnum;
 use rayon::prelude::*;
 use serde::Serialize;
 use sha2::Digest;
+use std::any::Any;
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
 use std::io::{IsTerminal, Write};
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
+
+/// Test-only panic injection target. Production never sets this; it exists so
+/// panic containment can be exercised from integration tests and the Python
+/// repro harness without adding a visible CLI flag.
+#[doc(hidden)]
+pub static TEST_PANIC_AT_OFFSET: AtomicU64 = AtomicU64::new(u64::MAX);
+
+/// Enable the hidden panic seam for one candidate offset. Passing `u64::MAX`
+/// disables it.
+#[doc(hidden)]
+pub fn set_test_panic_at_offset(offset: u64) {
+    TEST_PANIC_AT_OFFSET.store(offset, Ordering::SeqCst);
+}
+
+fn test_panic_probe(offset: u64, stage: &str) {
+    if TEST_PANIC_AT_OFFSET.load(Ordering::SeqCst) == offset {
+        panic!("test-only panic injected at offset {offset} during {stage}");
+    }
+}
+
+fn panic_message(payload: &(dyn Any + Send)) -> String {
+    if let Some(message) = payload.downcast_ref::<&str>() {
+        (*message).to_string()
+    } else if let Some(message) = payload.downcast_ref::<String>() {
+        message.clone()
+    } else {
+        "non-string panic payload".to_string()
+    }
+}
+
+/// A contained panic in one candidate or fragment-join attempt.
+#[derive(Debug, Clone, Serialize)]
+pub struct InternalError {
+    pub offset: u64,
+    #[serde(rename = "type")]
+    pub file_type: FileType,
+    pub message: String,
+}
 
 /// Report schema version emitted by this build.
 pub const SCHEMA_VERSION: u8 = 2;
@@ -451,6 +491,7 @@ impl Warning {
                 | "WORK_LIMIT"
                 | "TIME_LIMIT"
                 | "OUTPUT_LIMIT"
+                | "CANDIDATE_PANIC"
         )
     }
 }
@@ -522,6 +563,8 @@ pub struct CarvedFile {
 pub struct ScanStats {
     pub candidates: usize,
     pub carved: usize,
+    /// Number of candidate or join panics contained during this scan.
+    pub internal_errors: usize,
     pub rejected: usize,
     pub below_min_size: usize,
     pub below_min_score: usize,
@@ -566,6 +609,9 @@ pub struct ScanReport {
     /// Byte ranges that could not be read from the source (H-22).
     pub unreadable_regions: Vec<UnreadableRegion>,
     pub warnings: Vec<Warning>,
+    /// Contained panics, with the source offset and file type of the work item
+    /// that caused them. Work on other candidates continues.
+    pub internal_errors: Vec<InternalError>,
     /// True when a wall-clock budget stopped the scan; work-unit limits do
     /// not set this flag because their results are deterministic.
     pub nondeterministic_stop: bool,
@@ -642,6 +688,11 @@ struct CarvedData {
 
 enum CarveOutcome {
     Carved(Box<CarvedData>),
+    InternalError {
+        offset: u64,
+        kind: FileType,
+        message: String,
+    },
     Rejected(String),
     SkippedBudget {
         offset: u64,
@@ -734,6 +785,12 @@ pub fn run_scan(
     let t0 = Instant::now();
     let time = TimeBudget::new(t0, opts.time_budget);
     let mut warnings = Vec::new();
+    let mut internal_errors = Vec::new();
+    if let Ok(value) = std::env::var("CARVEX_TEST_PANIC_AT_OFFSET") {
+        if let Ok(offset) = value.parse::<u64>() {
+            set_test_panic_at_offset(offset);
+        }
+    }
 
     prepare_output_dir(out_dir, opts.force)?;
 
@@ -815,7 +872,13 @@ pub fn run_scan(
     }
 
     // Postfilter works on descriptors only; no carved bytes are retained.
-    let mut kept = postfilter(outcomes, opts, &mut stats, &mut warnings);
+    let mut kept = postfilter(
+        outcomes,
+        opts,
+        &mut stats,
+        &mut warnings,
+        &mut internal_errors,
+    );
     if opts.fragment_recovery {
         kept = recover_fragments(
             source,
@@ -827,6 +890,7 @@ pub fn run_scan(
             &budget,
             &mut warnings,
             &time,
+            &mut internal_errors,
         )?;
     }
     let unreadable_snapshot = match unreadable_regions.lock() {
@@ -916,6 +980,16 @@ pub fn run_scan(
         ));
     }
     let nondeterministic_stop = warnings.iter().any(|w| w.code == "TIME_LIMIT");
+    stats.internal_errors = internal_errors.len();
+    if !internal_errors.is_empty() {
+        warnings.push(Warning::new(
+            "CANDIDATE_PANIC",
+            format!(
+                "{} candidate or fragment-join panic(s) were contained; affected work items were skipped",
+                internal_errors.len()
+            ),
+        ));
+    }
 
     let elapsed = t0.elapsed();
     let bytes_scanned = total_to_scan;
@@ -985,6 +1059,7 @@ pub fn run_scan(
         regions: Vec::new(),
         unreadable_regions: unreadable_snapshot,
         warnings,
+        internal_errors,
         nondeterministic_stop,
         files,
     })
@@ -1273,7 +1348,16 @@ fn carve_batch(
                 if time.check() {
                     return Ok(CarveOutcome::TimeLimit);
                 }
-                let out = carve_one(source, cand, opts, budget, time)?;
+                let out = match catch_unwind(AssertUnwindSafe(|| {
+                    carve_one(source, cand, opts, budget, time)
+                })) {
+                    Ok(result) => result?,
+                    Err(payload) => CarveOutcome::InternalError {
+                        offset: cand.offset,
+                        kind: cand.kind,
+                        message: panic_message(payload.as_ref()),
+                    },
+                };
                 progress.done.fetch_add(1, Ordering::Relaxed);
                 Ok(out)
             })
@@ -1334,6 +1418,7 @@ fn carve_one(
                 limit: work_limit,
             });
         }
+        test_panic_probe(cand.offset, "analyze");
         match analyze(cand.kind, &buf[..read_len], at_limit, opts.pdf_eof) {
             Need::Analyzed(mut analysis) => {
                 if analysis.end == 0 || analysis.end > read_len {
@@ -1379,6 +1464,7 @@ fn carve_one(
                 } else {
                     0
                 };
+                test_panic_probe(cand.offset, "validate");
                 if validate_bytes > 0 && !work.add(validate_bytes) {
                     return Ok(CarveOutcome::WorkLimit {
                         offset: cand.offset,
@@ -1818,6 +1904,7 @@ fn recover_fragments(
     budget: &Arc<MemoryBudget>,
     warnings: &mut Vec<Warning>,
     time: &TimeBudget,
+    internal_errors: &mut Vec<InternalError>,
 ) -> Result<Vec<CarvedData>> {
     let started = Instant::now();
     if volumes.is_empty() {
@@ -1885,9 +1972,11 @@ fn recover_fragments(
                 break;
             }
             attempts += 1;
-            let attempt = match try_fragment_join(source, cand, &join, opts, budget) {
-                Ok(v) => v,
-                Err(e) => {
+            let attempt = match catch_unwind(AssertUnwindSafe(|| {
+                try_fragment_join(source, cand, &join, opts, budget)
+            })) {
+                Ok(Ok(v)) => v,
+                Ok(Err(e)) => {
                     if opts.verbose {
                         eprintln!("[-] B-06 join at {} failed: {e}", cand.offset);
                     }
@@ -1895,6 +1984,14 @@ fn recover_fragments(
                     if e.to_string().contains("--max-memory") {
                         return Err(e);
                     }
+                    continue;
+                }
+                Err(payload) => {
+                    internal_errors.push(InternalError {
+                        offset: cand.offset,
+                        file_type: cand.kind,
+                        message: panic_message(payload.as_ref()),
+                    });
                     continue;
                 }
             };
@@ -1970,12 +2067,22 @@ fn postfilter(
     opts: &ScanOptions,
     stats: &mut ScanStats,
     warnings: &mut Vec<Warning>,
+    internal_errors: &mut Vec<InternalError>,
 ) -> Vec<CarvedData> {
     let mut candidates: Vec<CarvedData> = Vec::new();
     let mut work_limited: Vec<(u64, FileType, u64, u64)> = Vec::new();
     for outcome in outcomes {
         match outcome {
             CarveOutcome::Carved(data) => candidates.push(*data),
+            CarveOutcome::InternalError {
+                offset,
+                kind,
+                message,
+            } => internal_errors.push(InternalError {
+                offset,
+                file_type: kind,
+                message,
+            }),
             CarveOutcome::SkippedBudget {
                 offset,
                 kind,

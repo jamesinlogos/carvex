@@ -38,10 +38,12 @@ fn strip_v2_fields(value: &mut serde_json::Value) {
         "regions",
         "unreadable_regions",
         "nondeterministic_stop",
+        "internal_errors",
     ] {
         obj.remove(key);
     }
     if let Some(stats) = obj.get_mut("stats").and_then(|v| v.as_object_mut()) {
+        stats.remove("internal_errors");
         stats.remove("too_large_truncated");
         stats.remove("trimmed_tail");
     }

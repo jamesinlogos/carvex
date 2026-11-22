@@ -69,6 +69,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   emits `TIME_LIMIT` and sets `nondeterministic_stop: true`. All produce a
   partial report and exit 3. Report schema 2 records the new limits and stop
   flag; schema 1 strips them.
+- H-10: candidate analysis/validation and B-06 join attempts now contain
+  panics, record `internal_errors[]` with offset/type/message, increment
+  `stats.internal_errors`, emit `CANDIDATE_PANIC` and exit 3 while continuing
+  other work. Container-open panics become typed errors. All explicit Cargo
+  profiles keep `panic = "unwind"`.
 - H-11/H-22: hostile E01 chunk sizes are rejected with a typed error before
   allocation; stdin spooling accepts an explicit byte limit and spool directory;
   short final E01 chunks are read at their logical length; checksum/inflate

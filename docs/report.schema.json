@@ -28,6 +28,7 @@
     "regions",
     "unreadable_regions",
     "warnings",
+    "internal_errors",
     "nondeterministic_stop",
     "files"
   ],
@@ -106,6 +107,7 @@
         }
       }
     },
+    "internal_errors": { "type": "array", "items": { "$ref": "#/$defs/internal_error" } },
     "nondeterministic_stop": { "type": "boolean", "description": "True when a wall-clock budget stopped the scan" },
     "files": { "type": "array", "items": { "$ref": "#/$defs/file" } }
   },
@@ -225,10 +227,20 @@
         "reason": { "type": "string" }
       }
     },
+    "internal_error": {
+      "type": "object",
+      "required": ["offset", "type", "message"],
+      "additionalProperties": false,
+      "properties": {
+        "offset": { "type": "integer", "minimum": 0 },
+        "type": { "enum": ["jpeg", "png", "pdf"] },
+        "message": { "type": "string" }
+      }
+    },
     "stats": {
       "type": "object",
       "required": [
-        "candidates", "carved", "rejected", "below_min_size", "below_min_score",
+        "candidates", "carved", "internal_errors", "rejected", "below_min_size", "below_min_score",
         "skipped_complete_only", "too_large_truncated", "duplicate_hashes",
         "suppressed_nested", "truncated", "repaired", "bytes_written",
         "extents", "bytes_in_extents"
@@ -237,6 +249,7 @@
       "properties": {
         "candidates": { "type": "integer", "minimum": 0 },
         "carved": { "type": "integer", "minimum": 0 },
+        "internal_errors": { "type": "integer", "minimum": 0, "description": "Number of contained candidate or join panics" },
         "rejected": { "type": "integer", "minimum": 0 },
         "below_min_size": { "type": "integer", "minimum": 0 },
         "below_min_score": { "type": "integer", "minimum": 0 },

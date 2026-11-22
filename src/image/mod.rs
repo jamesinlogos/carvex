@@ -12,11 +12,14 @@ mod vmdk;
 
 use crate::io::{read_exact_at, read_vec_at, ImageSource, RawFile};
 use crate::util::file_identity;
-use anyhow::{bail, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use clap::ValueEnum;
 use serde::Serialize;
+use std::any::Any;
 use std::io::{self, Read, Write};
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tempfile::NamedTempFile;
 
@@ -24,6 +27,26 @@ pub use e01::E01Image;
 pub use split::SplitRaw;
 pub use vhd::VhdImage;
 pub use vmdk::VmdkImage;
+
+/// Test-only image-open panic seam. Production never sets this.
+#[doc(hidden)]
+pub static TEST_PANIC_IN_OPEN: AtomicBool = AtomicBool::new(false);
+
+/// Enable or disable the hidden image-open panic seam.
+#[doc(hidden)]
+pub fn set_test_panic_in_open(enabled: bool) {
+    TEST_PANIC_IN_OPEN.store(enabled, Ordering::SeqCst);
+}
+
+fn parser_panic_message(payload: &(dyn Any + Send)) -> String {
+    if let Some(message) = payload.downcast_ref::<&str>() {
+        (*message).to_string()
+    } else if let Some(message) = payload.downcast_ref::<String>() {
+        message.clone()
+    } else {
+        "non-string panic payload".to_string()
+    }
+}
 
 /// How to react when a byte range of the image cannot be read (A-08, H-22).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Serialize)]
@@ -207,6 +230,27 @@ pub fn open_image_with_options(
     format: InputFormat,
     options: &OpenOptions,
 ) -> Result<OpenedImage> {
+    // A malformed container must produce a typed error, never an unwind that
+    // escapes the CLI. The closure is unwind-safe by construction: it only
+    // builds owned values and returns them after all parsers have finished.
+    catch_unwind(AssertUnwindSafe(|| open_image_inner(path, format, options))).map_err(
+        |payload| {
+            anyhow!(
+                "image parser panicked: {}",
+                parser_panic_message(payload.as_ref())
+            )
+        },
+    )?
+}
+
+fn open_image_inner(
+    path: &Path,
+    format: InputFormat,
+    options: &OpenOptions,
+) -> Result<OpenedImage> {
+    if TEST_PANIC_IN_OPEN.load(Ordering::SeqCst) {
+        panic!("test-only panic injected in image open");
+    }
     if path == Path::new("-") {
         if !matches!(format, InputFormat::Auto | InputFormat::Stdin) {
             bail!("an explicit container cannot be used with stdin; use auto or stdin");

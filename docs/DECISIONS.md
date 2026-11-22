@@ -596,3 +596,26 @@ decision, and the consequences.
   and were not re-run for this decision; the defaults leave roughly 30× headroom
   over the largest measured per-candidate work and 280× over the largest
   measured candidate count, but no claim is made about that unavailable data.
+
+## D-40. Panic containment boundary (H-10)
+
+- **Context:** the independent reviews found `catch_unwind` only in filesystem
+  detection. Candidate analysis/validation inside rayon, B-06 join attempts and
+  container opening had no containment. No natural panic fixture was available;
+  v2/v5 mutation runs only recorded exit codes, so this was a latent
+  defence-in-depth gap rather than a reproduced crash.
+- **Decision:** each candidate's work is wrapped in
+  `catch_unwind(AssertUnwindSafe(…))`; a panic becomes an `InternalError`
+  record with source offset, file type and message, increments
+  `stats.internal_errors`, adds a `CANDIDATE_PANIC` incomplete warning and exits
+  3, while the remaining candidates are still carved. Each B-06 join attempt is
+  wrapped separately. `open_image_with_options` wraps all container parsers and
+  converts a panic into an `anyhow` error, so `info`/`scan` fail with an error
+  instead of unwinding. `Cargo.toml` now explicitly keeps `panic = "unwind"` in
+  the dev and release profiles, with a test that reads the manifest.
+- **Test seam:** a `#[doc(hidden)]` static and, for the Python repro, the
+  `CARVEX_TEST_PANIC_AT_OFFSET` environment variable inject a panic into one
+  candidate. There is no visible CLI flag and production never sets the seam.
+  X06 now asserts a report with one `internal_errors[]` record, one counted
+  error, the `CANDIDATE_PANIC` warning, exit 3 and the healthy candidate still
+  written. No claim is made about fuzz execution or natural panic discovery.

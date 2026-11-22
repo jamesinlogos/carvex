@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import signal
 import shutil
@@ -143,6 +144,7 @@ def run_carvex(
     work: Path,
     extra: list[str] | None = None,
     timeout: float = 300.0,
+    env: dict[str, str] | None = None,
 ) -> ScanResult:
     out = work / "out"
     report_path = work / "report.json"
@@ -158,7 +160,7 @@ def run_carvex(
         "--json-report",
         str(report_path),
     ] + (extra or [])
-    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, env=env)
     report = None
     if report_path.is_file():
         try:
@@ -1189,18 +1191,42 @@ def case_x23(carvex: Path, work: Path, corpus: Path, ntfs: Path | None) -> str:
     return ""
 
 def case_x06(carvex: Path, work: Path, corpus: Path, ntfs: Path | None) -> str:
-    """H-10: per-candidate panic containment.
+    """H-10: one panicking candidate must not stop the rest of the scan."""
+    jpegs = _corpus_jpegs(corpus)
+    if len(jpegs) < 2:
+        return "SKIP: corpus JPEGs missing"
+    first = jpegs[0].read_bytes()
+    second = jpegs[1].read_bytes()
+    gap = b"\x00" * 4096
+    image = work / "x06.img"
+    image.write_bytes(first + gap + second)
+    panic_offset = len(first) + len(gap)
 
-    The Python harness can only exercise this through a hidden injection seam.
-    Until the seam exists the scenario is explicitly skipped; the Rust
-    regression test added with H-10 is authoritative.
-    """
-    help_proc = subprocess.run(
-        [str(carvex), "scan", "--help"], capture_output=True, text=True, timeout=30
+    env = dict(os.environ)
+    env["CARVEX_TEST_PANIC_AT_OFFSET"] = str(panic_offset)
+    res = run_carvex(
+        carvex,
+        image,
+        work,
+        ["--mode", "raw", "--no-fs", "--types", "jpeg", "--min-size", "1",
+         "--threads", "1"],
+        env=env,
     )
-    if "--panic-at-offset" not in help_proc.stdout:
-        return "SKIP: no panic-injection seam in the CLI"
-    return "panic injection seam present but not exercised by Python"
+    if res.proc.returncode != 3:
+        return f"exit {res.proc.returncode}: {res.stderr[:200]}"
+    if res.report is None:
+        return "no JSON report after a contained panic"
+    if not any(w.get("code") == "CANDIDATE_PANIC" for w in res.report.get("warnings", [])):
+        return "no CANDIDATE_PANIC warning"
+    errors = res.report.get("internal_errors", [])
+    if len(errors) != 1 or errors[0].get("offset") != panic_offset:
+        return f"wrong internal_errors records: {errors}"
+    if res.report.get("stats", {}).get("internal_errors") != 1:
+        return "internal_errors was not counted in stats"
+    got = {sha256(p.read_bytes()) for p in res.files}
+    if sha256(first) not in got or sha256(second) in got:
+        return "panicking candidate affected the written outputs"
+    return ""
 
 
 def case_x15(carvex: Path, work: Path, corpus: Path, ntfs: Path | None) -> str:
