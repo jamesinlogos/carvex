@@ -856,6 +856,262 @@ def run_cmd(cmd: list[str], timeout: int = 60):
     return type("R", (), {"proc": proc, "stdout": proc.stdout, "stderr": proc.stderr, "report": None})()
 
 
+
+def case_x01(carvex: Path, work: Path, corpus: Path, ntfs: Path | None) -> str:
+    """H-08: --max-memory must bound working memory and not discard finished run."""
+    # Build 120 small PNGs (smaller than v5 100x1MiB to keep test fast, but enough to exceed 16M)
+    img = work / "x01.img"
+    parts = [b"\x00" * 4096]
+    for i in range(120):
+        png = _make_png(64, 64, gray=i % 256)
+        parts.append(png)
+        parts.append(b"\x00" * 512)
+    img.write_bytes(b"".join(parts))
+    out = work / "out"
+    out.mkdir()
+    res = run_cmd([str(carvex), "scan", str(img), "-o", str(out), "--mode", "raw", "--no-fs", "--types", "png", "--max-memory", "16M", "--min-score", "0", "--quiet", "--json-report", str(out / "report.json")], timeout=120)
+    if res.proc.returncode == 1:
+        # Old behavior: exit 1, no report / 0 files
+        if not (out / "report.json").exists():
+            return "exit 1 with no report (old H-08 behavior)"
+        files = [p for p in out.rglob("*.png")]
+        if not files:
+            return "exit 1 with 0 files"
+    # After fix: all files written or coded skip; report present; no exit 1 discard-all
+    if not (out / "report.json").exists():
+        return f"exit {res.proc.returncode} with no report"
+    return ""
+
+
+def case_x03(carvex: Path, work: Path, corpus: Path, ntfs: Path | None) -> str:
+    """H-06: JPEG SOF dimensions must not cause unbounded decode allocation."""
+    src = next((corpus / "jpeg").glob("*.jpg"), None)
+    if not src:
+        return "SKIP: no corpus JPEG"
+    data = bytearray(src.read_bytes())
+    # Patch SOF0 height/width (after marker FF C0, length, precision byte)
+    sof = data.find(b"\xff\xc0")
+    if sof < 0 or sof + 9 >= len(data):
+        return "SKIP: no SOF0 found"
+    # SOF0: ff c0 len(2) prec(1) height(2) width(2)
+    data[sof+5:sof+7] = struct.pack(">H", 20000)
+    data[sof+7:sof+9] = struct.pack(">H", 20000)
+    img = work / "x03.img"
+    img.write_bytes(b"\x00"*4096 + bytes(data) + b"\x00"*4096)
+    start = time.monotonic()
+    try:
+        res = run_cmd([str(carvex), "scan", str(img), "-o", str(work/"out"), "--mode", "raw", "--no-fs", "--types", "jpeg", "--validate", "decode", "--min-score", "0", "--quiet", "--json-report", str(work/"out/report.json")], timeout=60)
+    except subprocess.TimeoutExpired:
+        return "timeout (possible unbounded allocation/decode)"
+    elapsed = time.monotonic() - start
+    if res.proc.returncode < 0:
+        return f"killed by signal {-res.proc.returncode}"
+    # Accept: completes quickly, not decoded as verified
+    report = {}
+    rp = work/"out/report.json"
+    if rp.exists():
+        report = json.loads(rp.read_text())
+    for f in report.get("files", []):
+        if f.get("validation") == "decoded" and f.get("status") == "complete":
+            return f"oversized SOF JPEG reported decoded/complete in {elapsed:.2f}s"
+    return ""
+
+
+def case_x05(carvex: Path, work: Path, corpus: Path, ntfs: Path | None) -> str:
+    """H-09: required work budgets must exist."""
+    res = run_cmd([str(carvex), "scan", "--help"], timeout=30)
+    helptext = res.stdout + res.stderr
+    missing = [f for f in ["--max-candidates", "--time-budget", "--max-work-per-candidate", "--max-output"] if f not in helptext]
+    if missing:
+        return f"missing flags: {missing}"
+    return ""
+
+
+def case_x09(carvex: Path, work: Path, corpus: Path, ntfs: Path | None) -> str:
+    """H-13: VMDK descriptor must not read arbitrary files."""
+    # Create a small outside file with a PNG signature
+    secret = work / "secret.raw"
+    png = _make_png(8, 8, 7)
+    secret.write_bytes(png)
+    # Create VMDK descriptor pointing to absolute path
+    desc = work / "evil.vmdk"
+    sectors = len(png) // 512
+    desc.write_text(f'# Disk DescriptorFile\nversion=1\nCID=123\nparentCID=ffffffff\ncreateType="monolithicFlat"\n\n# Extent description\nRW {sectors} FLAT "{secret}" 0\n')
+    out = work / "out"
+    out.mkdir()
+    res = run_cmd([str(carvex), "scan", str(desc), "-o", str(out), "--mode", "raw", "--types", "png", "--min-score", "0", "--quiet", "--json-report", str(out/"report.json")], timeout=60)
+    # It should reject or not carve secret content
+    if res.proc.returncode == 0:
+        report = json.loads((out/"report.json").read_text()) if (out/"report.json").exists() else {}
+        for f in report.get("files", []):
+            if f.get("sha256") == sha256(png):
+                return "VMDK descriptor read outside/absolute-path file (secret carved)"
+    return ""
+
+
+def case_x11(carvex: Path, work: Path, corpus: Path, ntfs: Path | None) -> str:
+    """H-19: PDF decoded must not be lexical-only for broken xref/root."""
+    src = corpus / "pdf" / "pdf_03_text_2pages.pdf"
+    if not src.exists():
+        return "SKIP: corpus pdf missing"
+    data = bytearray(src.read_bytes())
+    # Corrupt one xref offset by +7 (keep length stable by replacing digits) - simple approach:
+    # find 'xref' and corrupt an entry
+    xref = data.find(b"xref")
+    if xref < 0:
+        return "SKIP: no xref"
+    # corrupt a byte in xref table area (after xref line)
+    idx = xref + 20
+    if idx < len(data):
+        data[idx] = ord('9') if data[idx] != ord('9') else ord('0')
+    img = work / "x11.img"
+    img.write_bytes(b"\x00"*4096 + bytes(data) + b"\x00"*4096)
+    res = run_carvex(carvex, img, work/"out", ["--mode","raw","--no-fs","--types","pdf","--validate","decode","--min-score","0"])
+    if res.proc.returncode != 0:
+        return f"exit {res.proc.returncode}"
+    files = (res.report or {}).get("files", [])
+    for f in files:
+        if f.get("type") == "pdf" and f.get("validation") == "decoded":
+            return "broken-xref PDF reported decoded (lexical-only validation)"
+    return ""
+
+
+def case_x12(carvex: Path, work: Path, corpus: Path, ntfs: Path | None) -> str:
+    """H-18: progressive JPEG decode should not be mislabeled decoded."""
+    src = corpus / "jpeg" / "jpeg_10_progressive_1200x800.jpg"
+    if not src.exists():
+        # find any progressive
+        cands = list((corpus/"jpeg").glob("*progressive*.jpg"))
+        src = cands[0] if cands else None
+    if not src or not src.exists():
+        return "SKIP: no progressive JPEG"
+    data = src.read_bytes()
+    img = work / "x12.img"
+    img.write_bytes(b"\x00"*4096 + data + b"\x00"*4096)
+    res = run_carvex(carvex, img, work/"out", ["--mode","raw","--no-fs","--types","jpeg","--validate","decode","--min-score","0"])
+    if res.proc.returncode != 0:
+        return f"exit {res.proc.returncode}"
+    for f in (res.report or {}).get("files", []):
+        if f.get("type") == "jpeg" and f.get("validation") == "decoded":
+            return "progressive JPEG reported decoded (should be unverified/structural per harness)"
+    return ""
+
+
+def case_x14(carvex: Path, work: Path, corpus: Path, ntfs: Path | None) -> str:
+    """H-21: repaired PDF must be validated and carry sha256_original."""
+    src = corpus / "pdf" / "pdf_03_text_2pages.pdf"
+    if not src.exists():
+        return "SKIP: corpus pdf missing"
+    data = src.read_bytes()
+    cut = data[: int(len(data)*0.7)]
+    img = work / "x14.img"
+    img.write_bytes(b"\x00"*4096 + cut + b"\x00"*(1024*1024))
+    res = run_carvex(carvex, img, work/"out", ["--mode","raw","--no-fs","--types","pdf","--validate","decode","--min-score","0","--repair"])
+    if res.proc.returncode != 0:
+        return f"exit {res.proc.returncode}"
+    files = (res.report or {}).get("files", [])
+    for f in files:
+        if f.get("type") == "pdf" and f.get("status") == "repaired":
+            if "sha256_original" not in f:
+                return "repaired PDF missing sha256_original"
+    return ""
+
+
+def case_x19(carvex: Path, work: Path, corpus: Path, ntfs: Path | None) -> str:
+    """H-26: unparsable volume in multi-volume disk must not be silent."""
+    if not shutil.which("mkfs.vfat") or not shutil.which("mkntfs"):
+        return "SKIP: mkfs.vfat/mkntfs missing"
+    img = work / "x19.img"
+    # 98MiB disk: FAT32 first, NTFS second with corrupted MFT
+    size = 98 * 1024 * 1024
+    img.write_bytes(b"\x00" * size)
+    # MBR with two partitions
+    mbr = bytearray(512)
+    mbr[510]=0x55; mbr[511]=0xAA
+    def pe(off, ptype, lba, sectors):
+        e=bytearray(16); e[0]=0x00; e[4]=ptype
+        struct.pack_into("<I", e, 8, lba); struct.pack_into("<I", e, 12, sectors)
+        mbr[446+off:446+off+16]=e
+    # part1 FAT32 ~32MiB starting at 2048 sectors, part2 NTFS ~32MiB
+    pe(0, 0x0C, 2048, 65536)
+    pe(16, 0x07, 2048+65536, 65536)
+    img.write_bytes(mbr)
+    # build filesystems on loop-like files then dd - easier to use mkfs on raw files and copy
+    fat = work/"fat.img"; ntfsimg = work/"ntfs.img"
+    subprocess.run(["mkfs.vfat","-F32","-S512","-s1","-C",str(fat),"32768"], check=True, capture_output=True)
+    with open(ntfsimg, 'wb') as f: f.truncate(32*1024*1024)
+    subprocess.run(["mkntfs","-F","-Q","-s","512","-c","4096",str(ntfsimg)], check=True, capture_output=True)
+    # corrupt NTFS MFT record 0
+    nd = bytearray(ntfsimg.read_bytes())
+    # MFT starts at cluster 4 by default in mkntfs? find "FILE" signature at MFT location
+    # NTFS boot sector at 0: MFT LCN at 0x30
+    mft_lcn = struct.unpack_from("<Q", nd, 0x30)[0]
+    spc = nd[0x0D]
+    bps = struct.unpack_from("<H", nd, 0x0B)[0]
+    mft_off = mft_lcn * spc * bps
+    if mft_off + 4 < len(nd):
+        nd[mft_off:mft_off+4] = b"XXXX"
+    ntfsimg.write_bytes(nd)
+    # assemble
+    full = bytearray(size)
+    full[:512]=mbr
+    fat_bytes=fat.read_bytes(); full[2048*512:2048*512+len(fat_bytes)] = fat_bytes
+    p2off = (2048+65536)*512
+    full[p2off:p2off+len(nd)] = nd
+    img.write_bytes(full)
+    out = work/"out"; out.mkdir()
+    res = run_cmd([str(carvex), "scan", str(img), "-o", str(out), "--quiet", "--json-report", str(out/"report.json")], timeout=120)
+    report = json.loads((out/"report.json").read_text()) if (out/"report.json").exists() else {}
+    warnings = report.get("warnings", [])
+    codes = {w.get("code") for w in warnings if isinstance(w, dict)}
+    if res.proc.returncode == 0 and "VOLUME_PARSE_FAILED" not in codes and "FS_DETECTION_FAILED" not in codes:
+        return f"exit 0 with no parse-failure warning (codes={codes})"
+    return ""
+
+
+def case_x22(carvex: Path, work: Path, corpus: Path, ntfs: Path | None) -> str:
+    """H-25: container report should distinguish logical/physical size."""
+    # Use stdin - easy to check
+    pngs = sorted((corpus / "png").glob("*.png"))
+    if not pngs:
+        return "SKIP: corpus png missing"
+    src = pngs[0]
+    out = work/"out"; out.mkdir()
+    proc = subprocess.run([str(carvex), "scan", "-", "-o", str(out), "--mode","raw","--no-fs","--types","png","--min-score","0","--quiet","--json-report",str(out/"report.json")], input=src.read_bytes(), capture_output=True, text=False, timeout=60)
+    if proc.returncode != 0:
+        return f"exit {proc.returncode}"
+    report = json.loads((out/"report.json").read_text())
+    inp = report.get("input", {})
+    # H-25: stdin unchanged should be null; logical/physical size fields should exist
+    if inp.get("unchanged") is True and inp.get("modified_unix") is None:
+        return "stdin reports unchanged=true with null modified_unix (should be null/unknown semantics per H-25)"
+    if "logical_size" not in inp:
+        return "missing input.logical_size"
+    return ""
+
+
+def case_x23(carvex: Path, work: Path, corpus: Path, ntfs: Path | None) -> str:
+    """H-15: parallel carve should not be much slower than 1 thread."""
+    # Small S9-like 4M flood
+    size = 4 * 1024 * 1024
+    data = bytearray(size)
+    hdr = b"\xff\xd8\xff\xe0\x00\x00"
+    for off in range(0, size-len(hdr), 512):
+        data[off:off+len(hdr)] = hdr
+    img = work/"x23.img"; img.write_bytes(data)
+    def t(threads):
+        out=work/f"out{threads}"; shutil.rmtree(out, ignore_errors=True); out.mkdir()
+        t0=time.monotonic()
+        r=run_cmd([str(carvex),"scan",str(img),"-o",str(out),"--mode","raw","--no-fs","--types","jpeg","--quiet","--threads",str(threads)],timeout=120)
+        return time.monotonic()-t0, r.proc.returncode
+    t1,rc1=t(1)
+    tn,rcn=t(0)
+    if rc1!=0 or rcn!=0:
+        return f"exit codes {rc1},{rcn}"
+    if tn > t1 * 1.10 and tn - t1 > 0.2:
+        return f"default {tn:.2f}s slower than 1 thread {t1:.2f}s"
+    return ""
+
 CASES = [
     ("R1", "PDF revision after an early %%EOF", case_r1),
     ("R2", "incremental update across the 1 MiB window", case_r2),
@@ -875,6 +1131,16 @@ CASES = [
     ("X13", "PDF EOL variants should not change validity class [H-20]", case_x13),
     ("X18", "raw image with VHD/VMDK-looking bytes should not be misdetected [H-24]", case_x18),
     ("X24", "interleaved fragments must not be labelled complete/decoded [H-16]", case_x24),
+    ("X01", "--max-memory must bound working memory [H-08]", case_x01),
+    ("X03", "JPEG SOF dimensions must not cause unbounded decode alloc [H-06]", case_x03),
+    ("X05", "required work budgets are absent [H-09]", case_x05),
+    ("X09", "VMDK descriptors must not read arbitrary files [H-13]", case_x09),
+    ("X11", "PDF decoded must not be lexical-only on broken xref/root [H-19]", case_x11),
+    ("X12", "JPEG strict scan unsupported/decoded labelling [H-18]", case_x12),
+    ("X14", "--repair must not label unreadable PDF repaired without validation [H-21]", case_x14),
+    ("X19", "unparsable volume in multi-volume disk must not be silent [H-26]", case_x19),
+    ("X22", "container report logical/physical size identity [H-25]", case_x22),
+    ("X23", "parallel carve should not be slower than 1 thread [H-15]", case_x23),
 ]
 
 

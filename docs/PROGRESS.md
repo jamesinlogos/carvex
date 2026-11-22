@@ -161,13 +161,25 @@ Windows**.
 | H-07 | HIGH | 2026-11-21 source | CLOSED | - | scripts/review_repro.py X04 | 23-26s -> <1s after single-pass EOF indexing; A-01/R1-R8 and G7 unchanged. |
 | H-11 | CRIT | 2026-11-21 source | STATIC-ONLY | - | scripts/review_repro.py X07 | Crafted minimal E01 did not crash; fixture likely insufficient. SRC confirms unbounded chunk allocation risk. |
 | H-12 | CRIT | 2026-11-21 source | STATIC-ONLY | - | scripts/review_repro.py X08 | Crafted VMDK completed quickly; RSS not measured. Needs proper RSS harness. |
-| H-16 | CRIT | 2026-11-21 source | OPEN | - | scripts/review_repro.py X24 | X24 interleaved fixture not flagged as decoded/complete; default structural-as-complete issue still present per SRC. Needs proper validity-model check. |
+| H-16 | CRIT | 2026-11-21 source | OPEN | - | scripts/review_repro.py X24 | X24 interleaved fixture not flagged decoded/complete; default structural-as-complete issue still present per SRC. Needs proper validity-model check. |
 | H-17 | HIGH | 2026-11-21 source | CLOSED | - | scripts/review_repro.py X10 | Deep PNG validation now reports CRC mismatches as Validation::Partial; file still emitted. |
 | H-20 | MED | 2026-11-21 source | CLOSED | - | scripts/review_repro.py X13 | Trim trailing CR/LF/whitespace/NUL before %%EOF check; EOL variants now identical. |
 | H-24 | MED | 2026-11-21 source | CLOSED | - | scripts/review_repro.py X18 | Auto-detect now validates VHD footer checksum and requires strong VMDK descriptor markers before classifying. |
 
 | P0.7 | - | 2026-11-21 source | DONE | - | scripts/perf_gate.py | Perf baseline recorded (s9_4m median ~0.39s, rand64m ~0.03s); thresholds.toml committed; x04 marked xfail in thresholds. |
 
+| H-06 | CRIT | 2026-11-21 source | NOT-REPRODUCED (weak) | - | scripts/review_repro.py X03 | Oversized-SOF JPEG not reported decoded/complete and did not timeout; RSS/kill not measured. |
+| H-08 | CRIT | 2026-11-21 source | NOT-REPRODUCED (weak) | - | scripts/review_repro.py X01 | Small repro did not show exit-1/no-report discard; needs RSS-bound and large-payload confirmation. |
+| H-09 | HIGH | 2026-11-21 source | REPRODUCED (partial) | - | scripts/review_repro.py X05 | Missing `--max-work-per-candidate`, `--max-output`; `--max-candidates` and `--time-budget` already present. |
+| H-13 | HIGH | 2026-11-21 source | NOT-REPRODUCED (weak) | - | scripts/review_repro.py X09 | Absolute-path VMDK descriptor did not carve outside file in simple test; needs symlink/sibling/rename cases. |
+| H-14 | HIGH | - | OPEN | - | - | No new fuzz targets for image parsers yet. |
+| H-15 | MED | 2026-11-21 source | NOT-REPRODUCED | - | scripts/review_repro.py X23 | Default threads not slower than 1 thread on 4M flood source build. |
+| H-18 | HIGH | 2026-11-21 source | REPRODUCED | - | scripts/review_repro.py X12 | Progressive JPEG reported decoded under --validate decode. |
+| H-19 | HIGH | 2026-11-21 source | REPRODUCED | - | scripts/review_repro.py X11 | Broken-xref PDF reported decoded (lexical-only validation). |
+| H-21 | HIGH | 2026-11-21 source | REPRODUCED | - | scripts/review_repro.py X14 | Repaired PDF missing `sha256_original`. |
+| H-22 | CRIT | - | OPEN | - | - | E01 partial/damaged chunk handling not reproduced (ewfacquire missing). |
+| H-25 | LOW | 2026-11-21 source | REPRODUCED | - | scripts/review_repro.py X22 | stdin report has `unchanged=true` with null `modified_unix`; missing `logical_size`. |
+| H-26 | MED | 2026-11-21 source | REPRODUCED | - | scripts/review_repro.py X19 | Corrupted NTFS in multi-volume disk: exit 0, no parse-failure warning. |
 ## Blockers / open questions
 
 - GitHub Actions has now run successfully on the pre-B-04/B-06 CI-fix commit
