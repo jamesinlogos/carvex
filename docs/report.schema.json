@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://example.invalid/carvex/report-v2.schema.json",
   "title": "CarveX scan report",
-  "description": "Schema 2 (CarveX 0.2.0 plus additive H-22 fields). Schema 1 is the legacy shape produced by --report-schema 1: it omits schema_version, tool_info, input, argv, options, case_id, examiner, started_at, warnings, volumes, regions and unreadable_regions, and removes the validation/allocated-source fields from files.",
+  "description": "Schema 2 (CarveX 0.2.0 plus additive H-16/H-22 fields). Schema 1 is the legacy shape produced by --report-schema 1: it omits schema_version, tool_info, input, argv, options, case_id, examiner, started_at, warnings, volumes, regions and unreadable_regions, and removes the validation/validity/checks/allocated-source fields from files.",
   "type": "object",
   "required": [
     "schema_version",
@@ -237,6 +237,16 @@
         "message": { "type": "string" }
       }
     },
+    "validation_check": {
+      "type": "object",
+      "required": ["name", "ok", "note"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "ok": { "type": ["boolean", "null"], "description": "true = passed, false = failed, null = not performed or unsupported" },
+        "note": { "type": "string" }
+      }
+    },
     "stats": {
       "type": "object",
       "required": [
@@ -269,8 +279,8 @@
       "required": [
         "seq", "type", "offset", "size", "carved_size", "sha256", "status",
         "score", "width", "height", "repaired", "path", "notes", "validation",
-        "validated_bytes", "lba", "cluster", "partition_index", "extent_id",
-        "allocated", "source", "fragments"
+        "validity", "validated_bytes", "checks", "lba", "cluster",
+        "partition_index", "extent_id", "allocated", "source", "fragments"
       ],
       "additionalProperties": false,
       "properties": {
@@ -288,7 +298,8 @@
         "path": { "type": "string" },
         "notes": { "type": "array", "items": { "type": "string" } },
         "validation": { "enum": ["structure", "decoded", "partial", "unverified"] },
-        "validated_bytes": { "type": "integer", "minimum": 0 },
+        "validity": { "enum": ["verified", "structural", "suspect", "partial", "repaired"], "description": "Authoritative honesty label; legacy validation/status keep their historical meaning" },
+        "validated_bytes": { "type": "integer", "minimum": 0, "description": "Bytes verified contiguously from offset zero; 0 when no content bytes were checked" },
         "lba": { "type": "integer", "minimum": 0 },
         "cluster": { "type": ["integer", "null"], "minimum": 0 },
         "partition_index": { "type": ["integer", "null"], "minimum": 1 },
@@ -296,7 +307,8 @@
         "allocated": { "type": ["boolean", "null"] },
         "source": { "type": "string" },
         "fragments": { "type": "array", "items": { "$ref": "#/$defs/extent" } },
-        "checks": { "type": "integer", "minimum": 0, "description": "Deep-validation checks made for a B-06 stitch" },
+        "checks": { "type": "array", "items": { "$ref": "#/$defs/validation_check" }, "description": "Structured checks actually performed for this file" },
+        "fragment_checks": { "type": "integer", "minimum": 0, "description": "Deep-validation checks made for a B-06 stitch" },
         "confidence": { "type": "integer", "minimum": 0, "maximum": 100, "description": "Structural score of an accepted B-06 stitch" }
       }
     }

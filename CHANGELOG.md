@@ -19,8 +19,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - B-06 bounded bifragment gap carving behind the opt-in
   `--fragment-recovery` flag, with `--max-gap`, `--max-frag-candidates` and
   `--frag-time-limit`. Accepted stitches pass the deep validator and add
-  `source="bgc"`, optional `fragments[]`, `checks` and `confidence` to the
-  JSON report; the default report shape and CSV columns are unchanged.
+  `source="bgc"`, optional `fragments[]`, `fragment_checks` and `confidence` to
+  the JSON report; the default report shape and CSV column prefix are unchanged.
 - Two `tests/fragment_recovery.rs` tests cover the S12-style interleaved
   `[A1][B1][A2][B2]` scenario for JPEG, PNG and PDF, plus rejection of
   invalid B-06 limits.
@@ -36,6 +36,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `--on-read-error abort|zero-fill|skip` controls how unreadable bytes from an
   evidence source are handled; the default is `zero-fill`. `--max-stdin-bytes`
   and `--spool-dir` bound and locate the temporary stdin spool file.
+- H-16: every report file carries authoritative `validity` and structured
+  `checks[]` (`{name, ok, note}`), with `ok` allowed to be `null` for checks
+  that were not performed or are unsupported. CSV, console, summary counts and
+  manifest comments show the same label.
 
 ### Changed
 
@@ -55,6 +59,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   failing the whole run to zero-filling the affected chunk and recording it.
   Use `--on-read-error abort` for the previous behaviour. Chunk sizes declared
   in an E01 header are capped at 64 MiB before allocation.
+- H-16: default `structure` rows are now labelled `structural` and printed as
+  "content not checked" rather than presented as complete/verified. Scores,
+  emission decisions and legacy `validation`/`status` values are unchanged.
+  The B-06 check-count field is serialized as `fragment_checks` so `checks` can
+  be the structured array; schema 1 omits all additive validity fields.
 
 ### Fixed
 

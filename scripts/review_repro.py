@@ -761,6 +761,8 @@ def case_x10(carvex: Path, work: Path, corpus: Path, ntfs: Path | None) -> str:
     for f in pngs:
         if f.get("validation") == "decoded":
             return f"bad-CRC PNG reported as decoded (status={f.get('status')}, score={f.get('score')})"
+        if f.get("validity") != "suspect":
+            return f"bad-CRC PNG validity={f.get('validity')!r}, expected suspect"
     return ""
 
 
@@ -794,7 +796,12 @@ def case_x13(carvex: Path, work: Path, corpus: Path, ntfs: Path | None) -> str:
         pdfs = [f for f in files if f.get("type") == "pdf"]
         if not pdfs:
             return f"{name}: no PDF carved"
-        statuses[name] = (pdfs[0].get("validation"), pdfs[0].get("status"), pdfs[0].get("score"))
+        statuses[name] = (
+            pdfs[0].get("validation"),
+            pdfs[0].get("status"),
+            pdfs[0].get("score"),
+            pdfs[0].get("validity"),
+        )
     vals = set(statuses.values())
     if len(vals) != 1:
         return f"EOL variants differ: {statuses}"
@@ -846,11 +853,12 @@ def case_x24(carvex: Path, work: Path, corpus: Path, ntfs: Path | None) -> str:
     if res.proc.returncode != 0:
         return f"exit {res.proc.returncode}: {res.stderr.strip()[:200]}"
     files = res.report.get("files", []) if res.report else []
+    originals = {sha256(a), sha256(b)}
     for f in files:
-        if f.get("validation") == "decoded" and f.get("status") == "complete":
+        if f.get("validity") == "verified":
             sha = f.get("sha256")
-            if sha not in {sha256(a), sha256(b)}:
-                return f"interleaved fragment reported decoded/complete sha={sha}"
+            if sha not in originals:
+                return f"interleaved fragment reported verified sha={sha}"
     return ""
 
 
@@ -1049,8 +1057,8 @@ def case_x11(carvex: Path, work: Path, corpus: Path, ntfs: Path | None) -> str:
         return f"exit {res.proc.returncode}"
     files = (res.report or {}).get("files", [])
     for f in files:
-        if f.get("type") == "pdf" and f.get("validation") == "decoded":
-            return "broken-xref PDF reported decoded (lexical-only validation)"
+        if f.get("type") == "pdf" and f.get("validity") == "verified":
+            return "broken-xref PDF reported verified (lexical-only validation)"
     return ""
 
 
@@ -1070,8 +1078,8 @@ def case_x12(carvex: Path, work: Path, corpus: Path, ntfs: Path | None) -> str:
     if res.proc.returncode != 0:
         return f"exit {res.proc.returncode}"
     for f in (res.report or {}).get("files", []):
-        if f.get("type") == "jpeg" and f.get("validation") == "decoded":
-            return "progressive JPEG reported decoded (should be unverified/structural per harness)"
+        if f.get("type") == "jpeg" and f.get("validity") == "verified":
+            return "progressive JPEG reported verified (should be unverified/structural per harness)"
     return ""
 
 
@@ -1090,6 +1098,8 @@ def case_x14(carvex: Path, work: Path, corpus: Path, ntfs: Path | None) -> str:
     files = (res.report or {}).get("files", [])
     for f in files:
         if f.get("type") == "pdf" and f.get("status") == "repaired":
+            if f.get("validity") != "repaired":
+                return f"repaired PDF validity={f.get('validity')!r}, expected repaired"
             if "sha256_original" not in f:
                 return "repaired PDF missing sha256_original"
     return ""

@@ -663,3 +663,25 @@ decision, and the consequences.
   performance tuning is done on lockbox or published results. The approved
   end-of-harness 0.3.0 dist rebuild must be timed separately before claiming
   anything about the packaged 0.3.0 binary.
+
+## D-43. Authoritative validity model (H-16)
+
+- **Context:** the legacy `status=complete` and `score=100` fields were being
+  read as a content guarantee, while default `--validate structure` never
+  checked payload bytes. Existing `validation` has a compatibility contract
+  (D-22), so renaming or changing it is not acceptable.
+- **Decision:** add required, additive per-file `validity` and `checks[]`
+  fields. `validity` follows ADR-H1 (`verified`, `structural`, `suspect`,
+  `partial`, `repaired`); checks are `{name, ok: true|false|null, note}` and
+  describe only work actually performed. Summaries, console lines, the CSV's
+  final column and manifest comments use the new label; `structural` is always
+  printed as "content not checked". `validated_bytes` is the contiguous
+  prefix whose content was checked, not the carved length.
+- **Field conflict:** a B-06 integer field was already named `checks` in the
+  unreleased 0.3.0 schema. The Rust field name is retained for source
+  compatibility, but its JSON key becomes `fragment_checks`; the H-16 array
+  owns `checks`. Schema 1 omits all three additive keys.
+- **Boundary:** score and emission are deliberately unchanged. This commit
+  does not claim full PNG CRC coverage, strict JPEG scan support or real PDF
+  xref validation; those are H-17–H-19. No repair is claimed to re-validate
+  until H-21.

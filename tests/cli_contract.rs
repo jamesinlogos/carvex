@@ -73,6 +73,8 @@ fn successful_raw_scan_returns_zero_and_leaves_the_source_untouched() {
     assert_eq!(report["options"]["max_truncated_size"], 16 * 1024 * 1024);
     for file in report["files"].as_array().unwrap() {
         assert!(file["validation"].is_string());
+        assert_eq!(file["validity"], "structural");
+        assert!(file["checks"].is_array());
         assert!(file["validated_bytes"].is_number());
         assert!(file["lba"].is_number());
         assert!(file["extent_id"].is_number());
@@ -87,7 +89,7 @@ fn successful_raw_scan_returns_zero_and_leaves_the_source_untouched() {
     assert_eq!(
         header,
         format!(
-            "{legacy},validation,validated_bytes,lba,cluster,partition_index,extent_id,allocated,source,fragments"
+            "{legacy},validation,validated_bytes,lba,cluster,partition_index,extent_id,allocated,source,fragments,validity"
         )
     );
     assert_eq!(csv.lines().count(), 4);
@@ -352,6 +354,15 @@ fn emitted_report_matches_the_published_schema() {
     assert_schema_keys("/$defs/options", &report["options"], true);
     assert_schema_keys("/$defs/stats", &report["stats"], false);
     assert_schema_keys("/$defs/file", &report["files"][0], true);
+    for file in report["files"].as_array().unwrap() {
+        for check in file["checks"].as_array().unwrap() {
+            assert_schema_keys("/$defs/validation_check", check, false);
+            assert!(
+                check["ok"].is_null() || check["ok"].is_boolean(),
+                "check.ok must be true/false/null: {check}"
+            );
+        }
+    }
 }
 
 #[test]
@@ -393,7 +404,7 @@ fn fragment_recovery_is_opt_in_and_reported_only_when_enabled() {
         .iter()
         .any(|w| w["code"] == "FRAGMENT_RECOVERY_SKIPPED"));
     for file in report["files"].as_array().unwrap() {
-        assert!(file.get("checks").is_none());
+        assert!(file.get("fragment_checks").is_none());
         assert!(file.get("confidence").is_none());
         assert_eq!(file["source"], "carve");
     }

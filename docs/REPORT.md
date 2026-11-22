@@ -306,6 +306,30 @@ exactly. The full compressed IDAT payload, decoded image and row-offset vector
 are never materialized. JPEG and PDF validation remain best-effort and are not
 covered by the PNG bound.
 
+#### 3.4.1. Validity labels (ADR-H1)
+
+Every file record carries an authoritative `validity` field and a `checks[]`
+array whose entries are `{name, ok, note}`; `ok` is `true`, `false` or `null`
+(not performed or unsupported). The legacy `validation`, `status`, `source`
+and score fields keep their historical meanings and are not altered by this
+model:
+
+| `validity` | Legacy `validation` | Legacy `status` | Meaning |
+|---|---|---|---|
+| `verified` | `decoded` | `complete` | every mandatory check for the type was implemented and passed |
+| `structural` | `structure` or `unverified` | `complete` | structure parses; content not checked |
+| `suspect` | `partial` | `complete` | footer/structure found but at least one integrity check failed; the file is still written |
+| `partial` | `partial` | `truncated` | truncated, salvaged or prefix-only |
+| `repaired` | `partial`/`decoded` | `repaired` | repair applied and the result re-validates |
+
+Only `verified` may be presented as complete or verified in a summary, count,
+console line or benchmark. Default `--validate structure` output is therefore
+`structural` and is printed as **content not checked**, even when its legacy
+status is `complete` and its score is 100. `validated_bytes` counts only bytes
+verified contiguously from offset zero; it is zero when no content check ran.
+An output intersecting an unreadable source range is at best `suspect` and
+carries `overlaps_unreadable_region: false`.
+
 ### 3.5. Scoring
 
 Scores are used to filter junk candidates. The default threshold is 50.

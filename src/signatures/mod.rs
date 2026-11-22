@@ -184,6 +184,144 @@ pub enum Status {
     Repaired,
 }
 
+/// Authoritative honesty label for a carved file (ADR-H1).
+///
+/// The legacy `validation` and `status` fields keep their historical meaning.
+/// `validity` is additive and must be preferred by users and summaries.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Validity {
+    /// Every mandatory check for the format was implemented and passed.
+    Verified,
+    /// The structure parses, but payload content was not checked.
+    Structural,
+    /// The structure is complete, but at least one integrity check failed.
+    Suspect,
+    /// A truncated or prefix-only salvage.
+    Partial,
+    /// A repair was applied and re-validated.
+    Repaired,
+}
+
+impl Validity {
+    /// Map the legacy fields onto the authoritative label.
+    pub fn from_legacy(validation: Validation, status: Status) -> Self {
+        match status {
+            Status::Repaired => Self::Repaired,
+            Status::Truncated => Self::Partial,
+            Status::Complete => match validation {
+                Validation::Decoded => Self::Verified,
+                Validation::Structure | Validation::Unverified => Self::Structural,
+                Validation::Partial => Self::Suspect,
+            },
+        }
+    }
+
+    /// Short machine-readable name, identical to the JSON serialization.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Verified => "verified",
+            Self::Structural => "structural",
+            Self::Suspect => "suspect",
+            Self::Partial => "partial",
+            Self::Repaired => "repaired",
+        }
+    }
+
+    /// Human-readable label used in console lines and manifest comments.
+    pub fn display_label(self) -> &'static str {
+        match self {
+            Self::Verified => "verified",
+            Self::Structural => "structural (content not checked)",
+            Self::Suspect => "suspect (integrity check failed)",
+            Self::Partial => "partial (salvaged prefix)",
+            Self::Repaired => "repaired (revalidated)",
+        }
+    }
+}
+
+/// One structured validation check attached to a carved file.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ValidationCheck {
+    pub name: String,
+    /// `true` = passed, `false` = failed, `null` = not performed/unsupported.
+    pub ok: Option<bool>,
+    pub note: String,
+}
+
+impl ValidationCheck {
+    pub fn new(name: impl Into<String>, ok: Option<bool>, note: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            ok,
+            note: note.into(),
+        }
+    }
+}
+
+/// Build the checks that were actually performed for a legacy validation
+/// result. Later findings append format-specific checks; this baseline never
+/// claims a check that the current validator does not implement.
+pub fn base_validity_checks(
+    kind: FileType,
+    validation: Validation,
+    status: Status,
+    notes: &[String],
+) -> Vec<ValidationCheck> {
+    let mut checks = match status {
+        Status::Complete => vec![ValidationCheck::new(
+            "footer",
+            Some(true),
+            "header and footer structure parsed",
+        )],
+        Status::Truncated => vec![ValidationCheck::new(
+            "footer",
+            Some(false),
+            "no footer found; file is a salvaged prefix",
+        )],
+        Status::Repaired => vec![ValidationCheck::new(
+            "footer",
+            Some(false),
+            "footer was absent; a repair suffix was appended",
+        )],
+    };
+
+    match validation {
+        Validation::Structure => checks.push(ValidationCheck::new(
+            "content_check",
+            None,
+            "content not checked; structure parsed only",
+        )),
+        Validation::Decoded => checks.push(ValidationCheck::new(
+            "content_check",
+            Some(true),
+            "payload decoded successfully",
+        )),
+        Validation::Unverified => {
+            checks.push(ValidationCheck::new(
+                "content_check",
+                None,
+                "a mandatory content check is unsupported; content not checked",
+            ));
+            if kind == FileType::Pdf {
+                checks.push(ValidationCheck::new(
+                    "startxref_target",
+                    Some(true),
+                    "startxref target validated lexically; content not checked",
+                ));
+            }
+        }
+        Validation::Partial => {
+            let note = notes
+                .first()
+                .cloned()
+                .unwrap_or_else(|| "content validation did not complete".into());
+            checks.push(ValidationCheck::new("integrity_check", Some(false), note));
+        }
+    }
+    checks
+}
+
 #[derive(Debug, Clone)]
 pub struct Analysis {
     /// Number of input bytes that belong to the file (before any repair suffix).

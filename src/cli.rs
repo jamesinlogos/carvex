@@ -158,7 +158,7 @@ struct ScanArgs {
     /// Append a missing EOI/IEND/%%EOF to truncated files
     #[arg(long)]
     repair: bool,
-    /// Only write files whose footer was found
+    /// Only write files whose footer was found, not verified (see validity)
     #[arg(long)]
     complete_only: bool,
     /// PDF %%EOF selection strategy

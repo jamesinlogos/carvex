@@ -1,8 +1,8 @@
 use crate::fs::FsInfo;
 use crate::io::{read_exact_at, ImageSource, RegionLog, UnreadableRegion};
 use crate::signatures::{
-    analyze, validate_deep_with_limits, Analysis, FileType, Need, PdfEofMode, Status, Validation,
-    ValidationLimits, ValidationMode,
+    analyze, base_validity_checks, validate_deep_with_limits, Analysis, FileType, Need, PdfEofMode,
+    Status, Validation, ValidationCheck, ValidationLimits, ValidationMode, Validity,
 };
 use crate::util::{
     complement_extents, hex, human_size, merge_extents, sha256_hex, sha256_hex_with_suffix,
@@ -637,6 +637,8 @@ pub struct CarvedFile {
     pub path: String,
     pub notes: Vec<String>,
     pub validation: Validation,
+    /// Authoritative honesty label; legacy `validation`/`status` are preserved.
+    pub validity: Validity,
     pub validated_bytes: u64,
     pub lba: u64,
     pub cluster: Option<u64>,
@@ -645,8 +647,14 @@ pub struct CarvedFile {
     pub allocated: Option<bool>,
     pub source: String,
     pub fragments: Vec<Fragment>,
+    /// Structured checks that were actually performed for this file.
+    #[serde(rename = "checks")]
+    pub validation_checks: Vec<ValidationCheck>,
     /// Number of deep-validation checks made for a B-06 stitch.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    ///
+    /// Rust field name is retained for compatibility with existing tests; the
+    /// JSON key is `fragment_checks` so `checks` can be the H-16 check array.
+    #[serde(rename = "fragment_checks", skip_serializing_if = "Option::is_none")]
     pub checks: Option<u64>,
     /// Confidence in a B-06 stitch (the structural score of the accepted join).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -773,7 +781,11 @@ struct CarvedData {
     sha256: String,
     repaired: bool,
     validation: Validation,
+    validity: Validity,
     validation_notes: Vec<String>,
+    /// Contiguous bytes from offset zero whose content was actually checked.
+    validated_bytes: u64,
+    validation_checks: Vec<ValidationCheck>,
     /// Set only for B-06 stitched output (also used for reporting).
     fragments: Vec<Fragment>,
     checks: Option<u64>,
@@ -1007,11 +1019,20 @@ pub fn run_scan(
                 if skip_unreadable {
                     skipped.push(idx);
                 } else {
-                    data.validation = Validation::Partial;
-                    data.validation_notes.push(format!(
+                    let note = format!(
                         "output overlaps unreadable region at byte {} ({} bytes): not verified",
                         region.offset, region.len
+                    );
+                    data.validation = Validation::Partial;
+                    data.validity =
+                        Validity::from_legacy(data.validation, data.analysis.status(data.repaired));
+                    data.validated_bytes = 0;
+                    data.validation_checks.push(ValidationCheck::new(
+                        "overlaps_unreadable_region",
+                        Some(false),
+                        note.clone(),
                     ));
+                    data.validation_notes.push(note);
                 }
             }
         }
@@ -1039,12 +1060,12 @@ pub fn run_scan(
     if opts.verbose {
         for (idx, file) in kept.iter().enumerate() {
             eprintln!(
-                "[+] {:<4} offset={:>12} size={:>9} score={:>3} {:<9} {:05}_{}_{:016x}.{}",
+                "[+] {:<4} offset={:>12} size={:>9} score={:>3} {} {:05}_{}_{:016x}.{}",
                 file.candidate.kind.label(),
                 file.candidate.offset,
                 file.output_len,
                 file.analysis.score,
-                format!("{:?}", file.analysis.status(file.repaired)).to_lowercase(),
+                file.validity.display_label(),
                 idx + 1,
                 file.candidate.kind.ext(),
                 file.candidate.offset,
@@ -1582,6 +1603,15 @@ fn carve_one(
                 } else {
                     (Validation::Partial, vec!["file is truncated".into()])
                 };
+                let status = analysis.status(repaired);
+                let validity = Validity::from_legacy(validation, status);
+                let validated_bytes = if validation == Validation::Decoded {
+                    end as u64
+                } else {
+                    0
+                };
+                let validation_checks =
+                    base_validity_checks(cand.kind, validation, status, &validation_notes);
                 if opts.validate == ValidationMode::Decode
                     && analysis.complete
                     && validation == Validation::Partial
@@ -1609,7 +1639,10 @@ fn carve_one(
                     sha256,
                     repaired,
                     validation,
+                    validity,
                     validation_notes,
+                    validated_bytes,
+                    validation_checks,
                     fragments: Vec::new(),
                     checks: None,
                     confidence: None,
@@ -1965,6 +1998,14 @@ fn try_fragment_join(
         },
     ];
     let output_len = analysis.end as u64;
+    let status = analysis.status(false);
+    let validity = Validity::from_legacy(validation, status);
+    let validated_bytes = if validation == Validation::Decoded {
+        output_len
+    } else {
+        0
+    };
+    let validation_checks = base_validity_checks(cand.kind, validation, status, &validation_notes);
     Ok(JoinAttempt {
         data: Some(CarvedData {
             candidate: cand.clone(),
@@ -1976,7 +2017,10 @@ fn try_fragment_join(
             sha256,
             repaired: false,
             validation,
+            validity,
             validation_notes,
+            validated_bytes,
+            validation_checks,
             fragments,
             checks: None,
             confidence: Some(confidence),
@@ -2508,11 +2552,8 @@ fn write_outputs(
             path: rel_path,
             notes,
             validation: data.validation,
-            validated_bytes: if data.validation == Validation::Decoded {
-                data.analysis.end as u64
-            } else {
-                0
-            },
+            validity: data.validity,
+            validated_bytes: data.validated_bytes,
             lba,
             cluster,
             partition_index,
@@ -2524,17 +2565,18 @@ fn write_outputs(
                 "carve".into()
             },
             fragments: data.fragments.clone(),
+            validation_checks: data.validation_checks.clone(),
             checks: data.checks,
             confidence: data.confidence,
         };
         if !opts.quiet && (opts.verbose || idx < 20) {
             eprintln!(
-                "[+] {:<4} offset={:>12} size={:>9} score={:>3} {:<9} {}",
+                "[+] {:<4} offset={:>12} size={:>9} score={:>3} {} {}",
                 record.file_type.label(),
                 record.offset,
                 record.size,
                 record.score,
-                format!("{:?}", record.status).to_lowercase(),
+                record.validity.display_label(),
                 record.path
             );
         }
@@ -2602,6 +2644,13 @@ fn write_manifest(out_dir: &Path, files: &[CarvedFile]) -> Result<()> {
     let path = out_dir.join("SHA256SUMS");
     let mut text = String::new();
     for f in files {
+        // Comment lines are ignored by sha256sum, so the historical manifest
+        // format remains verifiable while carrying the authoritative label.
+        text.push_str(&format!(
+            "# {} validity={}\n",
+            f.path,
+            f.validity.display_label()
+        ));
         text.push_str(&format!("{}  {}\n", f.sha256, f.path));
     }
     write_file_atomic(&path, text.as_bytes())
@@ -2701,8 +2750,8 @@ pub fn print_summary(report: &ScanReport) {
     }
     println!();
     println!(
-        "{:<6} {:>7} {:>9} {:>10} {:>9} {:>12}",
-        "TYPE", "FILES", "COMPLETE", "TRUNCATED", "REPAIRED", "BYTES"
+        "{:<6} {:>7} {:>8} {:>11} {:>8} {:>8} {:>8} {:>12}",
+        "TYPE", "FILES", "VERIFIED", "STRUCTURAL", "SUSPECT", "PARTIAL", "REPAIRED", "BYTES"
     );
     for kind in FileType::all() {
         let files: Vec<&CarvedFile> = report
@@ -2713,25 +2762,21 @@ pub fn print_summary(report: &ScanReport) {
         if files.is_empty() {
             continue;
         }
-        let complete = files
-            .iter()
-            .filter(|f| f.status == Status::Complete)
-            .count();
-        let truncated = files
-            .iter()
-            .filter(|f| f.status != Status::Complete)
-            .count();
-        let repaired = files.iter().filter(|f| f.repaired).count();
+        let count = |validity| files.iter().filter(|f| f.validity == validity).count();
         let bytes: u64 = files.iter().map(|f| f.size).sum();
         println!(
-            "{:<6} {:>7} {:>9} {:>10} {:>9} {:>12}",
+            "{:<6} {:>7} {:>8} {:>11} {:>8} {:>8} {:>8} {:>12}",
             kind.label(),
             files.len(),
-            complete,
-            truncated,
-            repaired,
+            count(Validity::Verified),
+            count(Validity::Structural),
+            count(Validity::Suspect),
+            count(Validity::Partial),
+            count(Validity::Repaired),
             human_size(bytes)
         );
     }
+    println!("Validity: verified = content checked; structural = content not checked");
+    println!("          suspect = integrity check failed; partial = salvaged prefix");
     println!("Output: {}", report.output_dir);
 }

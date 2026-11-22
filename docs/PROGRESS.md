@@ -64,12 +64,12 @@ scripts/coverage.sh 60                                OK (4456/6391 lines = 69.7
 scripts/fuzz.sh 60                                   7 targets x 60 s, 18,520,025 runs, no crashes/artifacts
 ```
 
-Current gate after H-14 (2026-11-22): **GATE GREEN**, 104 tests
+Current gate after H-16 (2026-11-22): **GATE GREEN**, 105 tests
 (39 unit + 13 cli_contract + 5 evidence_formats + 2 fragment_recovery +
 8 fs_detect + 2 jpeg_frame_budget + 4 memory_budget + 3 panic_containment +
 4 png_decode_budget + 2 png_validator_budget + 5 properties +
 3 regress_e01_safety + 4 regress_vmdk_safety + 6 scan_integration +
-4 work_budgets), 34 repro scenarios with 0 failures/2 SKIPs/0 XPASS,
+1 validity_model + 4 work_budgets), 34 repro scenarios with 0 failures/2 SKIPs/0 XPASS,
 G7 and benchmark smoke green. `scripts/perf_gate.py --carvex
 target/release/carvex` reported **PERF GREEN**: s9_4m median 0.140 s
 (limit 3.0 s), rand64m median 0.032 s.
@@ -121,7 +121,7 @@ Windows**.
 | A-08 | PARTIAL | green | `trait ImageSource {len, read_at}` + unchanged `RawFile` default; `seek(End)` fallback when metadata len = 0. B-04 adds split raw, E01, VHD, VMDK and stdin sources under `src/image/`. `--on-read-error` and report `unreadable_regions[]` are now present (H-22); no `BlockDevice`/`--sector-size` yet and real device/Windows not tested. |
 | A-09 | PARTIAL | green | Fixed the NTFS sector off-by-one (`field+1`, D-21, unit test `volume_sector_count_includes_the_backup_boot_sector`); FS errors → `FS_DETECTION_FAILED`. No `$ATTRIBUTE_LIST`/multi-extent `$MFT`/`$MFTMirr`/backup boot/FAT #2 yet. |
 | A-10 | DONE | green | Lib crate + thin `main.rs`; pipeline `plan_extents → build_tasks → scan_task → carve_batch → postfilter → write_outputs`; format registry; `ScanInput<'a>` groups the input parameters for `run_scan`, with targeted `too_many_arguments` allows only on the two R-01/R-02 helpers that take explicit budget/deadline state; `cargo doc -D warnings` passes. |
-| A-11 | PARTIAL | green | **104 tests** in the current gate (39 unit + 13 cli_contract + 5 evidence_formats + 2 fragment_recovery + 8 fs_detect + 2 jpeg_frame_budget + 4 memory_budget + 3 panic_containment + 4 png_decode_budget + 2 png_validator_budget + 5 properties + 3 regress_e01_safety + 4 regress_vmdk_safety + 6 scan_integration + 4 work_budgets); `scripts/review_repro.py --assert/--xfail --carvex` 34 scenarios, 0 failures, 2 SKIPs, 0 XPASS; red baseline `docs/baseline/repro_v0.1.0.txt`. Post-R-01/R-02 `cargo-llvm-cov 0.9.1` measured 4456/6391 lines = **69.72%**; CI/local floor set to 60%, not the earlier aspirational 80%. No new coverage run after H-14. |
+| A-11 | PARTIAL | green | **105 tests** in the current gate (39 unit + 13 cli_contract + 5 evidence_formats + 2 fragment_recovery + 8 fs_detect + 2 jpeg_frame_budget + 4 memory_budget + 3 panic_containment + 4 png_decode_budget + 2 png_validator_budget + 5 properties + 3 regress_e01_safety + 4 regress_vmdk_safety + 6 scan_integration + 1 validity_model + 4 work_budgets); `scripts/review_repro.py --assert/--xfail --carvex` 34 scenarios, 0 failures, 2 SKIPs, 0 XPASS; red baseline `docs/baseline/repro_v0.1.0.txt`. Post-R-01/R-02 `cargo-llvm-cov 0.9.1` measured 4456/6391 lines = **69.72%**; CI/local floor set to 60%, not the earlier aspirational 80%. No new coverage run after H-14/H-16. |
 | A-12 | PARTIAL | green | MSRV 1.85 (`rust-version`, README corrected from "Rust 1.74"); `cargo +1.85 check` in the gate; `.github/workflows/ci.yml` adds actionlint + coverage and uses a pinned direct actionlint install; `rustfmt.toml`/`clippy.toml`/`deny.toml`; dist 0.2.0 + `SHA256SUMS`. Local `cargo deny check`, `cargo audit` and `actionlint 1.7.12` pass. Real GitHub run `44548142275` on commit `42376a9` succeeded (all jobs; push-event fuzz matrix skipped), but it predates B-04, B-06 and R-01/R-02. Distributed Windows binary not executed; no SBOM/signatures yet; removing binaries from `dist/` is STOP-AND-ASK (kept). |
 | A-13 | PARTIAL | green | Exit 0/1/2/3/4 documented + CLI contract tests; coded warnings; `RAW_SCANS_ALLOCATED` informational (D-20). No `thiserror`/leveled logger/`ProgressSink`/partial report on interrupt yet. |
 | A-14 | DONE | green | Report schema v2: `schema_version`, `argv`, `options`, `tool_info`, `input` (before–after SHA-256), ISO-8601, `case_id`, `examiner`, `warnings[]` object, `volumes[]`, `regions[]`, `lba`, real `cluster`, `partition_index`, `extent_id`, `allocated`, `source`, `fragments`. `docs/report.schema.json` + key-matching test; atomic write; `--manifest` generates `SHA256SUMS`; `--report-schema 1`. `unreadable_regions[]` belongs to A-08 (not present). |
@@ -174,7 +174,7 @@ Windows**.
 | H-05 | CRIT | 2026-11-21 source / 2026-11-21 release build | CLOSED | 873ea35 | tests/png_validator_budget.rs; scripts/review_repro.py X02 | R-02 already bounded inflation; the missing shared flag was reproduced red. X02a: 0.009 s / 8.8 MiB RSS, `partial`; X02b rejected at IHDR. |
 | H-07 | HIGH | 2026-11-21 source | CLOSED | fa18436 | scripts/review_repro.py X04 | 23-26s -> <1s after single-pass EOF indexing; A-01/R1-R8 and G7 unchanged. |
 | H-11 | CRIT | 2026-11-21 source / 2026-11-21 release build | CLOSED | 4b86f2d | tests/regress_e01_safety.rs::hostile_chunk_size_is_rejected; X07 | Before: SIGABRT on a 64 GiB declared chunk (v5). After: typed error `EWF chunk size 68719476736 exceeds the 67108864-byte limit`; `info` 0.005 s / 12 MiB RSS, `scan` 0.005 s / 13 MiB RSS. |
-| H-16 | CRIT | 2026-11-21 source | OPEN | - | scripts/review_repro.py X24 | X24 interleaved fixture not flagged decoded/complete; default structural-as-complete issue still present per SRC. Needs proper validity-model check. |
+| H-16 | CRIT | 2026-11-22 source | CLOSED | PENDING_H16 | tests/validity_model.rs; tests/cli_contract.rs; scripts/review_repro.py X10–X14/X24 | Red test proved `validity` was absent and default `complete/structure/100` rows had no "content not checked" text. Added authoritative `validity` + `checks[]`, validity-aware summary/console/CSV/manifest, and schema conformance; scores and emission unchanged. |
 | H-17 | HIGH | 2026-11-21 source | CLOSED | b2a6547 | scripts/review_repro.py X10 | Deep PNG validation now reports CRC mismatches as Validation::Partial; file still emitted. |
 | H-20 | MED | 2026-11-21 source | CLOSED | cee916a | scripts/review_repro.py X13 | Trim trailing CR/LF/whitespace/NUL before %%EOF check; EOL variants now identical. |
 | H-24 | MED | 2026-11-21 source | CLOSED | 56ee94a | scripts/review_repro.py X18 | Auto-detect now validates VHD footer checksum and requires strong VMDK descriptor markers before classifying. |
@@ -196,6 +196,39 @@ Windows**.
 | H-23 | MED | 2026-11-21 source | CLOSED | 080b76a | tests/regress_vmdk_safety.rs | Missing grain table returned "index out of range"; now reads zeros like qemu-img. |
 
 ### Per-task reports
+
+Task: H-16 — Validity model absent; default output reads "complete / 100"
+Reviews: v1:R-08, v2:R-08, v3:R-08, v4:F-08, v5:F-08 + F-17 (RT×3)
+Repro: new `tests/validity_model.rs` built a default-mode spliced JPEG from
+  the embedded baseline fixture. Before the fix it failed at
+  `assert_eq!(file["validity"], "structural")` with `left: Null`; the same
+  row was `complete/structure/100` and the console contained no content-check
+  caveat. X24 already covered interleaved fragments but only checked the old
+  `validation` field.
+Change: added `Validity` and `ValidationCheck` in `src/signatures/mod.rs` with
+  the ADR-H1 legacy mapping. `CarvedFile` now exposes required `validity` and
+  structured `checks[]`; the B-06 integer count is kept in Rust and serialized
+  as additive `fragment_checks` so existing Rust callers still compile.
+  Summary counts, per-file console lines, the CSV's final column and
+  `SHA256SUMS` comments now show the validity label; structural output is
+  printed as "content not checked" and never as complete/verified.
+  `validated_bytes` is carried from the validator result and is zero unless
+  contiguous content bytes were actually checked. An output overlapping an
+  unreadable region is downgraded to `suspect` and gains the
+  `overlaps_unreadable_region: false` check. `--complete-only` help now says
+  "footer found, not verified". Schema 2 requires `validity`/`checks` and
+  documents `fragment_checks`; schema 1 strips all three.
+Tests: `tests/validity_model.rs` verifies the default spliced-JPEG label,
+  check object, score/emission preservation, CSV, manifest and console.
+  `tests/cli_contract.rs` asserts the new schema keys, check-object shape and
+  schema-1 stripping. X10–X13/X24 now assert validity, not just legacy
+  `validation`; X14 additionally checks the repaired label but remains xfail
+  for the missing `sha256_original` (H-21).
+Gate: green (fmt/clippy/tests/doc/actionlint/deny/audit/MSRV/release/repro/golden/smoke).
+Residual risk / next: this commit establishes the model and honest labels;
+  H-17–H-21 still refine CRC, JPEG strict-scan, PDF xref, EOL and repair
+  semantics. No scores, emission decisions, default raw path or published
+  benchmark figures changed.
 
 Task: H-15 — Parallel carve slower than one thread
 Reviews: v2:N-03 (ONE); conflict C5 from v1/v4/v5

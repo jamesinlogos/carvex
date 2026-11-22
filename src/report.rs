@@ -54,7 +54,10 @@ fn strip_v2_fields(value: &mut serde_json::Value) {
             };
             for key in [
                 "validation",
+                "validity",
                 "validated_bytes",
+                "checks",
+                "fragment_checks",
                 "lba",
                 "cluster",
                 "partition_index",
@@ -79,12 +82,13 @@ pub fn write_csv(report: &ScanReport, path: &Path) -> Result<()> {
     writeln!(
         w,
         "seq,type,offset,size,carved_size,sha256,status,score,width,height,repaired,path,notes,\
-         validation,validated_bytes,lba,cluster,partition_index,extent_id,allocated,source,fragments"
+         validation,validated_bytes,lba,cluster,partition_index,extent_id,allocated,source,fragments,\
+         validity"
     )?;
     for f in &report.files {
         writeln!(
             w,
-            "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+            "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
             f.seq,
             f.file_type.ext(),
             f.offset,
@@ -112,7 +116,8 @@ pub fn write_csv(report: &ScanReport, path: &Path) -> Result<()> {
                     .map(|fr| format!("{}+{}", fr.offset, fr.len))
                     .collect::<Vec<_>>()
                     .join(";")
-            )
+            ),
+            f.validity.as_str()
         )?;
     }
     w.flush()?;
