@@ -39,6 +39,7 @@ fn run_bgc(
         out_dir: dir.path(),
         unreadable_regions: &regions,
         skip_unreadable: false,
+        interrupt: None,
     };
     let report = run_scan(&input, opts, &ctx).unwrap();
     (dir, report)
@@ -175,6 +176,7 @@ fn invalid_bgc_limits_are_rejected() {
         out_dir: dir.path(),
         unreadable_regions: &regions,
         skip_unreadable: false,
+        interrupt: None,
     };
     let mut opts = scan_options(vec![FileType::Jpeg], ScanMode::Auto);
     opts.min_size = 1;

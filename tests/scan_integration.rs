@@ -34,6 +34,7 @@ fn run(
         out_dir: dir.path(),
         unreadable_regions: &regions,
         skip_unreadable: false,
+        interrupt: None,
     };
     let report = run_scan(&input, &opts, &ctx).unwrap();
     (dir, report)

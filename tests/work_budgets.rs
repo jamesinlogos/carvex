@@ -24,6 +24,7 @@ fn run_raw(image: Vec<u8>, opts: &carvex::scan::ScanOptions) -> anyhow::Result<S
         out_dir: dir.path(),
         unreadable_regions: &regions,
         skip_unreadable: false,
+        interrupt: None,
     };
     run_scan(&input, opts, &ScanContext::default())
 }

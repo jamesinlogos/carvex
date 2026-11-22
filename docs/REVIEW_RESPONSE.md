@@ -10,9 +10,9 @@ Statuses use the guide's definitions exactly:
 Re-run evidence: `scripts/review_repro.py --assert` → **10/10 PASS**, 0 XPASS
 (`docs/baseline/repro_v0.1.0.txt` is the red baseline of 0.1.0: 8/9 FAIL);
 `scripts/gate.sh` → **GATE GREEN** (fmt, clippy, **131 tests** in the current
-H-27 run, doc, MSRV, release, repro, bench `--smoke`). The gate was re-run
+H-28 run, doc, MSRV, release, repro, bench `--smoke`). The gate was re-run
 after B-04, B-06, R-01/R-02, H-14, H-16, H-17, H-18, H-19, H-21, H-22, H-25,
-H-26 and H-27; the recorded GitHub Actions runs predate those changes.
+H-26, H-27 and H-28; the recorded GitHub Actions runs predate those changes.
 
 ## Summary table of 38 IDs (guide §6)
 
@@ -30,8 +30,8 @@ H-26 and H-27; the recorded GitHub Actions runs predate those changes.
 | A-10 | **FIXED** | Lib crate + thin `main.rs`; pipeline `plan_extents→build_tasks→scan_task→carve_batch→postfilter→write_outputs`; format registry; `ScanInput` groups pipeline inputs, with targeted `too_many_arguments` allows only on the two R-01/R-02 helpers that take explicit budget/deadline state; `cargo doc -D warnings` green; deterministic tests | No full public `#![warn(missing_docs)]`; pedantic cleanup not done by group. |
 | A-11 | **MITIGATED** | **131 tests** in the current H-27 gate (43 unit + 13 `cli_contract` + 7 `evidence_formats` + 2 `fragment_recovery` + 8 `fs_detect` + 2 `jpeg_frame_budget` + 4 `memory_budget` + 3 `panic_containment` + 2 `png_crc_validity` + 4 `png_decode_budget` + 2 `png_validator_budget` + 8 `pdf_structure_validation` + 5 `properties` + 4 `regress_e01_safety` + 4 `regress_vmdk_safety` + 3 `repair_validation` + 6 `scan_integration` + 1 `validity_model` + 4 `work_budgets` + 3 `volume_parse_errors` + 3 `region_coverage`); `scripts/review_repro.py --assert/--xfail` 34 scenarios, 0 failures, 2 SKIPs, 0 XPASS; red baseline `docs/baseline/repro_v0.1.0.txt`; Critical/High findings have targeted regression tests; post-R-01/R-02 coverage 4456/6391 lines = 69.72% | No claim of ≥80% coverage or of a new coverage measurement after H-14/H-16/H-17/H-18/H-19/H-21/H-22/H-25/H-26/H-27; floor is honestly 60%. Integration tests are named `tests/*.rs` rather than `tests/regress_*.rs`. |
 | A-12 | **MITIGATED** | MSRV **1.85** (`rust-version` + README corrected from "Rust 1.74"); `cargo +1.85 check --locked` in gate; `.github/workflows/ci.yml` (3 OS, MSRV, deny/audit, smoke, conditional nightly fuzz matrix now listing all 13 targets); `rustfmt.toml`/`clippy.toml`/`deny.toml`; dist 0.2.0 rebuild + `SHA256SUMS`; local `cargo audit` 0.23.0, `cargo deny` 0.21.0 and `actionlint` 1.7.12 pass; GitHub run `44548142275` on `42376a9` succeeded with all jobs green | The recorded GitHub runs predate B-04, B-06 and R-01/R-02; no post-change CI run is claimed. Packaged Windows `.exe` **not executed**; GitHub's push-event fuzz matrix remains conditional (H-30); no SBOM/signatures; removing binaries from `dist/` is STOP-AND-ASK — kept unchanged. |
-| A-13 | **MITIGATED** | Exit codes 0/1/2/3/4 documented (README) and CLI contract tests; coded warnings (`*_NOT_SCANNED` → exit 3, D-19); `RAW_SCANS_ALLOCATED` informational (D-20); H-22 writes a partial report with `READ_ABORTED` on read-error abort (exit 1); short error messages with suggested actions | No `thiserror` types, no leveled logger/`--log-format json`, no `ProgressSink`/ETA for the carve phase, no partial report written on signal interruption (exit 4). |
-| A-14 | **MITIGATED** | Schema v2: `schema_version`, `argv`, `options`, `tool_info`, `input` (SHA-256 before/after, logical/physical sizes, resolved format and backing `files[]` from H-25), ISO-8601, `case_id`, `examiner`, `warnings[]` (objects), `volumes[]`, `regions[]`, per-file actual `lba`/`cluster`/`partition_index`/`extent_id`/`allocated`/`source`/`fragments`; H-16 adds required per-file `validity` and structured `checks[]`, renames the B-06 count to additive `fragment_checks`, and H-21 adds optional `sha256_original`; H-27 adds `options.max_regions`, plan-backed `regions[].extent_id`, `regions[].summarized` and the additive `mixed` kind; `docs/report.schema.json` + test `emitted_report_matches_the_published_schema`; `report_schema_one_has_the_v01_shape`; atomic write; `--manifest` comments now show validity | `unreadable_regions[]` and `READ_ABORTED` belong to A-08/H-22; stdin `unchanged` is null (H-25); `tool_info.commit` may be empty outside git. Schema 1 still strips all additive fields. |
+| A-13 | **MITIGATED** | Exit codes 0/1/2/3/4 documented (README) and CLI contract tests; coded warnings (`*_NOT_SCANNED` → exit 3, D-19); `RAW_SCANS_ALLOCATED` informational (D-20); H-22 writes a partial report with `READ_ABORTED` on read-error abort (exit 1); H-28 installs a cooperative SIGINT/Ctrl-C handler that writes a partial report with `interrupted: true` and `INTERRUPTED` and exits 4; short error messages with suggested actions | No `thiserror` types, no leveled logger/`--log-format json`, no `ProgressSink`/ETA for the carve phase; a second signal exits 130 without a report by design. |
+| A-14 | **MITIGATED** | Schema v2: `schema_version`, `argv`, `options`, `tool_info`, `input` (SHA-256 before/after, logical/physical sizes, resolved format and backing `files[]` from H-25), ISO-8601, `case_id`, `examiner`, `warnings[]` (objects), `volumes[]`, `regions[]`, per-file actual `lba`/`cluster`/`partition_index`/`extent_id`/`allocated`/`source`/`fragments`; H-16 adds required per-file `validity` and structured `checks[]`, renames the B-06 count to additive `fragment_checks`, and H-21 adds optional `sha256_original`; H-27 adds `options.max_regions`, plan-backed `regions[].extent_id`, `regions[].summarized` and the additive `mixed` kind; H-28 adds schema-2 `interrupted` plus the `INTERRUPTED` warning; `docs/report.schema.json` + test `emitted_report_matches_the_published_schema`; `report_schema_one_has_the_v01_shape`; atomic write; `--manifest` comments now show validity | `unreadable_regions[]` and `READ_ABORTED` belong to A-08/H-22; stdin `unchanged` is null (H-25); `tool_info.commit` may be empty outside git. Schema 1 still strips all additive fields. |
 | A-15 | **MITIGATED** | Hard `--max-memory` budget checks before allocation/retention plus caps on `--max-size`/`--max-truncated-size`; `--max-candidates`/`--time-budget`; atomic write (temp+rename); `--force` for non-empty directory; nested does not write-then-delete | No rejection of output located inside the source image/source device; no `--overwrite` (force still does not overwrite existing files? — needs test); no free-space/`--max-output` check; symlink following not forbidden. |
 | B-01 | **OPEN** | — | No reading of `0xE5` dir entries/not-in-use MFT; no `--mode metadata\|hybrid`, `original_name`/`mtime`. |
 | B-02 | **MITIGATED** | MBR + GPT primary/backup; `--partition largest\|all\|N` (A-07); `info --json` lists `volumes[]` | No EBR chain (loop protection); still assumes 512-byte sectors for the partition table; no `--sector-size`. |
@@ -215,6 +215,21 @@ the 38-ID table above is the current source of truth.
 - Residual: no real libewf-made multi-segment E01/.E02 fixture was available;
   `input.files[]` lists backing files, not byte-level grain/extent maps.
 
+### A-13 / H-28 — cooperative interruption
+
+- Red evidence: the strengthened X21 control killed the unmodified release
+  binary with `exit -2 after SIGINT (expected 4)`; no report was written.
+- `ctrlc` installs one process-wide handler. The first SIGINT/Ctrl-C latches a
+  shared state polled by the candidate-count, carve, fragment and write stages;
+  the second exits 130 immediately. Completed outputs stay because writes are
+  finished and atomically renamed before the next stop check.
+- An interrupted scan writes a schema-2 report with `interrupted: true` and an
+  `INTERRUPTED` warning and exits 4. Schema 1 removes the new field. The
+  `abort` partial-report path records a signal that arrived before it stopped.
+- X21 now asserts exit 4, schema 2, the flag, the warning and no `.tmp` files;
+  it was removed from `scripts/repro_xfail.txt`. A direct two-signal control
+  exited 130 without a report. No packaged Windows binary was executed.
+
 ### B-07 / H-21 — repair validation
 
 - Red evidence: `tests/repair_validation.rs` failed on the unmodified scanner
@@ -240,7 +255,7 @@ the 38-ID table above is the current source of truth.
   3 region coverage); `scripts/gate.sh` runs fmt, clippy, test, doc,
   actionlint, MSRV, release, repro, smoke and supply-chain checks →
   **GATE GREEN 2026-11-22**, re-run after B-04, B-06, R-01/R-02, H-14, H-16,
-  H-17, H-18, H-19, H-21, H-22, H-25, H-26 and H-27.
+  H-17, H-18, H-19, H-21, H-22, H-25, H-26, H-27 and H-28.
 - CI 3 OS + MSRV + security + smoke + conditional nightly fuzz matrix is
   declared in `.github/workflows/ci.yml`; after H-14 the fuzz matrix lists all
   13 targets. Real run `44548142275` on `42376a9` succeeded with every job

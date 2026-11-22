@@ -891,3 +891,35 @@ decision, and the consequences.
   strengthened X20 control. X20 now checks full-image coverage, exact
   report/stats byte sums, real free extents and a raw-mode cap run; it was
   removed from xfail.
+
+## D-52. Cooperative interruption instead of signal death (H-28)
+
+- **Context:** the documented exit 4 for SIGINT was never implemented. The
+  scanner had an unused atomic stop flag; a signal terminated the process with
+  `rc -2`, leaving no report and no deterministic boundary between completed
+  and half-written outputs.
+- **Decision:** add a process-wide `ctrlc` handler (version 3.5.3, MIT OR
+  Apache-2.0, MSRV 1.71). The first SIGINT/Ctrl-C latches a shared `Interrupt`
+  state; a `Stop` controller folds it into the existing wall-clock stop check
+  at candidate counting, candidate carving, fragment recovery and output
+  writing. Work-unit limits remain separate, so deterministic budgets keep
+  their existing semantics.
+- **Exit behaviour:** a completed interrupted scan writes a schema-2 report
+  with `interrupted: true` and an `INTERRUPTED` warning, then exits 4. The
+  read-error `abort` partial-report path also records the flag if a signal
+  arrived before it stopped. A second signal calls `process::exit(130)`
+  immediately, preserving the operator's escape hatch. On Windows the same
+  handler observes the Ctrl-C event; no Windows binary execution is claimed.
+- **Output safety:** output writes remain temp-file-plus-rename. The stop flag
+  is checked only between complete atomic renames, so no partially written
+  output remains. A signal can omit later outputs, which is why the report is
+  marked partial.
+- **Compatibility:** no flag, score, emission rule, output name, CSV column,
+  warning-code meaning or schema-1 field changed. Schema 2 gains the additive
+  `interrupted` boolean; `INTERRUPTED` is a new warning code. The default
+  scan path and frozen benchmarks are untouched when no signal is received.
+- **Evidence:** the X21 control was red against the release binary with
+  `exit -2 after SIGINT (expected 4)`. After the fix it passes with exit 4,
+  schema 2, `interrupted: true`, an `INTERRUPTED` warning and no `.tmp` files.
+  A direct two-signal control exited 130 without writing a report. X21 was
+  removed from `scripts/repro_xfail.txt`.

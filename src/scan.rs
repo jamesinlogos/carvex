@@ -20,8 +20,8 @@ use std::fs::{self, File};
 use std::io::{IsTerminal, Write};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
+use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 /// Test-only panic injection target. Production never sets this; it exists so
@@ -51,6 +51,69 @@ fn panic_message(payload: &(dyn Any + Send)) -> String {
     } else {
         "non-string panic payload".to_string()
     }
+}
+
+#[derive(Debug, Default)]
+struct InterruptInner {
+    requested: AtomicBool,
+    signals: AtomicU8,
+}
+
+/// Cooperative SIGINT/Ctrl-C state for one scan (H-28).
+///
+/// The first signal latches `requested`; every scanner stage polls it and
+/// stops taking new work. A second signal exits immediately with status 130,
+/// so an operator can still force termination if a stage cannot stop quickly.
+#[derive(Debug, Clone, Default)]
+pub struct Interrupt {
+    inner: Arc<InterruptInner>,
+}
+
+impl Interrupt {
+    fn new() -> Self {
+        Self::default()
+    }
+
+    fn request(&self) {
+        let previous = self.inner.signals.fetch_add(1, Ordering::SeqCst);
+        self.inner.requested.store(true, Ordering::SeqCst);
+        if previous >= 1 {
+            std::process::exit(130);
+        }
+    }
+
+    pub fn requested(&self) -> bool {
+        self.inner.requested.load(Ordering::SeqCst)
+    }
+
+    fn reset(&self) {
+        self.inner.requested.store(false, Ordering::SeqCst);
+        self.inner.signals.store(0, Ordering::SeqCst);
+    }
+}
+
+static INTERRUPT_STATE: OnceLock<Interrupt> = OnceLock::new();
+static HANDLER_INSTALLED: Mutex<bool> = Mutex::new(false);
+
+/// Install the process-wide interrupt handler and return this run's state.
+///
+/// Repeated calls reuse the same state, which keeps library and integration
+/// tests from attempting to register a second OS handler. The state is reset
+/// for each call because each CLI invocation is a fresh scan.
+pub fn install_interrupt_handler() -> Result<Interrupt> {
+    let interrupt = INTERRUPT_STATE.get_or_init(Interrupt::new).clone();
+    interrupt.reset();
+    let mut installed = match HANDLER_INSTALLED.lock() {
+        Ok(guard) => guard,
+        Err(_) => bail!("cannot install interrupt handler: handler state is poisoned"),
+    };
+    if !*installed {
+        let handler = interrupt.clone();
+        ctrlc::set_handler(move || handler.request())
+            .context("cannot install SIGINT/Ctrl-C handler")?;
+        *installed = true;
+    }
+    Ok(interrupt)
 }
 
 /// A contained panic in one candidate or fragment-join attempt.
@@ -136,6 +199,37 @@ impl TimeBudget {
 
     fn expired(&self) -> bool {
         self.expired.load(Ordering::Relaxed)
+    }
+}
+
+/// Combined stop controller for the optional wall-clock budget and SIGINT.
+/// Work-unit limits remain separate so their results stay deterministic.
+#[derive(Debug, Clone)]
+struct Stop {
+    time: TimeBudget,
+    interrupt: Option<Interrupt>,
+}
+
+impl Stop {
+    fn new(started: Instant, limit: Duration, interrupt: Option<Interrupt>) -> Self {
+        Self {
+            time: TimeBudget::new(started, limit),
+            interrupt,
+        }
+    }
+
+    fn check(&self) -> bool {
+        self.time.check() || self.interrupted()
+    }
+
+    fn interrupted(&self) -> bool {
+        self.interrupt
+            .as_ref()
+            .is_some_and(|state| state.requested())
+    }
+
+    fn expired(&self) -> bool {
+        self.time.expired()
     }
 }
 
@@ -812,6 +906,8 @@ pub struct ScanReport {
     /// True when a wall-clock budget stopped the scan; work-unit limits do
     /// not set this flag because their results are deterministic.
     pub nondeterministic_stop: bool,
+    /// True when SIGINT/Ctrl-C requested a cooperative stop (H-28).
+    pub interrupted: bool,
     pub files: Vec<CarvedFile>,
 }
 
@@ -936,6 +1032,9 @@ pub struct ScanInput<'a> {
     pub unreadable_regions: &'a RegionLog,
     /// Drop outputs that intersect an unreadable range instead of zero-filling.
     pub skip_unreadable: bool,
+    /// Cooperative interrupt state installed by the CLI (H-28). Library
+    /// callers that do not install a handler pass `None`.
+    pub interrupt: Option<Interrupt>,
 }
 
 /// Scan an image and write carved files plus a report.
@@ -948,6 +1047,7 @@ pub fn run_scan(
     opts: &ScanOptions,
     ctx: &ScanContext,
 ) -> Result<ScanReport> {
+    let interrupt = input.interrupt.clone();
     let ScanInput {
         source,
         image,
@@ -958,6 +1058,7 @@ pub fn run_scan(
         out_dir,
         unreadable_regions,
         skip_unreadable,
+        interrupt: _,
     } = *input;
     if opts.types.is_empty() {
         bail!("no file types selected");
@@ -987,7 +1088,7 @@ pub fn run_scan(
     }
     let started = unix_timestamp();
     let t0 = Instant::now();
-    let time = TimeBudget::new(t0, opts.time_budget);
+    let stop = Stop::new(t0, opts.time_budget, interrupt);
     let mut warnings = Vec::new();
     let mut internal_errors = Vec::new();
     if let Ok(value) = std::env::var("CARVEX_TEST_PANIC_AT_OFFSET") {
@@ -1026,7 +1127,7 @@ pub fn run_scan(
         volumes,
         &scan_progress,
         &pool,
-        &time,
+        &stop,
     )?;
     candidates.sort_by_key(|c| (c.offset, c.kind as u8));
     candidates.dedup_by(|a, b| a.offset == b.offset && a.kind == b.kind);
@@ -1062,11 +1163,11 @@ pub fn run_scan(
     // order deterministic (`par_iter().collect()` preserves input order).
     let batch_size = thread_count.max(1).saturating_mul(4);
     for batch in candidates.chunks(batch_size.max(1)) {
-        if time.check() {
+        if stop.check() {
             break;
         }
         let mut batch_out =
-            carve_batch(source, batch, opts, &budget, &pool, &carve_progress, &time)?;
+            carve_batch(source, batch, opts, &budget, &pool, &carve_progress, &stop)?;
         outcomes.append(&mut batch_out);
     }
     if let Some(h) = carve_thread {
@@ -1093,7 +1194,7 @@ pub fn run_scan(
             opts,
             &budget,
             &mut warnings,
-            &time,
+            &stop,
             &mut internal_errors,
         )?;
     }
@@ -1173,7 +1274,7 @@ pub fn run_scan(
     }
 
     let (files, write_warnings) = write_outputs(
-        source, out_dir, &kept, volumes, mode, &mut stats, opts, &budget, &time,
+        source, out_dir, &kept, volumes, mode, &mut stats, opts, &budget, &stop,
     )?;
     warnings.extend(write_warnings);
     stats.carved = files.len();
@@ -1186,10 +1287,17 @@ pub fn run_scan(
     if opts.manifest {
         write_manifest(out_dir, &files)?;
     }
-    if time.expired() && !warnings.iter().any(|w| w.code == "TIME_LIMIT") {
+    if stop.expired() && !warnings.iter().any(|w| w.code == "TIME_LIMIT") {
         warnings.push(Warning::new(
             "TIME_LIMIT",
             "scan exceeded --time-budget; stopped early with a partial report",
+        ));
+    }
+    let interrupted = stop.interrupted();
+    if interrupted && !warnings.iter().any(|w| w.code == "INTERRUPTED") {
+        warnings.push(Warning::new(
+            "INTERRUPTED",
+            "SIGINT requested a cooperative stop; the report is partial",
         ));
     }
     let nondeterministic_stop = warnings.iter().any(|w| w.code == "TIME_LIMIT");
@@ -1205,7 +1313,16 @@ pub fn run_scan(
     }
 
     let elapsed = t0.elapsed();
-    let bytes_scanned = total_to_scan;
+    // For an interrupted run, report only finished scan tasks; an in-flight
+    // chunk is a lower bound rather than claiming the whole image was read.
+    let bytes_scanned = if interrupted {
+        scan_progress
+            .done
+            .load(Ordering::Relaxed)
+            .min(total_to_scan)
+    } else {
+        total_to_scan
+    };
     let throughput = if elapsed.as_secs_f64() > 0.0 {
         bytes_scanned as f64 / elapsed.as_secs_f64() / (1024.0 * 1024.0)
     } else {
@@ -1254,6 +1371,7 @@ pub fn run_scan(
         warnings,
         internal_errors,
         nondeterministic_stop,
+        interrupted,
         files,
     })
 }
@@ -1273,6 +1391,16 @@ pub fn partial_report(
         Err(_) => Vec::new(),
     };
     let mut warnings = warnings;
+    let interrupted = input
+        .interrupt
+        .as_ref()
+        .is_some_and(|state| state.requested());
+    if interrupted && !warnings.iter().any(|w| w.code == "INTERRUPTED") {
+        warnings.push(Warning::new(
+            "INTERRUPTED",
+            "SIGINT requested a cooperative stop; the report is partial",
+        ));
+    }
     let input_info = build_input_info(input.image, input.image_len, input.image_identity, ctx);
     if input_info.unchanged == Some(false) {
         warnings.push(Warning::new(
@@ -1320,6 +1448,7 @@ pub fn partial_report(
         warnings,
         internal_errors: Vec::new(),
         nondeterministic_stop: false,
+        interrupted,
         files: Vec::new(),
     }
 }
@@ -1431,9 +1560,9 @@ fn find_candidates(
     volumes: &[FsInfo],
     progress: &Progress,
     pool: &rayon::ThreadPool,
-    time: &TimeBudget,
+    stop: &Stop,
 ) -> Result<(Vec<Candidate>, bool)> {
-    if time.check() {
+    if stop.check() {
         return Ok((Vec::new(), false));
     }
     // First pass: count plausible headers per fixed task. This is a cheap
@@ -1442,10 +1571,10 @@ fn find_candidates(
     let counts: Vec<usize> = pool.install(|| {
         tasks
             .par_iter()
-            .map(|task| count_task(source, task, types, opts, volumes, time))
+            .map(|task| count_task(source, task, types, opts, volumes, stop))
             .collect::<Result<Vec<_>>>()
     })?;
-    if time.check() {
+    if stop.check() {
         return Ok((Vec::new(), false));
     }
     let total: usize = counts.iter().fold(0usize, |sum, &n| sum.saturating_add(n));
@@ -1466,10 +1595,10 @@ fn find_candidates(
             .par_iter()
             .zip(quotas)
             .map(|(task, quota)| {
-                if time.check() || quota == 0 {
+                if stop.check() || quota == 0 {
                     return Ok(Vec::new());
                 }
-                scan_task(source, task, types, opts, volumes, progress, quota, time)
+                scan_task(source, task, types, opts, volumes, progress, quota, stop)
             })
             .collect::<Result<Vec<_>>>()
     })?;
@@ -1487,9 +1616,9 @@ fn count_task(
     types: &[FileType],
     opts: &ScanOptions,
     volumes: &[FsInfo],
-    time: &TimeBudget,
+    stop: &Stop,
 ) -> Result<usize> {
-    if time.check() {
+    if stop.check() {
         return Ok(0);
     }
     let mut buf = vec![0u8; task.read_len as usize];
@@ -1498,7 +1627,7 @@ fn count_task(
     let mut count = 0usize;
     for &kind in types {
         for rel in memchr::memmem::find_iter(&buf, kind.header()) {
-            if time.check() {
+            if stop.check() {
                 return Ok(count);
             }
             if rel as u64 >= task.scan_len || !plausible_header(kind, &buf, rel) {
@@ -1522,15 +1651,17 @@ fn scan_task(
     volumes: &[FsInfo],
     progress: &Progress,
     quota: usize,
-    time: &TimeBudget,
+    stop: &Stop,
 ) -> Result<Vec<Candidate>> {
     let mut buf = vec![0u8; task.read_len as usize];
     read_exact_at(source, &mut buf, task.start)
         .with_context(|| format!("cannot read scan chunk at offset {}", task.start))?;
     let mut out = Vec::with_capacity(quota);
+    let mut examined = task.scan_len;
     'types: for &kind in types {
         for rel in memchr::memmem::find_iter(&buf, kind.header()) {
-            if time.check() {
+            if stop.check() {
+                examined = (rel as u64).min(task.scan_len);
                 break 'types;
             }
             if rel as u64 >= task.scan_len || !plausible_header(kind, &buf, rel) {
@@ -1551,7 +1682,7 @@ fn scan_task(
             });
         }
     }
-    progress.done.fetch_add(task.scan_len, Ordering::Relaxed);
+    progress.done.fetch_add(examined, Ordering::Relaxed);
     Ok(out)
 }
 
@@ -1602,17 +1733,17 @@ fn carve_batch(
     budget: &MemoryBudget,
     pool: &rayon::ThreadPool,
     progress: &Progress,
-    time: &TimeBudget,
+    stop: &Stop,
 ) -> Result<Vec<CarveOutcome>> {
     pool.install(|| {
         batch
             .par_iter()
             .map(|cand| {
-                if time.check() {
+                if stop.check() {
                     return Ok(CarveOutcome::TimeLimit);
                 }
                 let out = match catch_unwind(AssertUnwindSafe(|| {
-                    carve_one(source, cand, opts, budget, time)
+                    carve_one(source, cand, opts, budget, stop)
                 })) {
                     Ok(result) => result?,
                     Err(payload) => CarveOutcome::InternalError {
@@ -1633,9 +1764,9 @@ fn carve_one(
     cand: &Candidate,
     opts: &ScanOptions,
     budget: &MemoryBudget,
-    time: &TimeBudget,
+    stop: &Stop,
 ) -> Result<CarveOutcome> {
-    if time.check() {
+    if stop.check() {
         return Ok(CarveOutcome::TimeLimit);
     }
     let available = cand.extent_end.saturating_sub(cand.offset);
@@ -1662,7 +1793,7 @@ fn carve_one(
     let mut work = WorkCounter::new(work_limit);
 
     loop {
-        if time.check() {
+        if stop.check() {
             return Ok(CarveOutcome::TimeLimit);
         }
         // Every growth step re-reads the full prefix after dropping the old
@@ -2315,7 +2446,7 @@ fn recover_fragments(
     opts: &ScanOptions,
     budget: &Arc<MemoryBudget>,
     warnings: &mut Vec<Warning>,
-    time: &TimeBudget,
+    stop: &Stop,
     internal_errors: &mut Vec<InternalError>,
 ) -> Result<Vec<CarvedData>> {
     let started = Instant::now();
@@ -2351,7 +2482,7 @@ fn recover_fragments(
     let mut join_work_limits: Vec<(u64, FileType, u64, u64)> = Vec::new();
 
     for cand in candidates {
-        if time.check() {
+        if stop.check() {
             break;
         }
         if attempts >= opts.max_frag_candidates {
@@ -2372,7 +2503,7 @@ fn recover_fragments(
         let mut checks = 0u64;
 
         for join in joins {
-            if time.check() {
+            if stop.check() {
                 break;
             }
             if attempts >= opts.max_frag_candidates {
@@ -2683,7 +2814,7 @@ fn write_outputs(
     stats: &mut ScanStats,
     opts: &ScanOptions,
     budget: &MemoryBudget,
-    time: &TimeBudget,
+    stop: &Stop,
 ) -> Result<(Vec<CarvedFile>, Vec<Warning>)> {
     // With more than one scanned volume each file goes into its own
     // `part<N>/` sub-directory so outputs of different partitions cannot be
@@ -2699,7 +2830,10 @@ fn write_outputs(
     let mut skipped_output = 0usize;
 
     for (idx, data) in files.iter().enumerate() {
-        if time.check() {
+        if stop.check() {
+            // H-28: the current output, if any, is always finished and
+            // atomically renamed before the next iteration checks the flag.
+            // No partially written file is left behind.
             break;
         }
         if written.saturating_add(data.output_len) > output_limit {

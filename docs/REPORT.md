@@ -552,7 +552,32 @@ Carving itself is untouched: the extents, tasks, scores, digests, emission
 rules, output names, CSV and schema 1 remain byte-for-byte compatible. Schema 2
 adds `options.max_regions`, the two region fields and the `mixed` kind.
 
-### 3.13. CLI and reporting
+### 3.13. Cooperative interruption (H-28)
+
+`ctrlc` installs a process-wide handler for `scan`. The first SIGINT/Ctrl-C
+latches a shared interrupt state instead of terminating the process. A stop
+controller combines that state with the existing wall-clock budget at the
+candidate-count, candidate-carve, fragment-recovery and write stages; work-unit
+limits are unchanged, so unaffected runs remain deterministic. A second signal
+exits immediately with status 130.
+
+When the scan finishes after an interruption it writes a schema-2 report with
+`interrupted: true` and an `INTERRUPTED` warning, then returns exit 4. The
+read-error `abort` partial-report path carries the same flag and warning when a
+signal arrived before it stopped. Output files are still written to a temporary
+file and atomically renamed: the stop check occurs only between completed
+renames, so no half-written output is left behind. Schema 1 drops the new field
+along with the rest of its v2 additions; no score, emission rule, output name,
+CSV column or default path changed.
+
+The red X21 control killed the unmodified release binary with `rc -2` and no
+report. After the fix, X21 observes exit 4, schema 2, `interrupted: true`, an
+`INTERRUPTED` warning and no `.tmp` files. A direct two-signal control exited
+130 without a report. No Windows executable was available for execution; the
+handler uses `ctrlc`'s Windows Ctrl-C event support but this is a source-level
+claim only.
+
+### 3.14. CLI and reporting
 
 - Three commands: `info`, `scan`, `signatures`.
 - `--json-report` outputs all metadata and the file list.

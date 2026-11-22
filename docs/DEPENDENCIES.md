@@ -1,6 +1,6 @@
 # Dependencies
 
-CarveX 0.2.0 keeps a small dependency tree, all under permissive licenses. All
+CarveX keeps a small dependency tree, all under permissive licenses. All
 versions below are taken from `Cargo.lock` at release time; builds/gates use
 `--locked` so nothing is auto-upgraded.
 
@@ -10,6 +10,7 @@ versions below are taken from `Cargo.lock` at release time; builds/gates use
 |---|---:|---|---|
 | `anyhow` | 1.0.104 | Context for errors in the CLI/binary; lib returns `Result` with context | MIT OR Apache-2.0 |
 | `clap` (derive) | 4.6.8 | Argument parsing, `--help`, enum values | MIT OR Apache-2.0 |
+| `ctrlc` | 3.5.3 | Cooperative SIGINT/Ctrl-C handler for scans (H-28) | MIT OR Apache-2.0 |
 | `crc32fast` | 1.5.5 | CRC check of each PNG chunk | MIT OR Apache-2.0 |
 | `flate2` | 1.1.11 | Inflate PNG IDAT when `--validate decode` | MIT OR Apache-2.0 |
 | `jpeg-decoder` | 0.3.2 | JPEG decoding when `--validate decode` (not used in the benchmark) | MIT OR Apache-2.0 |
@@ -36,9 +37,17 @@ versions below are taken from `Cargo.lock` at release time; builds/gates use
 
 ## Transitive
 
-- Runtime: **46 packages** (including `carvex`), including the clap/anstyle,
-  rayon/crossbeam, sha2/digest, serde, flate2/miniz_oxide, jpeg-decoder groups.
-- Whole workspace (including dev + fuzz metadata): 91 packages.
+- Runtime: **56 packages** (including `carvex`), counted with
+  `cargo tree --locked -e normal -p carvex --prefix none`; includes the
+  clap/anstyle, ctrlc/nix, rayon/crossbeam, sha2/digest, serde,
+  flate2/miniz_oxide and jpeg-decoder groups.
+- Root workspace (runtime + dev metadata): 97 packages in
+  `cargo metadata --locked`. The separate `fuzz/` workspace is not included in
+  that count.
+- `ctrlc` 3.5.3 is maintained in the `Detegr/rust-ctrlc` repository, declares
+  MSRV 1.71, and added six locked packages: `block2`, `ctrlc`, `dispatch2`,
+  `nix`, `objc2` and `objc2-encode`. It does not introduce `unsafe` into
+  CarveX's own crates.
 - All licenses are among: `MIT`, `Apache-2.0`, `Apache-2.0 WITH
   LLVM-exception`, `BSD-2-Clause`, `BSD-3-Clause`, `ISC`, `Zlib`, `0BSD`,
   `Unlicense`, `Unicode-3.0`, or combinations of these licenses. There is no

@@ -209,7 +209,7 @@ For images with a partition table, CarveX 0.2.0 does not skip any volume or imag
 | 1 | Runtime error (no filesystem when required, I/O, …) |
 | 2 | Syntax error (clap) |
 | 3 | **Finished but incomplete** — there are "not fully scanned" warnings (see above) |
-| 4 | Interrupted mid-run |
+| 4 | Interrupted mid-run: the first SIGINT/Ctrl-C requests a cooperative stop, a schema-2 partial report is written with `interrupted: true` and `INTERRUPTED`, and already-renamed outputs remain (H-28). A second signal exits 130 immediately |
 
 ### Examples
 
@@ -319,7 +319,8 @@ The JSON report (schema 2, default) has these main fields:
   is a boolean for disk-backed images and `null` for stdin;
 - `stats`: candidate count, carved file count, filtering reasons, extent count, bytes scanned;
 - `volumes[]` and `regions[]`: every detected volume/partition/gap as a disjoint full-image coverage map, with `scanned`, the additive `may_contain_allocated` flag (A-07/H-26) and the additive `extent_id`/`summarized` fields (H-27);
-- `warnings[]`: a list of `{code, message}`; `*_NOT_SCANNED`-style codes correspond to exit code 3, while `READ_ABORTED` accompanies an exit-1 partial report;
+- `warnings[]`: a list of `{code, message}`; `*_NOT_SCANNED`-style codes correspond to exit code 3, `READ_ABORTED` accompanies an exit-1 partial report, and `INTERRUPTED` accompanies an exit-4 cooperative stop (H-28);
+- `interrupted`: additive schema-2 boolean, true when SIGINT/Ctrl-C requested the stop; removed by `--report-schema 1` (H-28);
 - `unreadable_regions[]`: `{offset, len, reason}` for each failed source range (H-22);
 - `files[]`: `seq`, `type`, `offset`, `size`, `carved_size`, `sha256`, `status` (`complete`/`truncated`/`repaired`), `score`, `width`, `height`, `notes`, `path`, `validation`, `validity`, `checks[]`, and optional `sha256_original` after a revalidated repair.
 

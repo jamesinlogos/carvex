@@ -38,6 +38,7 @@ fn strip_v2_fields(value: &mut serde_json::Value) {
         "regions",
         "unreadable_regions",
         "nondeterministic_stop",
+        "interrupted",
         "internal_errors",
     ] {
         obj.remove(key);

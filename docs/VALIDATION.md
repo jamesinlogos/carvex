@@ -61,7 +61,7 @@ invalid filter byte. Smoke output remained metric-identical to the frozen 0.2.0
 behavior.
 
 The gate was re-run after H-14, H-16, H-17, H-18, H-19 stage 2, H-21, H-22,
-H-25, H-26 and H-27 on 2026-11-22 and remained green.
+H-25, H-26, H-27 and H-28 on 2026-11-22 and remained green.
 The current test count is 131: 43 unit, 13 CLI contract, 7 evidence-format,
 2 fragment recovery, 8 filesystem detection, 2 JPEG frame budget, 4 memory
 budget, 3 panic containment, 2 PNG CRC validity, 4 PNG decode budget,
@@ -118,11 +118,16 @@ filesystem's real `free_extents`; and scanned lengths equal both
 `bytes_scanned` and `stats.bytes_in_extents` in auto, allocated, raw,
 largest/no-gaps and no-filesystem modes. X20 now asserts that contract plus a
 raw-mode `--max-regions 1` run and was removed from `scripts/repro_xfail.txt`.
-The repro harness ran 34 scenarios with 0 failures, 2 SKIPs and 0 XPASS; G7 and
-the benchmark smoke were green. `scripts/perf_gate.py --carvex
-target/release/carvex` reported **PERF GREEN**: s9_4m median 0.167 s and
-rand64m median 0.032 s. No new coverage measurement was made for
-H-14/H-16/H-17/H-18/H-19/H-21/H-22/H-25/H-26/H-27.
+H-28 strengthened X21 to check exit 4, schema 2, `interrupted: true`, the
+`INTERRUPTED` warning and the absence of `.tmp` files. It was red against the
+unmodified release binary with `exit -2 after SIGINT (expected 4)`; after the
+fix it passes, and a direct two-signal control exited 130 without a report.
+X21 was removed from `scripts/repro_xfail.txt`. The repro harness ran 34
+scenarios with 0 failures, 2 SKIPs and 0 XPASS; G7 and the benchmark smoke were
+green. `scripts/perf_gate.py --carvex target/release/carvex` reported
+**PERF GREEN**: s9_4m median 0.156 s and rand64m median 0.039 s. No new
+coverage measurement was made for
+H-14/H-16/H-17/H-18/H-19/H-21/H-22/H-25/H-26/H-27/H-28.
 
 ## 3. GitHub Actions
 

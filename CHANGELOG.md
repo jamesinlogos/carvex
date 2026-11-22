@@ -64,6 +64,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   detailed `regions[]` rows are kept. Schema 2 adds `options.max_regions`,
   `regions[].extent_id`, `regions[].summarized` and the additive `mixed` region
   kind. Regions are generated from the scanner's actual read plan.
+- H-28: `ctrlc` 3.5.3 installs a cooperative SIGINT/Ctrl-C handler for `scan`.
+  Schema 2 gains `interrupted: true` and an `INTERRUPTED` warning on an
+  interrupted partial report; a second signal exits 130.
 
 ### Changed
 
@@ -87,6 +90,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   built from the same extents the scanner reads. Real free extents, their
   allocated complement, gaps and unsupported partitions are reported with
   exact `bytes_scanned` accounting. Summarisation never changes coverage.
+- H-28: SIGINT/Ctrl-C no longer kills the process. The first signal requests a
+  cooperative stop, completed outputs remain, and the run exits 4 after writing
+  its partial report; the documented exit code is now implemented.
 - Updated test count to 131. Re-measured line coverage after R-01/R-02 is
   4456/6391 lines = 69.72%; the honest CI/local floor remains 60%.
 - E01 read errors now follow `--on-read-error`; the default changed from

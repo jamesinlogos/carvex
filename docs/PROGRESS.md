@@ -64,7 +64,7 @@ scripts/coverage.sh 60                                OK (4456/6391 lines = 69.7
 scripts/fuzz.sh 60                                   7 targets x 60 s, 18,520,025 runs, no crashes/artifacts
 ```
 
-Current gate after H-27 (2026-11-22): **GATE GREEN**, 131 tests
+Current gate after H-28 (2026-11-22): **GATE GREEN**, 131 tests
 (43 unit + 13 cli_contract + 7 evidence_formats + 2 fragment_recovery +
 8 fs_detect + 2 jpeg_frame_budget + 4 memory_budget + 3 panic_containment +
 2 png_crc_validity + 4 png_decode_budget + 2 png_validator_budget +
@@ -73,7 +73,7 @@ Current gate after H-27 (2026-11-22): **GATE GREEN**, 131 tests
 1 validity_model + 4 work_budgets + 3 volume_parse_errors + 3 region_coverage),
 34 repro scenarios with 0 failures/2 SKIPs/0 XPASS, G7 and benchmark smoke green.
 `scripts/perf_gate.py --carvex target/release/carvex` reported **PERF GREEN**:
-s9_4m median 0.167 s (limit 3.0 s), rand64m median 0.032 s.
+s9_4m median 0.156 s (limit 3.0 s), rand64m median 0.039 s.
 
 ### Pre-execution protocol correction (protocol-v1.1)
 
@@ -195,6 +195,7 @@ Windows**.
 | H-25 | LOW | 2026-11-22 source | CLOSED | e65f0f2 | tests/evidence_formats.rs::{compressed_e01_report_records_logical_and_physical_identity, vmdk_report_records_logical_and_physical_identity}; stdin schema test; X22 | Red tests failed with `left: Null, right: "e01"/"vmdk"/"stdin"`. Schema 2 now adds `input.logical_size`, `physical_size`, both `_after` fields, `format` and `files[]`; legacy `size`/`size_after` keep their meanings. Stdin reports `unchanged: null`. X22 checks compressed E01, VMDK and stdin and was removed from xfail. |
 | H-26 | MED | 2026-11-22 source | CLOSED | eb649f1 | tests/volume_parse_errors.rs; scripts/review_repro.py X19 | Red tests: multi-volume scan exited 0 with no warning, the single-volume message was generic, and `info` hid the cause. Parse errors now emit `VOLUME_PARSE_FAILED`, exit 3, flag the fallback region, and give a specific `FS_DETECTION_FAILED`/`info` cause. X19 was strengthened and removed from xfail. |
 | H-27 | MED | 2026-11-22 source/bench FAT32 | CLOSED | 5ebe851 | tests/region_coverage.rs; scripts/review_repro.py X20 | X20 reported `regions overlap or are unsorted`; the scanned rows summed to 102,760,448 B vs 95,367,168 B scanned on the v5 disk. Red tests also showed regions starting at the volume, not byte 0, and `info --json` calling the whole volume free. Regions now come from the scanner extent plan, cover the image exactly, carry `extent_id`/`summarized`, and preserve `Σ scanned == bytes_scanned`; X20 was removed from xfail. |
+| H-28 | MED | 2026-11-22 source/release binary | CLOSED | - | scripts/review_repro.py X21; direct two-signal control | X21 killed the unmodified release binary with `exit -2 after SIGINT (expected 4)` and no report. `ctrlc` now latches a cooperative stop through all scanner stages; an interrupted run writes an `interrupted`/`INTERRUPTED` schema-2 report and exits 4, completed outputs stay, and a second signal exits 130. X21 passes and was removed from xfail. |
 | H-23 | MED | 2026-11-21 source | CLOSED | 080b76a | tests/regress_vmdk_safety.rs | Missing grain table returned "index out of range"; now reads zeros like qemu-img. |
 
 ### Per-task reports
@@ -617,6 +618,31 @@ Residual risk / next: the merged `mixed` kind is additive schema-2 metadata;
   consumers that reject an unknown enum value must stay on schema 1 or avoid
   `--max-regions` values that force summarisation. No output or scan behavior
   changed.
+
+Task: H-28 — Cooperative SIGINT/Ctrl-C stop
+Reviews: v5:F-14 (RT), v2:A-13 (SRC), docs `ARCHITECTURE.md`
+Repro: REPRODUCED — X21 signalled the unmodified `target/release/carvex`
+  directly and failed with `exit -2 after SIGINT (expected 4)`; no report was
+  written. The test note about non-interactive shell background jobs was
+  followed by spawning the child directly.
+Change: `ctrlc` 3.5.3 installs one process-wide handler. The first signal
+  latches shared state that joins the existing wall-clock stop checks at
+  candidate counting, carving, fragment recovery and output writing; the
+  second signal exits 130. `run_scan` emits schema-2 `interrupted: true` and
+  an `INTERRUPTED` warning, and `cli::scan` returns 4. `partial_report`
+  carries the flag when a signal precedes a read-error abort. Schema 1 drops
+  the new field.
+Evidence: after the fix X21 passed with exit 4, schema 2, `interrupted: true`,
+  an `INTERRUPTED` warning and no `.tmp` files. A direct control with two
+  signals 0.02 s apart exited 130 and wrote no report. The full gate reported
+  131 tests, 34 scenarios, 0 failures/2 SKIPs/0 XPASS, GOLDEN GREEN and
+  **GATE GREEN** (`/tmp/opencode/gate_h28.log`); `scripts/perf_gate.py`
+  reported **PERF GREEN**, s9_4m median 0.156 s and rand64m median 0.039 s
+  (`/tmp/opencode/perf_h28.log`). X21 was removed from xfail.
+Residual risk / next: the handler is process-wide, so library callers that do
+  not install it pass `interrupt: None`. No packaged Windows binary was
+  available to execute; Windows Ctrl-C support is a source/dependency claim
+  only. No lockbox, full benchmark or `dist/` rebuild was run.
 
 ### Conflict measurements (C1-C13)
 

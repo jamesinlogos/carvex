@@ -93,14 +93,15 @@ according to the degree of completeness of the evidence.
 - Completed but evidence was missed (coded warnings `*_NOT_SCANNED`,
   `IMAGE_MODIFIED`, `FS_DETECTION_FAILED`, `VOLUME_PARSE_FAILED`…) → **exit 3**
   (`Warning::incomplete()` in `scan.rs`).
-- Interrupted (SIGINT) → **exit 4**.
+- Interrupted (SIGINT/Ctrl-C) → **exit 4** after an atomic partial report with
+  `interrupted: true` and `INTERRUPTED`; a second signal exits **130** (H-28).
 - Informational warning (`RAW_SCANS_ALLOCATED`) does not change the exit code (D-20).
 
 ## 6. Reports
 
 - Schema **2** (default): adds `schema_version`, `tool_info`, `input`,
   `argv`, `options`, `case_id`, `examiner`, `started_at*`, `warnings[]`
-  (`{code,message}`), `volumes[]`, `regions[]`; published at
+  (`{code,message}`), `volumes[]`, `regions[]`, `interrupted`; published at
   [`report.schema.json`](report.schema.json).
 - Schema **1** (`--report-schema 1`): exactly the 0.1.0 shape — the test
   `report_schema_one_has_the_v01_shape` locks the key list.

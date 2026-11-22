@@ -1745,6 +1745,19 @@ def case_x21(carvex: Path, work: Path, corpus: Path, ntfs: Path | None) -> str:
         return f"exit {proc.returncode} after SIGINT (expected 4)"
     if not report.is_file():
         return "no partial report after SIGINT"
+    try:
+        doc = json.loads(report.read_text())
+    except (OSError, json.JSONDecodeError) as exc:
+        return f"partial report is not valid JSON: {exc}"
+    if doc.get("schema_version") != 2:
+        return f"partial report schema is {doc.get('schema_version')!r}"
+    if doc.get("interrupted") is not True:
+        return f"interrupted flag is {doc.get('interrupted')!r}"
+    if not any(w.get("code") == "INTERRUPTED" for w in doc.get("warnings", [])):
+        return f"no INTERRUPTED warning: {doc.get('warnings')!r}"
+    temp_files = [p.name for p in out.rglob("*") if ".tmp" in p.name]
+    if temp_files:
+        return f"half-written output files remain: {temp_files[:5]!r}"
     return ""
 
 

@@ -429,6 +429,7 @@ fn scan(args: ScanArgs) -> Result<i32> {
     {
         bail!("B-06 limits require --fragment-recovery");
     }
+    let interrupt = scan::install_interrupt_handler()?;
     let options = OpenOptions {
         allow_external_extents: args.allow_external_extents,
         on_read_error: args.on_read_error,
@@ -755,6 +756,7 @@ fn scan(args: ScanArgs) -> Result<i32> {
         out_dir: &args.output,
         unreadable_regions: &image.unreadable_regions,
         skip_unreadable: args.on_read_error == OnReadError::Skip,
+        interrupt: Some(interrupt),
     };
     let run_result = scan::run_scan(&input, &opts, &ctx);
     let unreadable_regions: Vec<UnreadableRegion> = match image.unreadable_regions.lock() {
@@ -806,6 +808,11 @@ fn scan(args: ScanArgs) -> Result<i32> {
         eprintln!("warning[{}]: {}", warning.code, warning.message);
     }
     write_reports(&report, &args)?;
+    // H-28 takes precedence over the generic incomplete exit: SIGINT always
+    // reports as interrupted, even when other warnings are also present.
+    if report.interrupted {
+        return Ok(4);
+    }
     // Exit 3 = finished but incomplete: evidence was left unscanned (A-07).
     Ok(if report.warnings.iter().any(|w| w.incomplete()) {
         3

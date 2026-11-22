@@ -79,6 +79,7 @@ fn run_raw(
         out_dir: dir.path(),
         unreadable_regions: &regions,
         skip_unreadable: false,
+        interrupt: None,
     };
     run_scan(&input, opts, &ctx)
 }
@@ -146,6 +147,7 @@ fn changed_source_is_detected_before_a_file_is_written() {
         out_dir: dir.path(),
         unreadable_regions: &regions,
         skip_unreadable: false,
+        interrupt: None,
     };
     let mut opts = scan_options(vec![FileType::Jpeg], ScanMode::Raw);
     opts.min_size = 1;
