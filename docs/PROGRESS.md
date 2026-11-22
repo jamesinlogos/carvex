@@ -1,6 +1,6 @@
 # Implementation progress (CarveX 0.2.0)
 
-> Last updated: 2026-11-20. Every status below is verified by the command
+> Last updated: 2026-11-22. Every status below is verified by the command
 > recorded with it; items that could not be run due to missing tools are marked
 > `SKIPPED`, with no guessed results. IDs follow the consolidated guide §6
 > (A-01…A-15, B-01…B-11, C-01…C-09, D-01…D-03); old findings F-01…F-21 are
@@ -64,6 +64,16 @@ scripts/coverage.sh 60                                OK (4456/6391 lines = 69.7
 scripts/fuzz.sh 60                                   7 targets x 60 s, 18,520,025 runs, no crashes/artifacts
 ```
 
+Current gate after H-14 (2026-11-22): **GATE GREEN**, 104 tests
+(39 unit + 13 cli_contract + 5 evidence_formats + 2 fragment_recovery +
+8 fs_detect + 2 jpeg_frame_budget + 4 memory_budget + 3 panic_containment +
+4 png_decode_budget + 2 png_validator_budget + 5 properties +
+3 regress_e01_safety + 4 regress_vmdk_safety + 6 scan_integration +
+4 work_budgets), 34 repro scenarios with 0 failures/2 SKIPs/0 XPASS,
+G7 and benchmark smoke green. `scripts/perf_gate.py --carvex
+target/release/carvex` reported **PERF GREEN**: s9_4m median 0.140 s
+(limit 3.0 s), rand64m median 0.032 s.
+
 ### Pre-execution protocol correction (protocol-v1.1)
 
 `protocol-v1` was committed/tagged/pushed before any lockbox artifact was
@@ -111,7 +121,7 @@ Windows**.
 | A-08 | PARTIAL | green | `trait ImageSource {len, read_at}` + unchanged `RawFile` default; `seek(End)` fallback when metadata len = 0. B-04 adds split raw, E01, VHD, VMDK and stdin sources under `src/image/`. `--on-read-error` and report `unreadable_regions[]` are now present (H-22); no `BlockDevice`/`--sector-size` yet and real device/Windows not tested. |
 | A-09 | PARTIAL | green | Fixed the NTFS sector off-by-one (`field+1`, D-21, unit test `volume_sector_count_includes_the_backup_boot_sector`); FS errors → `FS_DETECTION_FAILED`. No `$ATTRIBUTE_LIST`/multi-extent `$MFT`/`$MFTMirr`/backup boot/FAT #2 yet. |
 | A-10 | DONE | green | Lib crate + thin `main.rs`; pipeline `plan_extents → build_tasks → scan_task → carve_batch → postfilter → write_outputs`; format registry; `ScanInput<'a>` groups the input parameters for `run_scan`, with targeted `too_many_arguments` allows only on the two R-01/R-02 helpers that take explicit budget/deadline state; `cargo doc -D warnings` passes. |
-| A-11 | PARTIAL | green | **80 tests** (34 unit + 13 cli_contract + 5 evidence_formats + 8 fs_detect + 5 properties + 6 scan_integration + 2 fragment_recovery + 3 memory_budget + 4 png_decode_budget); `scripts/review_repro.py --assert/--xfail` 10/10; red baseline `docs/baseline/repro_v0.1.0.txt`. Post-R-01/R-02 `cargo-llvm-cov 0.9.1` measured 4456/6391 lines = **69.72%**; CI/local floor set to 60%, not the earlier aspirational 80%. |
+| A-11 | PARTIAL | green | **104 tests** in the current gate (39 unit + 13 cli_contract + 5 evidence_formats + 2 fragment_recovery + 8 fs_detect + 2 jpeg_frame_budget + 4 memory_budget + 3 panic_containment + 4 png_decode_budget + 2 png_validator_budget + 5 properties + 3 regress_e01_safety + 4 regress_vmdk_safety + 6 scan_integration + 4 work_budgets); `scripts/review_repro.py --assert/--xfail --carvex` 34 scenarios, 0 failures, 2 SKIPs, 0 XPASS; red baseline `docs/baseline/repro_v0.1.0.txt`. Post-R-01/R-02 `cargo-llvm-cov 0.9.1` measured 4456/6391 lines = **69.72%**; CI/local floor set to 60%, not the earlier aspirational 80%. No new coverage run after H-14. |
 | A-12 | PARTIAL | green | MSRV 1.85 (`rust-version`, README corrected from "Rust 1.74"); `cargo +1.85 check` in the gate; `.github/workflows/ci.yml` adds actionlint + coverage and uses a pinned direct actionlint install; `rustfmt.toml`/`clippy.toml`/`deny.toml`; dist 0.2.0 + `SHA256SUMS`. Local `cargo deny check`, `cargo audit` and `actionlint 1.7.12` pass. Real GitHub run `44548142275` on commit `42376a9` succeeded (all jobs; push-event fuzz matrix skipped), but it predates B-04, B-06 and R-01/R-02. Distributed Windows binary not executed; no SBOM/signatures yet; removing binaries from `dist/` is STOP-AND-ASK (kept). |
 | A-13 | PARTIAL | green | Exit 0/1/2/3/4 documented + CLI contract tests; coded warnings; `RAW_SCANS_ALLOCATED` informational (D-20). No `thiserror`/leveled logger/`ProgressSink`/partial report on interrupt yet. |
 | A-14 | DONE | green | Report schema v2: `schema_version`, `argv`, `options`, `tool_info`, `input` (before–after SHA-256), ISO-8601, `case_id`, `examiner`, `warnings[]` object, `volumes[]`, `regions[]`, `lba`, real `cluster`, `partition_index`, `extent_id`, `allocated`, `source`, `fragments`. `docs/report.schema.json` + key-matching test; atomic write; `--manifest` generates `SHA256SUMS`; `--report-schema 1`. `unreadable_regions[]` belongs to A-08 (not present). |
@@ -174,8 +184,8 @@ Windows**.
 | H-06 | CRIT | 2026-11-21 source / 2026-11-21 release build | CLOSED | 3534717 | tests/jpeg_frame_budget.rs; scripts/review_repro.py X03 | Red test proved the decoder ran without a budget check. After: 20,000² and 65,535² SOF claims → `unverified`, 0.010 s / 8.9 MiB and 0.009 s / 9.0 MiB RSS. |
 | H-08 | CRIT | 2026-11-21 source / 2026-11-21 release build | CLOSED | e69e68b | tests/memory_budget.rs; scripts/review_repro.py X01 | Red test: 300 x ~60 KiB JPEGs (18 MiB output) with `--max-memory 16M` failed before the fix. After: all 300 written with bounded RSS; `SOURCE_CHANGED` verified by a changing-source test; G8 s9_4m 0.476s before vs 0.164s after. |
 | H-09 | HIGH | 2026-11-21 source / 2026-11-21 release build | CLOSED | 48deab5 | tests/work_budgets.rs; scripts/review_repro.py X05 | Red X05 (missing flags) before the fix; after: all four limits trip with coded warning, report and exit 3; time case sets `nondeterministic_stop`. D-39 defaults measured on D0/S9/S10. |
-| H-10 | HIGH | 2026-11-21 source / 2026-11-21 release build | CLOSED | b87ced9 | tests/panic_containment.rs; scripts/review_repro.py X06 | Red test proved an escaping rayon panic before the fix. After: candidate/join panics become `internal_errors[]`, `CANDIDATE_PANIC`, counted in stats, exit 3; other candidates still carved. Open panics become typed errors; panic=unwind profile test added. |
-| H-14 | HIGH | - | OPEN | - | - | No new fuzz targets for image parsers yet. |
+| H-10 | HIGH | 2026-11-21 source / 2026-11-21 release build | CLOSED | 5f794a4 | tests/panic_containment.rs; scripts/review_repro.py X06 | Red test proved an escaping rayon panic before the fix. After: candidate/join panics become `internal_errors[]`, `CANDIDATE_PANIC`, counted in stats, exit 3; other candidates still carved. Open panics become typed errors; panic=unwind profile test added. |
+| H-14 | HIGH | 2026-11-22 source / nightly fuzz runtime | CLOSED | ba7e134 | fuzz/fuzz_targets/fuzz_*.rs; src/image/fuzz_support.rs tests; scripts/fuzz.sh | Static gap: only 7 targets, none for the new parsers. Added 6 named targets, 22 committed seeds and structured property tests; each target ran 60 s clean (235,272 executions total, no crash/artifact). Real-tool E01/VMDK fixtures SKIPPED (`ewfacquire`/`ewfexport`/`qemu-img` missing); all 13 targets are listed in the CI fuzz matrix. |
 | H-15 | MED | 2026-11-21 source / 0.2.0 `dist/` | MEASURED (musl-only) | - | scripts/review_repro.py X23; conflict C5 | Source build: 1 thread 0.542 s, default 0.364 s. Packaged musl build: 1 thread 0.764 s, default 2.491 s (3.26x slower). No allocator change without STOP-AND-ASK; measured, not tuned. |
 | H-18 | HIGH | 2026-11-21 source | IN_PROGRESS | 3724a06 | scripts/review_repro.py X12; scripts/jpeg_splice_property.py | Baseline splice rate 0.2180 [0.1935,0.2446] at a7a5c08; current rate 0.0010 [0.0002,0.0056]. Strict-scan unsupported variants are Unverified; step 2 is still needed because the current upper CI exceeds 0.1%. |
 | H-19 | HIGH | 2026-11-21 source | CLOSED (stage 1) | - | scripts/review_repro.py X11 | PDF decode no longer returns Decoded; returns Unverified with explicit lexical-only note (stage 1 honesty). S12/B-06 acceptance adjusted with E-1 note: PDF stitches accepted as lexical-validated Unverified, not Decoded. |
@@ -186,6 +196,43 @@ Windows**.
 | H-23 | MED | 2026-11-21 source | CLOSED | 080b76a | tests/regress_vmdk_safety.rs | Missing grain table returned "index out of range"; now reads zeros like qemu-img. |
 
 ### Per-task reports
+
+Task: H-14 — No fuzz targets for the new parsers
+Reviews: v1:R-19, v2:N-06, v4:F-14, v5:F-10 (SRC×4)
+Repro: REPRODUCED statically before the change: `fuzz/fuzz_targets`
+  contained only the seven original targets; there was no target for E01,
+  VHD, VMDK, split-raw name parsing, `open_image` dispatch or B-06 fragment
+  joins despite the new attacker-controlled parsers in `src/image/`.
+Change: added `fuzz_e01`, `fuzz_vhd`, `fuzz_vmdk`, `fuzz_split_names`,
+  `fuzz_open_image` and `fuzz_fragment_join`. A hidden `fuzz_support` module
+  shares bounded builders with `tests/evidence_formats.rs`, an example
+  generator writes deterministic seeds, and raw passthrough keeps seed magic
+  intact. Seeds include fixture-derived containers and hostile X07–X09
+  samples. Real-tool containers were SKIPPED because `ewfacquire`,
+  `ewfexport` and `qemu-img` are not installed. The 13 targets are listed in
+  the CI fuzz matrix; the job itself remains scheduled/manual as before
+  (H-30 covers push/PR wiring).
+New tests: five structured-mutation property tests in
+  `src/image/fuzz_support.rs` cover E01, VHD (including a hole), VMDK,
+  split-raw names and `open_image` dispatch. The fuzz entry point for
+  fragment joins calls `try_fragment_join` directly so libFuzzer sees panics
+  that the production H-10 containment wrapper would otherwise convert.
+Fuzz runtime (2026-11-22, cargo-fuzz 0.13.2, nightly
+  `1.102.0-nightly`): `scripts/fuzz.sh 60 fuzz_e01 fuzz_vhd fuzz_vmdk
+  fuzz_split_names fuzz_open_image fuzz_fragment_join`; six targets × 60 s,
+  235,272 executions, no crash, timeout, OOM or artifact. Per-target:
+  `fuzz_e01` 968, `fuzz_vhd` 79,089, `fuzz_vmdk` 48,460,
+  `fuzz_split_names` 87,028, `fuzz_open_image` 6,249 and
+  `fuzz_fragment_join` 13,478. No crash fixture was required because no
+  failure was found. Logs are in `bench/results/fuzz/` and the counts are
+  recorded in `docs/VALIDATION.md §4`.
+Gate: green (fmt/clippy/tests/doc/actionlint/deny/audit/MSRV/release/repro/golden/smoke).
+  G8 recheck on the release binary: s9_4m median 0.140 s, rand64m median
+  0.032 s, both PASS.
+Residual risk / next: fuzzing is sampling, not proof of parser safety. No
+  real-tool E01/VMDK container seeds, post-change GitHub Actions run,
+  Windows/musl packaged execution or new coverage measurement is claimed.
+  The historical 7×60 s run was not repeated after this change.
 
 Task: H-10 — No per-candidate or container panic containment
 Reviews: v1:R-07, v2:R-07, v3:R-07, v4:F-07, v5:F-05

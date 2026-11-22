@@ -384,6 +384,100 @@ impl ScanOptions {
     }
 }
 
+impl Default for ScanOptions {
+    fn default() -> Self {
+        Self {
+            types: FileType::all().to_vec(),
+            mode: ScanMode::Auto,
+            min_size: 256,
+            max_size: 64 * 1024 * 1024,
+            max_truncated_size: 16 * 1024 * 1024,
+            max_memory: 1024 * 1024 * 1024,
+            max_validator_memory: ValidationLimits::default().max_validator_memory,
+            chunk_size: 64 * 1024,
+            threads: 0,
+            min_score: 50,
+            repair: false,
+            complete_only: false,
+            pdf_eof: PdfEofMode::Smart,
+            dedupe_hashes: false,
+            suppress_nested: true,
+            validate: ValidationMode::Structure,
+            align: AlignMode::None,
+            force: false,
+            quiet: true,
+            verbose: false,
+            manifest: false,
+            partition: "largest".to_string(),
+            include_gaps: false,
+            max_candidates: DEFAULT_MAX_CANDIDATES,
+            max_work_per_candidate: DEFAULT_MAX_WORK_PER_CANDIDATE,
+            max_output: DEFAULT_MAX_OUTPUT,
+            time_budget: Duration::from_secs(DEFAULT_TIME_BUDGET_SECS),
+            fragment_recovery: true,
+            max_gap: DEFAULT_MAX_GAP_CLUSTERS,
+            max_frag_candidates: DEFAULT_MAX_FRAG_CANDIDATES,
+            frag_time_limit: Duration::from_millis(DEFAULT_FRAG_TIME_LIMIT_MS),
+        }
+    }
+}
+
+/// Hidden fuzz entry point for one B-06 join attempt. It derives bounded
+/// candidate offsets from the fuzz bytes and calls the production join path
+/// directly; unlike the scan pipeline it deliberately does not catch panics so
+/// libFuzzer can report parser defects.
+#[doc(hidden)]
+pub fn fuzz_fragment_join(data: &[u8]) {
+    use crate::image::fuzz_support::{bounded_u64, fragment_fuzz, MemSource};
+
+    let data = fragment_fuzz(data);
+    let source = MemSource::new(data.clone());
+    let len = source.len();
+    if len == 0 {
+        return;
+    }
+    let opts = ScanOptions {
+        types: FileType::all().to_vec(),
+        fragment_recovery: true,
+        max_size: data.len() as u64,
+        max_work_per_candidate: 1024 * 1024,
+        max_memory: 16 * 1024 * 1024,
+        ..ScanOptions::default()
+    };
+    let budget = Arc::new(MemoryBudget::new(opts.max_memory));
+
+    for (type_index, &kind) in FileType::all().iter().enumerate() {
+        let candidate = Candidate {
+            offset: 0,
+            extent_end: len,
+            extent_id: type_index,
+            kind,
+        };
+        for attempt in 0..4usize {
+            let base = 64 + (type_index * 4 + attempt) * 32;
+            let cut = bounded_u64(fuzz_u64_at(&data, base), 1, len);
+            let tail_start = bounded_u64(fuzz_u64_at(&data, base + 8), cut, len);
+            let footer_end = bounded_u64(fuzz_u64_at(&data, base + 16), tail_start, len);
+            let gap_clusters = fuzz_u64_at(&data, base + 24) % (DEFAULT_MAX_GAP_CLUSTERS + 1);
+            let join = FragmentJoin {
+                cut,
+                tail_start,
+                footer_end,
+                gap_clusters,
+            };
+            let _ = try_fragment_join(&source, &candidate, &join, &opts, &budget);
+        }
+    }
+}
+
+fn fuzz_u64_at(data: &[u8], offset: usize) -> u64 {
+    let mut bytes = [0u8; 8];
+    for (i, byte) in bytes.iter_mut().enumerate() {
+        *byte = data.get(offset + i).copied().unwrap_or(0);
+    }
+    u64::from_le_bytes(bytes)
+}
+
 /// Run-specific metadata that is not a scanning option.
 #[derive(Debug, Clone, Default)]
 pub struct ScanContext {

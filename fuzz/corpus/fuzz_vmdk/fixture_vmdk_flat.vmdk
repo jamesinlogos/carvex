@@ -1,0 +1,4 @@
+# Disk DescriptorFile
+version=1
+# Extent description
+RW 22 FLAT "disk-flat.vmdk" 0

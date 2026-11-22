@@ -101,6 +101,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - E01 segment discovery supports the usual two-digit base-36 suffixes (up to
   `.EZZ`, 1295 segments); sets with longer suffixes are rejected explicitly
   rather than partially discovered.
+- H-14 fuzz smoke: the six new targets each ran 60 s locally (235,272
+  executions total), with no crash, timeout, OOM or artifact. Real-tool E01
+  and VMDK container seeds were SKIPPED because the acquisition tools are not
+  installed; the historical seven-target run is not presented as a
+  post-change result.
 
 ## [0.2.0] — 2026-11-19
 
@@ -156,8 +161,13 @@ additive and schema 1 remains available.
 - `docs/report.schema.json` plus a CLI test that checks the emitted key sets
   against the schema.
 - Integration tests (`tests/fs_detect.rs`, `tests/scan_integration.rs`,
-  `tests/cli_contract.rs`), property tests (`tests/properties.rs`) and seven
-  cargo-fuzz targets with seeds from the benchmark images.
+  `tests/cli_contract.rs`), property tests (`tests/properties.rs`) and thirteen
+  cargo-fuzz targets: the seven original targets with seeds from the benchmark
+  images plus six H-14 parser targets with deterministic evidence-format and
+  hostile-input seeds.
+- Hidden, bounded fixture builders shared by `tests/evidence_formats.rs`,
+  `examples/gen_fuzz_seeds.rs`, the six new fuzz targets and five structured
+  parser property tests. The CI fuzz matrix lists all thirteen targets.
 - `.github/workflows/ci.yml` (3-OS fmt/clippy/test/doc/build, MSRV,
   cargo-deny/audit, benchmark smoke, conditional nightly fuzz matrix) with a
   pinned direct actionlint 1.7.12 install and lint step.

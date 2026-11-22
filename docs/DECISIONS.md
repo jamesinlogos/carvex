@@ -619,3 +619,31 @@ decision, and the consequences.
   X06 now asserts a report with one `internal_errors[]` record, one counted
   error, the `CANDIDATE_PANIC` warning, exit 3 and the healthy candidate still
   written. No claim is made about fuzz execution or natural panic discovery.
+
+## D-41. Parser fuzz coverage and fixtures (H-14)
+
+- **Context:** four independent reviews found fuzz coverage only for the seven
+  original targets. The new E01, VHD, VMDK, split-raw, `open_image` dispatch and
+  B-06 join paths accept attacker-controlled bytes but had no target, and
+  `tests/evidence_formats.rs` contained one-off container builders that could
+  not be reused by a fuzzer or by property tests.
+- **Decision:** a hidden `src/image/fuzz_support.rs` module owns bounded
+  builders and mutators. Fuzz bytes choose small, plausible variants of the
+  same on-disk layouts used by the evidence-format tests; all sizes are capped
+  before allocation. When fuzz input already has recognised EWF, VHD or VMDK
+  magic it is written through unchanged, so committed seeds reach the real
+  parser paths. `examples/gen_fuzz_seeds.rs` regenerates the deterministic
+  seeds, including the hostile X07 huge-chunk sample and the X08/X09 VMDK
+  samples. The global `*.E01` ignore rule is narrowed only for
+  `fuzz/corpus/**` so those seeds are committed source fixtures.
+- **Boundary:** `fuzz_fragment_join` intentionally calls `try_fragment_join`
+  without the production `catch_unwind` wrapper so libFuzzer can report a
+  panic. This changes no CLI behaviour; H-10 containment remains at the scan
+  boundary. Real-tool E01 and VMDK fixtures were SKIPPED rather than invented
+  because `ewfacquire`, `ewfexport` and `qemu-img` are unavailable. No crash
+  was found, so no entry was added under `tests/fixtures/crashes/`.
+- **Evidence:** six targets ran 60 s each with 235,272 executions and no
+  crash, timeout, OOM or artifact; five structured-mutation property tests
+  exercise the shared builders. The original seven-target run remains a
+  historical result and is not presented as a post-change run. Full counts
+  are in `docs/PROGRESS.md` and `docs/VALIDATION.md §4`.

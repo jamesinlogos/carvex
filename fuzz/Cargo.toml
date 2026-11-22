@@ -10,6 +10,7 @@ cargo-fuzz = true
 [dependencies]
 libfuzzer-sys = "0.4"
 carvex = { path = ".." }
+tempfile = "3"
 
 [[bin]]
 name = "jpeg"
@@ -56,6 +57,48 @@ bench = false
 [[bin]]
 name = "partition_table"
 path = "fuzz_targets/partition_table.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_e01"
+path = "fuzz_targets/fuzz_e01.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_vhd"
+path = "fuzz_targets/fuzz_vhd.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_vmdk"
+path = "fuzz_targets/fuzz_vmdk.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_split_names"
+path = "fuzz_targets/fuzz_split_names.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_open_image"
+path = "fuzz_targets/fuzz_open_image.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_fragment_join"
+path = "fuzz_targets/fuzz_fragment_join.rs"
 test = false
 doc = false
 bench = false

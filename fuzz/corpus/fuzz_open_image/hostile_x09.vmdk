@@ -1,0 +1,8 @@
+# Disk DescriptorFile
+version=1
+CID=00000001
+parentCID=ffffffff
+createType="monolithicFlat"
+
+# Extent description
+RW 1 FLAT "/etc/passwd" 0

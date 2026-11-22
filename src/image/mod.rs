@@ -10,6 +10,10 @@ mod split;
 mod vhd;
 mod vmdk;
 
+/// Hidden fixture builders shared by fuzz targets and parser property tests.
+#[doc(hidden)]
+pub mod fuzz_support;
+
 use crate::io::{read_exact_at, read_vec_at, ImageSource, RawFile};
 use crate::util::file_identity;
 use anyhow::{anyhow, bail, Context, Result};

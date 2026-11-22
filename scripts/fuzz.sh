@@ -1,12 +1,19 @@
 #!/usr/bin/env bash
-# Run every CarveX fuzz target for a fixed wall-clock budget (guide-v2 §4.1 G5).
+# Run CarveX fuzz targets for a fixed wall-clock budget (guide-v2 §4.1 G5).
 # Results are written as plain logs so the run can be audited without a GitHub
-# runner.  Usage: scripts/fuzz.sh [seconds-per-target]
+# runner.  Usage: scripts/fuzz.sh [seconds-per-target] [target ...]
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SECONDS_PER_TARGET="${1:-60}"
-TARGETS=(jpeg png pdf fat32_boot ntfs_boot ntfs_mft partition_table)
+shift || true
+if [ "$#" -gt 0 ]; then
+    TARGETS=("$@")
+else
+    TARGETS=(jpeg png pdf fat32_boot ntfs_boot ntfs_mft partition_table
+             fuzz_e01 fuzz_vhd fuzz_vmdk fuzz_split_names fuzz_open_image
+             fuzz_fragment_join)
+fi
 LOG_DIR="$ROOT/bench/results/fuzz"
 mkdir -p "$LOG_DIR"
 

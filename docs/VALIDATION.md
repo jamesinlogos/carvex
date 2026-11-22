@@ -1,6 +1,6 @@
 # Validation execution evidence (CarveX 0.2.0)
 
-> Last updated: 2026-11-20. This file records commands that were actually run
+> Last updated: 2026-11-22. This file records commands that were actually run
 > and the resulting artifacts. It is **execution evidence only**, not a second
 > technical report: `docs/REPORT.md` remains the sole technical report, and the
 > published 0.1.0 figures in `README.md`, `docs/REPORT.md` and
@@ -35,13 +35,15 @@ actionlint install.
 
 Command: `scripts/gate.sh`
 
-Result: **GATE GREEN**. It ran format check, clippy, 80 tests
-(34 unit + 13 CLI contract + 5 evidence formats + 8 filesystem detection +
-5 property + 6 scan integration + 2 fragment recovery + 3 memory budget +
-4 PNG decode budget), rustdoc with `-D warnings`, `actionlint`,
+Result: **GATE GREEN**. The original recorded run in this section executed 80
+tests (34 unit + 13 CLI contract + 5 evidence formats + 8 filesystem detection
++ 5 property + 6 scan integration + 2 fragment recovery + 3 memory budget +
+4 PNG decode budget); the current H-14 re-run is recorded below. The gate runs
+format check, clippy, tests, rustdoc with `-D warnings`, `actionlint`,
 `cargo deny check`, `cargo audit`, MSRV 1.85 check, release build,
-`scripts/review_repro.py` (10/10 PASS, 0 XPASS) and the benchmark smoke test
-(TP=3/FP=0 unallocated, TP=3/FP=1 raw). `cargo audit` reported 0
+`scripts/review_repro.py` (10/10 PASS, 0 XPASS in the original run; 34 scenarios
+with 0 failures, 2 SKIPs and 0 XPASS in the H-14 run) and the benchmark smoke
+test (TP=3/FP=0 unallocated, TP=3/FP=1 raw). `cargo audit` reported 0
 vulnerabilities in 91 crates against 1555 advisories; `cargo deny check`
 reported advisories, bans, licenses and sources all OK.
 
@@ -57,6 +59,16 @@ candidate-count enforcement and a finite default candidate limit. The four
 decode budget, a 50,335,744-byte expansion with a peak-RSS assertion, and an
 invalid filter byte. Smoke output remained metric-identical to the frozen 0.2.0
 behavior.
+
+The gate was re-run after H-14 on 2026-11-22 and remained green. The current
+test count is 104: 39 unit, 13 CLI contract, 5 evidence-format, 2 fragment
+recovery, 8 filesystem detection, 2 JPEG frame budget, 4 memory budget, 3
+panic containment, 4 PNG decode budget, 2 PNG validator budget, 5 property,
+3 E01 safety, 4 VMDK safety, 6 scan integration and 4 work-budget tests. The
+repro harness ran 34 scenarios with 0 failures, 2 SKIPs and 0 XPASS; G7 and
+the benchmark smoke were green. `scripts/perf_gate.py --carvex
+target/release/carvex` reported **PERF GREEN**: s9_4m median 0.140 s and
+rand64m median 0.032 s. No new coverage measurement was made for H-14.
 
 ## 3. GitHub Actions
 
@@ -84,6 +96,8 @@ no corresponding GitHub run is claimed.
 
 ## 4. Fuzz runtime
 
+### Historical seven-target run (before H-14)
+
 Command: `scripts/fuzz.sh 60` (7 targets × 60 seconds, nightly
 `1.102.0-nightly`, cargo-fuzz `0.13.2`).
 
@@ -99,7 +113,32 @@ Command: `scripts/fuzz.sh 60` (7 targets × 60 seconds, nightly
 | **Total** | **18,520,025** |
 
 No crash, timeout, OOM or panic was reported; `fuzz/artifacts/` remained
-empty. Full logs are in `bench/results/fuzz/*.log`.
+empty. Full logs are in `bench/results/fuzz/*.log`. These are historical
+results and were not repeated after H-14.
+
+### H-14 parser targets (2026-11-22)
+
+Command: `scripts/fuzz.sh 60 fuzz_e01 fuzz_vhd fuzz_vmdk fuzz_split_names
+fuzz_open_image fuzz_fragment_join` (6 targets × 60 seconds, nightly
+`1.102.0-nightly`, cargo-fuzz `0.13.2`).
+
+| Target | Executions |
+|---|---:|
+| `fuzz_e01` | 968 |
+| `fuzz_vhd` | 79,089 |
+| `fuzz_vmdk` | 48,460 |
+| `fuzz_split_names` | 87,028 |
+| `fuzz_open_image` | 6,249 |
+| `fuzz_fragment_join` | 13,478 |
+| **Total** | **235,272** |
+
+Each target printed `Done ... in 61 second(s)` with no crash, timeout, OOM or
+panic. No files were written under `fuzz/artifacts/`, so no minimised crash
+fixture or crash regression test was required. Real-tool E01/VMDK container
+seeds were SKIPPED because `ewfacquire`, `ewfexport` and `qemu-img` are not
+installed. The expanded fuzzer corpora were reset to the 22 deterministic
+committed seeds after the run. Logs are in `bench/results/fuzz/`; the CI
+matrix lists all 13 targets, but no post-change GitHub run is claimed.
 
 ## 5. Coverage
 
