@@ -211,9 +211,30 @@ no corresponding GitHub run is claimed.
 H-30 updates `.github/workflows/ci.yml` so push and pull-request events run the
 full gate, repro assertions, fuzz smoke for all 13 targets, the packaged
 Windows executable, a Linux musl build smoke, coverage at 70% and SBOM
-generation. A run ID for the H-30 HEAD has not yet been recorded; until it is,
-**no CI result at HEAD is claimed**. The local evidence in §2 and the G0-G9
-table are the executed evidence for this finding.
+generation. The first run at the pushed H-30 HEAD was checked through the
+public GitHub API:
+
+- Run ID: `45035152791`
+- URL: <https://github.com/jamesinlogos/carvex/actions/runs/45035152791>
+- Run number: `13`, event: `push`
+- Head SHA: `d9dcac3083de4181ce3864260e326072c7f120f9`
+- Status: `completed`, conclusion: **failure**
+- Jobs: 8 succeeded (`actionlint`, `MSRV`, `dependencies`, `coverage (≥70%)`,
+  `benchmark smoke`, `SBOM`, `test (ubuntu-latest)`, `test (macos-latest)`);
+  18 failed (the 13 `fuzz` targets, `review repro assertions`,
+  `release gate (G0-G9)`, `Linux musl packaged binary smoke`,
+  `Windows packaged binary smoke`, `test (windows-latest)`).
+
+The failing steps reported by the API were `Fuzz smoke (60 s on push/PR, 10 min
+nightly)` for all 13 fuzz jobs, `Run X01-X24 controls` for the repro assertions,
+`Run scripts/gate.sh` for the release gate, `Run cargo build --release --locked
+--target x86_64-unknown-linux-musl` for the musl smoke, `Execute the release exe`
+for the Windows packaged smoke, and `Tests` for the Windows test matrix. Job
+logs are not available through the public API to this account (the log endpoint
+returned `403 Must have admin rights to Repository.`), so the remote failure
+causes are **not observed** here and are not guessed. The local G0-G9 evidence
+in §2 therefore remains the only executed evidence for H-30: **no green CI run
+at HEAD is claimed**.
 
 ## 4. Fuzz runtime
 

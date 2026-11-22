@@ -12,7 +12,9 @@ Re-run evidence: `scripts/review_repro.py --assert` → **10/10 PASS**, 0 XPASS
 `scripts/gate.sh` → **GATE GREEN** (fmt, clippy, **134 tests** in the current
 H-29 run, doc, MSRV, release, repro, bench `--smoke`). The gate was re-run
 after B-04, B-06, R-01/R-02, H-14, H-16, H-17, H-18, H-19, H-21, H-22, H-25,
-H-26, H-27, H-28 and H-29; the recorded GitHub Actions runs predate those changes.
+H-26, H-27, H-28, H-29 and H-30. The only successful recorded GitHub Actions
+run predates those changes; the H-30 run at HEAD failed and is recorded without
+guessing remote causes.
 
 ## Summary table of 38 IDs (guide §6)
 
@@ -28,8 +30,8 @@ H-26, H-27, H-28 and H-29; the recorded GitHub Actions runs predate those change
 | A-08 | **MITIGATED** | `trait ImageSource {len, read_at}` with the unchanged `RawFile` default (pread by offset); fallback `seek(End)` when `metadata().len()==0`; B-04 adds read-only split raw, E01, VHD, VMDK and stdin sources; H-22 adds `--on-read-error`, per-sector raw/split error policy, `unreadable_regions[]` and an abort partial report; `--hash-image` streaming | No `BlockDevice`/`--sector-size`; `info /dev/loopN`, real devices, Windows and libewf-made E01 not tested; VHD/VMDK keep container-specific error semantics. |
 | A-09 | **MITIGATED** | Fixed NTFS sector off-by-one (`field+1` clamped to `available`, D-21, unit test `volume_sector_count_includes_the_backup_boot_sector`); all FS parse errors → `FS_DETECTION_FAILED`, and H-26 adds per-partition `VOLUME_PARSE_FAILED` with index/offset/reason plus `may_contain_allocated` on the fallback region | No `$ATTRIBUTE_LIST`, multi-extent `$MFT`, `$MFTMirr` fallback, backup boot fallback, FAT #2/backup BPB yet. |
 | A-10 | **FIXED** | Lib crate + thin `main.rs`; pipeline `plan_extents→build_tasks→scan_task→carve_batch→postfilter→write_outputs`; format registry; `ScanInput` groups pipeline inputs, with targeted `too_many_arguments` allows only on the two R-01/R-02 helpers that take explicit budget/deadline state; `cargo doc -D warnings` green; deterministic tests | No full public `#![warn(missing_docs)]`; pedantic cleanup not done by group. |
-| A-11 | **MITIGATED** | **134 tests** in the current H-29 gate (43 unit + 13 `cli_contract` + 7 `evidence_formats` + 5 `fragment_recovery` + 8 `fs_detect` + 2 `jpeg_frame_budget` + 4 `memory_budget` + 3 `panic_containment` + 2 `png_crc_validity` + 4 `png_decode_budget` + 2 `png_validator_budget` + 8 `pdf_structure_validation` + 5 `properties` + 4 `regress_e01_safety` + 4 `regress_vmdk_safety` + 3 `repair_validation` + 6 `scan_integration` + 1 `validity_model` + 4 `work_budgets` + 3 `volume_parse_errors` + 3 `region_coverage`); `scripts/review_repro.py --assert/--xfail` 34 scenarios, 0 failures, 2 SKIPs, 0 XPASS; red baseline `docs/baseline/repro_v0.1.0.txt`; Critical/High findings have targeted regression tests; post-R-01/R-02 coverage 4456/6391 lines = 69.72% | No claim of ≥80% coverage or of a new coverage measurement after H-14/H-16/H-17/H-18/H-19/H-21/H-22/H-25/H-26/H-27/H-29; floor is honestly 60%. Integration tests are named `tests/*.rs` rather than `tests/regress_*.rs`. |
-| A-12 | **MITIGATED** | MSRV **1.85** (`rust-version` + README corrected from "Rust 1.74"); `cargo +1.85 check --locked` in gate; `.github/workflows/ci.yml` (3 OS, MSRV, deny/audit, smoke, conditional nightly fuzz matrix now listing all 13 targets); `rustfmt.toml`/`clippy.toml`/`deny.toml`; dist 0.2.0 rebuild + `SHA256SUMS`; local `cargo audit` 0.23.0, `cargo deny` 0.21.0 and `actionlint` 1.7.12 pass; GitHub run `44548142275` on `42376a9` succeeded with all jobs green | The recorded GitHub runs predate B-04, B-06 and R-01/R-02; no post-change CI run is claimed. Packaged Windows `.exe` **not executed**; GitHub's push-event fuzz matrix remains conditional (H-30); no SBOM/signatures; removing binaries from `dist/` is STOP-AND-ASK — kept unchanged. |
+| A-11 | **MITIGATED** | **134 tests** in the current H-29 gate (43 unit + 13 `cli_contract` + 7 `evidence_formats` + 5 `fragment_recovery` + 8 `fs_detect` + 2 `jpeg_frame_budget` + 4 `memory_budget` + 3 `panic_containment` + 2 `png_crc_validity` + 4 `png_decode_budget` + 2 `png_validator_budget` + 8 `pdf_structure_validation` + 5 `properties` + 4 `regress_e01_safety` + 4 `regress_vmdk_safety` + 3 `repair_validation` + 6 `scan_integration` + 1 `validity_model` + 4 `work_budgets` + 3 `volume_parse_errors` + 3 `region_coverage`); `scripts/review_repro.py --assert/--xfail` 34 scenarios, 0 failures, 2 SKIPs, 0 XPASS; red baseline `docs/baseline/repro_v0.1.0.txt`; Critical/High findings have targeted regression tests; post-R-01/R-02 coverage 4456/6391 lines = 69.72%; H-30 ran the gate and coverage at 70% locally | No claim of ≥80% coverage or of a new coverage measurement after H-14/H-16/H-17/H-18/H-19/H-21/H-22/H-25/H-26/H-27/H-29; floor is honestly 60%. Integration tests are named `tests/*.rs` rather than `tests/regress_*.rs`. The H-30 GitHub `review repro assertions` job failed remotely; its logs were not available, so the remote cause is not claimed. |
+| A-12 | **MITIGATED** | MSRV **1.85** (`rust-version` + README corrected from "Rust 1.74"); `cargo +1.85 check --locked` in gate; `.github/workflows/ci.yml` (3 OS, MSRV, deny/audit, smoke, push/PR fuzz matrix with 13 targets, packaged Windows and musl smokes, full gate, repro, coverage at 70% and SBOM); `rustfmt.toml`/`clippy.toml`/`deny.toml`; dist 0.2.0 rebuild + `SHA256SUMS`; local `cargo audit` 0.23.0, `cargo deny` 0.21.0 and `actionlint` 1.7.12 pass; earlier GitHub run `44548142275` on `42376a9` succeeded with all jobs green | H-30 pushed run `45035152791` on `d9dcac3` **failed**: 8 jobs succeeded and 18 failed, including the release gate, repro assertions, all 13 fuzz targets, Windows tests and both packaged-binary smokes; logs require repository admin and were not downloaded. No green CI run at HEAD is claimed. Packaged Windows `.exe` **not executed** locally; no signatures; removing binaries from `dist/` is STOP-AND-ASK — kept unchanged. |
 | A-13 | **MITIGATED** | Exit codes 0/1/2/3/4 documented (README) and CLI contract tests; coded warnings (`*_NOT_SCANNED` → exit 3, D-19); `RAW_SCANS_ALLOCATED` informational (D-20); H-22 writes a partial report with `READ_ABORTED` on read-error abort (exit 1); H-28 installs a cooperative SIGINT/Ctrl-C handler that writes a partial report with `interrupted: true` and `INTERRUPTED` and exits 4; short error messages with suggested actions | No `thiserror` types, no leveled logger/`--log-format json`, no `ProgressSink`/ETA for the carve phase; a second signal exits 130 without a report by design. |
 | A-14 | **MITIGATED** | Schema v2: `schema_version`, `argv`, `options`, `tool_info`, `input` (SHA-256 before/after, logical/physical sizes, resolved format and backing `files[]` from H-25), ISO-8601, `case_id`, `examiner`, `warnings[]` (objects), `volumes[]`, `regions[]`, per-file actual `lba`/`cluster`/`partition_index`/`extent_id`/`allocated`/`source`/`fragments`; H-16 adds required per-file `validity` and structured `checks[]`, renames the B-06 count to additive `fragment_checks`, and H-21 adds optional `sha256_original`; H-27 adds `options.max_regions`, plan-backed `regions[].extent_id`, `regions[].summarized` and the additive `mixed` kind; H-28 adds schema-2 `interrupted` plus the `INTERRUPTED` warning; `docs/report.schema.json` + test `emitted_report_matches_the_published_schema`; `report_schema_one_has_the_v01_shape`; atomic write; `--manifest` comments now show validity | `unreadable_regions[]` and `READ_ABORTED` belong to A-08/H-22; stdin `unchanged` is null (H-25); `tool_info.commit` may be empty outside git. Schema 1 still strips all additive fields. |
 | A-15 | **MITIGATED** | Hard `--max-memory` budget checks before allocation/retention plus caps on `--max-size`/`--max-truncated-size`; `--max-candidates`/`--time-budget`; atomic write (temp+rename); `--force` for non-empty directory; nested does not write-then-delete | No rejection of output located inside the source image/source device; no `--overwrite` (force still does not overwrite existing files? — needs test); no free-space/`--max-output` check; symlink following not forbidden. |
@@ -55,7 +57,7 @@ H-26, H-27, H-28 and H-29; the recorded GitHub Actions runs predate those change
 | C-09 | **OPEN** | `bench/run_benchmark.py` has a timing/throughput table (median, `runtime_min/max`); full 4-image/3-rep 0.2.0 re-run completed with checksums verified (`docs/VALIDATION.md §7`) | No 1–4 GiB/sparse 8–16 GiB images; no cold cache + IQR ≥10 repetitions; no per-scenario table in `BENCHMARK.md`. |
 | D-01 | **FIXED** | Removed absolute paths like `/home/…` from REPORT/CFREDS/README (`$CARVEX`, `$HOME/cfreds-data`); corrected "Pillow/ReportLab" → Pillow + internal PDF script; "100%" in abstract tied to type/n/CI/conditions; **16 numbered tables `Table 1…16`**; tool SHA-256s (foremost/scalpel/photorec) + explicit note that the benchmark binary hash was not recorded; §6.2 explains FPs with evidence (40/44, 40/54); README "Rust 1.74" → 1.85; "fair" conclusion qualified; confound F-16 added to §6.4; Windows `.exe` noted as untested (README + REPORT §6.4) | Figures still hand-written from `results.json` (see C-07). |
 | D-02 | **FIXED** | REPORT §1.4 Related Work: 5-branch taxonomy + feature comparison table; references [11]–[16] **DOI/publisher pages opened before insertion** (Garfinkel 10.1016/j.diin.2007.06.017; Richard–Roussev DFRWS 2005 dfrws.org; Pal–Memon 10.1109/MSP.2008.931081; Sencar–Memon 10.1016/j.diin.2009.06.007; Cohen 10.1016/j.diin.2007.10.001; Poisel–Tjoa 10.1109/ARES.2013.62) | Not every claim is cited (some left as "no source"). |
-| D-03 | **FIXED** | `CHANGELOG.md` (0.2.0, Keep a Changelog, *Changed*/*Behavior changes* sections); `SECURITY.md`; `CONTRIBUTING.md`; `docs/ARCHITECTURE.md`; `docs/DECISIONS.md` (D-01…D-32); `docs/DEPENDENCIES.md`; `docs/REVIEW_RESPONSE.md` (this document); `docs/REPORT.md`; `docs/VALIDATION.md` | Real CI run succeeded (`44548142275`); no release job, SBOM or signing is claimed; packaged Windows binary not executed (A-12). |
+| D-03 | **FIXED** | `CHANGELOG.md` (0.2.0, Keep a Changelog, *Changed*/*Behavior changes* sections); `SECURITY.md`; `CONTRIBUTING.md`; `docs/ARCHITECTURE.md`; `docs/DECISIONS.md` (D-01…D-54); `docs/DEPENDENCIES.md`; `docs/REVIEW_RESPONSE.md` (this document); `docs/REPORT.md`; `docs/VALIDATION.md` | Earlier CI run succeeded (`44548142275`); H-30 run `45035152791` at HEAD failed (8 success / 18 failure); no release job or signing is claimed; packaged Windows binary not executed locally (A-12). |
 
 ## Cross-reference of old findings (F-01…F-21) → new IDs
 
@@ -256,12 +258,18 @@ the 38-ID table above is the current source of truth.
   actionlint, MSRV, release, repro, smoke and supply-chain checks →
   **GATE GREEN 2026-11-22**, re-run after B-04, B-06, R-01/R-02, H-14, H-16,
   H-17, H-18, H-19, H-21, H-22, H-25, H-26, H-27, H-28 and H-29.
-- CI 3 OS + MSRV + security + smoke + conditional nightly fuzz matrix is
-  declared in `.github/workflows/ci.yml`; after H-14 the fuzz matrix lists all
-  13 targets. Real run `44548142275` on `42376a9` succeeded with every job
-  green; the push-event fuzz matrix was skipped by its schedule/workflow_dispatch
-  trigger. These GitHub runs predate B-04, B-06, R-01/R-02 and H-14; no
-  post-change CI result is claimed here.
+- CI 3 OS + MSRV + security + smoke + nightly fuzz matrix is declared in
+  `.github/workflows/ci.yml`; after H-14 the fuzz matrix lists all 13 targets
+  and after H-30 it runs on push/PR alongside the full gate, repro assertions,
+  packaged-binary smokes, 70% coverage and SBOM. Real run `44548142275` on
+  `42376a9` succeeded with every job green, but its push-event fuzz matrix was
+  skipped by its schedule/workflow_dispatch trigger. H-30 pushed run
+  `45035152791` on `d9dcac3` completed **failure**: 8 jobs succeeded and 18
+  failed (all 13 fuzz targets, repro assertions, release gate, Windows tests,
+  Windows packaged smoke and Linux musl packaged smoke). The log endpoint
+  returned `403 Must have admin rights to Repository.`, so remote failure
+  causes are not observed or guessed; see `docs/VALIDATION.md §3`. No green CI
+  run at HEAD is claimed.
 - Local `cargo audit` (0 vulnerabilities in 91 crates against 1555 advisories)
   and `cargo deny check` (advisories/bans/licenses/sources ok) both pass; the
   four unused `license-not-encountered` warnings are informational.
@@ -313,8 +321,9 @@ the 38-ID table above is the current source of truth.
   internals are fully instrumented; the explicit PNG decode bound covers the
   PNG path only.
 - No claim of universal container support: the B-04 readers cover only the
-  variants listed above and reject unsupported formats explicitly. GitHub CI
-  evidence predates B-04, B-06 and R-01/R-02.
+  variants listed above and reject unsupported formats explicitly. The only
+  successful GitHub CI run observed here predates B-04, B-06 and R-01/R-02;
+  the H-30 run at HEAD failed remotely.
 - B-06 recall and `splice_rate` are now measured on a small D1-style
   development profile (4/6 recall, 0/4 splices, 0/24 junk FP with Wilson 95%
   intervals in `bench/results/d1_fragment_profile.json`) and a 3/3 X15 real-file
@@ -324,11 +333,13 @@ the 38-ID table above is the current source of truth.
   for every tool; no ablations or advanced statistics are claimed.
 - No claim of lockbox generalization: 20 seeds were run exactly once on the
   D1-style profile, D2–D7 remain OPEN, and no result was used for tuning.
-- No claim that the packaged Windows executable was executed: it was built and
-  format-checked only. GitHub's `test (windows-latest)` job ran the Rust test
-  suite, not `dist/carvex-windows-x86_64.exe`.
-- No claim of CI beyond the observed run `44548142275`: all its jobs succeeded,
-  while the push-event fuzz matrix was skipped by design.
+- No claim that the packaged Windows executable was executed locally: the old
+  `dist/` binary was format-checked only. H-30 added a CI job that builds and
+  executes a Windows release exe, but that job failed in the observed H-30 run
+  and its logs were not available; no packaged Windows execution is claimed.
+- No claim of a green CI run at HEAD: run `44548142275` succeeded on an older
+  commit with the fuzz matrix skipped by design, while H-30 run
+  `45035152791` on `d9dcac3` failed (8 success / 18 failure).
 - No claim of new benchmark numbers for 0.2.0: published figures are from 0.1.0.
   The full 3-repetition re-run is validation evidence only; all 20 rows are
   metric-identical to the frozen `bench/results/final/results.json`.
