@@ -18,32 +18,36 @@ use std::fmt;
 /// validation.  The validator streams inflation, so this bounds work and the
 /// largest image that `--validate decode` will claim to have validated.
 pub const DEFAULT_MAX_PNG_DECODE_BYTES: u64 = 256 * 1024 * 1024;
+/// Alias kept for the report field introduced with R-02 (H-05/H-06).
+pub const DEFAULT_MAX_VALIDATOR_MEMORY: u64 = DEFAULT_MAX_PNG_DECODE_BYTES;
 
 /// Resource limits for optional deep validation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ValidationLimits {
-    /// Maximum expected PNG raw size (filter bytes plus scanline data).
+    /// Maximum working memory a decode validator may claim for one candidate.
+    pub max_validator_memory: u64,
+    /// Legacy name of the same budget, kept in reports for compatibility.
     pub max_png_decoded_bytes: u64,
 }
 
 impl Default for ValidationLimits {
     fn default() -> Self {
-        Self {
-            max_png_decoded_bytes: DEFAULT_MAX_PNG_DECODE_BYTES,
-        }
+        Self::new(DEFAULT_MAX_VALIDATOR_MEMORY)
     }
 }
 
 impl ValidationLimits {
     /// Build limits from a configured byte budget.  `0` selects the default
-    /// PNG decode bound rather than disabling the guard.
-    pub fn new(max_png_decoded_bytes: u64) -> Self {
+    /// validator budget rather than disabling the guard.
+    pub fn new(max_validator_memory: u64) -> Self {
+        let effective = if max_validator_memory == 0 {
+            DEFAULT_MAX_VALIDATOR_MEMORY
+        } else {
+            max_validator_memory
+        };
         Self {
-            max_png_decoded_bytes: if max_png_decoded_bytes == 0 {
-                DEFAULT_MAX_PNG_DECODE_BYTES
-            } else {
-                max_png_decoded_bytes
-            },
+            max_validator_memory: effective,
+            max_png_decoded_bytes: effective,
         }
     }
 }
@@ -316,11 +320,7 @@ fn validate_png(
             vec!["PNG IHDR dimensions are unavailable".into()],
         );
     };
-    let max_decoded = if limits.max_png_decoded_bytes == 0 {
-        DEFAULT_MAX_PNG_DECODE_BYTES
-    } else {
-        limits.max_png_decoded_bytes
-    };
+    let max_decoded = limits.max_validator_memory;
     let mut pos = 8usize;
     let mut saw_ihdr = false;
     let mut saw_iend = false;

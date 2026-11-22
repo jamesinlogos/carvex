@@ -126,7 +126,7 @@ Main options:
 | `--max-size SIZE` | `64M` | Maximum bytes to read after a header before giving up |
 | `--max-truncated-size SIZE` | `16M` | Maximum size of a truncated file written without `--repair` (`0` = unlimited) |
 | `--max-memory SIZE` | `1G` | Hard cap on memory used for carve buffers, retained carved output and B-06 stitch buffers |
-| `--max-decode-bytes SIZE` | `256M` | Maximum expected PNG decoded size accepted by `--validate decode` (`0` = default bound) |
+| `--max-validator-memory SIZE` | `256M` | Working-memory limit for one decode validator; legacy alias `--max-decode-bytes` (`0` = default bound) |
 | `--max-candidates N` | `1000000` | Hard limit on header candidates evaluated before aborting (`0` = default limit) |
 | `--time-budget SEC` | `0` | Overall scan wall-clock budget in seconds (`0` = unlimited) |
 | `--chunk-size SIZE` | `4M` | Read chunk size for parallel scanning (minimum 64 KiB) |

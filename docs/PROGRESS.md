@@ -161,7 +161,7 @@ Windows**.
 
 | ID | Pri | Repro (date, build) | Status | Commit | Test(s) | Before → After / evidence |
 |----|----|---------------------|--------|--------|---------|---------------------------|
-| H-05 | CRIT | 2026-11-21 source | NOT-REPRODUCED (current) | - | scripts/review_repro.py X02 | X02 did not reproduce on 0.3.0-dev; likely mitigated by R-02 bounded PNG decode. Needs adversarial confirmation per harness recipe. |
+| H-05 | CRIT | 2026-11-21 source / 2026-11-21 release build | CLOSED | pending | tests/png_validator_budget.rs; scripts/review_repro.py X02 | R-02 already bounded inflation; the missing shared flag was reproduced red. X02a: 0.009 s / 8.8 MiB RSS, `partial`; X02b rejected at IHDR. |
 | H-07 | HIGH | 2026-11-21 source | CLOSED | fa18436 | scripts/review_repro.py X04 | 23-26s -> <1s after single-pass EOF indexing; A-01/R1-R8 and G7 unchanged. |
 | H-11 | CRIT | 2026-11-21 source / 2026-11-21 release build | CLOSED | 4b86f2d | tests/regress_e01_safety.rs::hostile_chunk_size_is_rejected; X07 | Before: SIGABRT on a 64 GiB declared chunk (v5). After: typed error `EWF chunk size 68719476736 exceeds the 67108864-byte limit`; `info` 0.005 s / 12 MiB RSS, `scan` 0.005 s / 13 MiB RSS. |
 | H-16 | CRIT | 2026-11-21 source | OPEN | - | scripts/review_repro.py X24 | X24 interleaved fixture not flagged decoded/complete; default structural-as-complete issue still present per SRC. Needs proper validity-model check. |
@@ -185,6 +185,22 @@ Windows**.
 | H-23 | MED | 2026-11-21 source | CLOSED | 080b76a | tests/regress_vmdk_safety.rs | Missing grain table returned "index out of range"; now reads zeros like qemu-img. |
 
 ### Per-task reports
+
+Task: H-05 — PNG decode inflation must be bounded
+Reviews: v1:R-02, v2:R-02, v3:R-03, v4:F-02, v5:F-02
+Repro: NOT-REPRODUCED for the OOM itself on 0.3.0-dev (R-02 already streams
+  IDAT and checks IHDR first); the missing common budget flag was reproduced
+  red by `tests/png_validator_budget.rs` before the fix.
+Change: added `--max-validator-memory` (visible alias `--max-decode-bytes`),
+  shared by PNG and later JPEG validators; report schema 2 records both the
+  authoritative and legacy field names; README/CHANGELOG updated.
+New tests: `tests/png_validator_budget.rs::{max_validator_memory_is_a_cli_flag,
+  png_bomb_is_not_verified_with_a_small_validator_budget}` (red → green).
+Gate: green (fmt/clippy/tests/doc/MSRV/repro/golden/smoke).
+Measurement: X02a 1 MiB inflate claim → `partial`, 0.009 s, 8.8 MiB RSS.
+  X02b 32000x32000 (1,024,032,000 raw bytes) → rejected before inflation at
+  both the 256 MiB default and an explicit 1 KiB budget.
+Residual risk / next: H-06 must consume the same budget for JPEG frame claims.
 
 Task: H-11 — E01 allocations from untrusted header fields; stdin spool
 Reviews: v5:F-21, v1:R-19, v2:N-06 (CONFLICT C3)

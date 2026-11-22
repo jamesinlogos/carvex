@@ -224,9 +224,10 @@ pub struct ScanOptions {
     pub max_size: u64,
     pub max_truncated_size: u64,
     pub max_memory: u64,
-    /// Maximum expected PNG decoded size accepted by decode validation
-    /// (0 = the default validator bound).
-    pub max_decode_bytes: u64,
+    /// Maximum working memory for one decode validator
+    /// (0 = the default validator bound).  The legacy report field
+    /// `max_decode_bytes` mirrors this value.
+    pub max_validator_memory: u64,
     pub chunk_size: u64,
     pub threads: usize,
     pub min_score: u8,
@@ -263,7 +264,7 @@ impl ScanOptions {
     /// Serialisable snapshot of the effective options for the report.
     pub fn report_options(&self) -> ReportOptions {
         let max_candidates = effective_max_candidates(self);
-        let max_decode_bytes = ValidationLimits::new(self.max_decode_bytes).max_png_decoded_bytes;
+        let limits = ValidationLimits::new(self.max_validator_memory);
         ReportOptions {
             types: self.types.iter().map(|t| t.ext().to_string()).collect(),
             mode: self.mode.as_str().to_string(),
@@ -271,7 +272,8 @@ impl ScanOptions {
             max_size: self.max_size,
             max_truncated_size: self.max_truncated_size,
             max_memory: self.max_memory,
-            max_decode_bytes,
+            max_decode_bytes: limits.max_png_decoded_bytes,
+            max_validator_memory: limits.max_validator_memory,
             chunk_size: self.chunk_size,
             threads: self.threads,
             min_score: self.min_score,
@@ -337,6 +339,8 @@ pub struct ReportOptions {
     pub max_truncated_size: u64,
     pub max_memory: u64,
     pub max_decode_bytes: u64,
+    /// H-05: authoritative name for the shared decode-validator budget.
+    pub max_validator_memory: u64,
     pub chunk_size: u64,
     pub threads: usize,
     pub min_score: u8,
@@ -1208,7 +1212,7 @@ fn carve_one(
                             cand.kind,
                             &bytes,
                             &analysis,
-                            ValidationLimits::new(opts.max_decode_bytes),
+                            ValidationLimits::new(opts.max_validator_memory),
                         );
                         decode_guard.release();
                         v
@@ -1553,7 +1557,7 @@ fn try_fragment_join(
         cand.kind,
         &bytes,
         &analysis,
-        ValidationLimits::new(opts.max_decode_bytes),
+        ValidationLimits::new(opts.max_validator_memory),
     );
     decode_guard.release();
     // B-06 requires deep validation. H-19 stage 1: PDF deep validation is

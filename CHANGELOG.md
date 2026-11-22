@@ -24,9 +24,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Two `tests/fragment_recovery.rs` tests cover the S12-style interleaved
   `[A1][B1][A2][B2]` scenario for JPEG, PNG and PDF, plus rejection of
   invalid B-06 limits.
-- `--max-decode-bytes` (default `256M`) sets the expected PNG decoded-size
-  bound for `--validate decode`; the effective value is recorded in report
-  schema v2 (`options.max_decode_bytes`). Schema 1 is unchanged.
+- `--max-validator-memory` (default `256M`) bounds the working memory claimed
+  by one decode validator (H-05/H-06). `--max-decode-bytes` remains as a
+  visible alias; the effective value is recorded in report schema v2 as both
+  `options.max_validator_memory` and the legacy `options.max_decode_bytes`.
+  Schema 1 is unchanged.
 - Report schema 2 adds `unreadable_regions[]` with the offset, length and reason
   for each source range that could not be read. Outputs overlapping such a
   range are labelled as not verified; `skip` drops them and emits

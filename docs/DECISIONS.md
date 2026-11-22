@@ -507,3 +507,19 @@ decision, and the consequences.
   length; both short-checksum and full-chunk-checksum variants are accepted.
   The frozen benchmark, default raw path, output naming and schema 1/2 legacy
   fields are unchanged.
+
+## D-36. Shared decode-validator memory budget (H-05)
+
+- **Context:** R-02 bounded PNG inflation with `--max-decode-bytes`, but the
+  harness requires one flag to cover every decode validator, including the
+  JPEG frame allocation addressed by H-06. Keeping the old name as the only
+  public option would leave the documentation and report semantics split.
+- **Decision:** `--max-validator-memory` is the authoritative name (default
+  256 MiB). `--max-decode-bytes` stays as a visible alias for compatibility.
+  `ValidationLimits` carries the effective value in both fields; report schema
+  2 adds `options.max_validator_memory` while retaining
+  `options.max_decode_bytes`. Zero selects the default rather than disabling
+  the bound.
+- **Consequences:** PNG and JPEG validators share one deterministic budget and
+  no decode validator may claim more than that budget for one candidate. The
+  legacy report field keeps its type and meaning, and schema 1 is unchanged.

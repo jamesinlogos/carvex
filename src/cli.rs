@@ -130,9 +130,9 @@ struct ScanArgs {
     /// Hard cap on memory used for carve buffers and retained carved output
     #[arg(long, value_parser = parse_size, default_value = "1G")]
     max_memory: u64,
-    /// Maximum expected PNG decoded size for --validate decode (0 = default)
-    #[arg(long, value_parser = parse_size, default_value = "256M")]
-    max_decode_bytes: u64,
+    /// Maximum working memory for one decode validator (0 = default)
+    #[arg(long, visible_alias = "max-decode-bytes", value_parser = parse_size, default_value = "256M")]
+    max_validator_memory: u64,
     /// Maximum header candidates evaluated before aborting (0 = default limit)
     #[arg(long, value_parser = clap::value_parser!(u64), default_value_t = scan::DEFAULT_MAX_CANDIDATES)]
     max_candidates: u64,
@@ -587,7 +587,7 @@ fn scan(args: ScanArgs) -> Result<i32> {
             args.max_truncated_size
         },
         max_memory: args.max_memory,
-        max_decode_bytes: args.max_decode_bytes,
+        max_validator_memory: args.max_validator_memory,
         chunk_size: args.chunk_size,
         threads: args.threads,
         min_score: args.min_score,

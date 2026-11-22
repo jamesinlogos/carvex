@@ -52,7 +52,7 @@ pub fn scan_options(types: Vec<FileType>, mode: ScanMode) -> ScanOptions {
         max_size: 64 * 1024 * 1024,
         max_truncated_size: 16 * 1024 * 1024,
         max_memory: 1024 * 1024 * 1024,
-        max_decode_bytes: carvex::signatures::DEFAULT_MAX_PNG_DECODE_BYTES,
+        max_validator_memory: carvex::signatures::DEFAULT_MAX_VALIDATOR_MEMORY,
         chunk_size: 64 * 1024,
         threads: 0,
         min_score: 50,
