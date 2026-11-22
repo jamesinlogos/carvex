@@ -10,6 +10,15 @@ pub fn sha256_hex(data: &[u8]) -> String {
     hex(&h.finalize())
 }
 
+/// Hash a logical output that ends with a repair suffix without building a
+/// second owned copy of the carved bytes.
+pub fn sha256_hex_with_suffix(data: &[u8], suffix: &[u8]) -> String {
+    let mut h = Sha256::new();
+    h.update(data);
+    h.update(suffix);
+    hex(&h.finalize())
+}
+
 /// Encode bytes as lowercase hexadecimal.
 pub fn hex(data: &[u8]) -> String {
     const HEX: &[u8; 16] = b"0123456789abcdef";

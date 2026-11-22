@@ -127,7 +127,8 @@ struct ScanArgs {
     /// Maximum size of a truncated file written without --repair (0 = unlimited)
     #[arg(long, value_parser = parse_size, default_value = "16M")]
     max_truncated_size: u64,
-    /// Hard cap on memory used for carve buffers and retained carved output
+    /// Maximum concurrent working memory for carve, join and write buffers;
+    /// carved output is streamed from the source, not retained in RAM
     #[arg(long, value_parser = parse_size, default_value = "1G")]
     max_memory: u64,
     /// Maximum working memory for one decode validator (0 = default)

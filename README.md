@@ -125,7 +125,7 @@ Main options:
 | `--min-size SIZE` | `256` | Minimum size of a written file; supports `K/M/G` suffixes |
 | `--max-size SIZE` | `64M` | Maximum bytes to read after a header before giving up |
 | `--max-truncated-size SIZE` | `16M` | Maximum size of a truncated file written without `--repair` (`0` = unlimited) |
-| `--max-memory SIZE` | `1G` | Hard cap on memory used for carve buffers, retained carved output and B-06 stitch buffers |
+| `--max-memory SIZE` | `1G` | Maximum concurrent working memory for carve, B-06 join and write buffers; output is not retained in RAM |
 | `--max-validator-memory SIZE` | `256M` | Working-memory limit for one decode validator; legacy alias `--max-decode-bytes` (`0` = default bound) |
 | `--max-candidates N` | `1000000` | Hard limit on header candidates evaluated before aborting (`0` = default limit) |
 | `--time-budget SEC` | `0` | Overall scan wall-clock budget in seconds (`0` = unlimited) |
@@ -429,7 +429,7 @@ not supported, so those still require conversion with another forensic tool.
 7. **Performance** depends on cache, disk, and CPU count. The figures in the report are from a 4-CPU machine, 64 MiB images, and a warm cache.
 8. **No real-world Windows testing.** The PE binary was built and format-checked but has not been run on Windows in the development environment.
 9. **Fixture-level container coverage.** The B-04 readers were verified with generated images, not `ewfacquire`/`ewfexport` output. The dynamic VHD reader uses the block allocation table but does not interpret the per-sector presence bitmap inside an allocated block.
-10. **Resource-budget scope.** `--max-memory` bounds carve buffers, retained outputs and B-06 stitches, not total process RSS. PNG decode validation has its own `--max-decode-bytes` bound and streams inflation; JPEG/PDF decoder internals are not fully accounted.
+10. **Resource-budget scope.** `--max-memory` bounds concurrent carve, B-06 join and write buffers, not total process RSS or the cumulative size of output files. Carved bytes are re-read from the read-only source and verified by SHA-256 before an output is renamed into place. Decode validation has its own `--max-validator-memory` bound and streams PNG inflation; JPEG/PDF decoder internals are not fully instrumented.
 
 ## Project structure
 

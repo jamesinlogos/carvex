@@ -542,3 +542,25 @@ decision, and the consequences.
   JPEGs both finish in ≤ 0.01 s at about 9 MiB RSS and are labelled
   `unverified`; structure mode is unchanged. The plausibility rule is an
   anti-OOM guard, not a general JPEG authenticity test.
+
+## D-38. `--max-memory` as a working-memory budget (H-08)
+
+- **Context:** R-01 retained every carved byte until a post-hoc sum was
+  compared with `--max-memory`. Hostile inputs therefore allocated the whole
+  output before the check, and an excess exited 1 with no report. The harness
+  requires streaming writes, typed coded warnings and exit 3 for limit events.
+- **Decision:** the flag now bounds concurrent working buffers only. Carving
+  produces `(source ranges, transformation, analysis, SHA-256)` descriptors;
+  the write stage re-reads ranges with a bounded scratch buffer, hashes while
+  writing to a temporary file, verifies the digest, then atomically renames.
+  A digest mismatch yields `SOURCE_CHANGED` and no output file. The budget is
+  a blocking permit pool: a request bigger than the whole budget is a
+  deterministic `CANDIDATE_SKIPPED_BUDGET`; otherwise the caller waits, and
+  growth first drops the old buffer and permit to avoid deadlock. Decode
+  validator scratch remains governed by `--max-validator-memory` and cannot
+  raise the shared ceiling.
+- **Consequences:** cumulative output may exceed `--max-memory` without being
+  discarded; no result depends on `--threads` or scheduling. Every budget or
+  source-change event is a coded warning in the JSON report and makes the CLI
+  exit 3. The double-read cost is measured under G8 rather than hidden behind
+  a hybrid retain/stream path.

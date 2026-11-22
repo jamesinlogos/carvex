@@ -39,6 +39,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- H-08: `--max-memory` now bounds concurrent working buffers instead of the
+  cumulative size of carved output. Carving keeps source ranges, analysis and
+  digests; the write stage re-reads each output from the read-only source,
+  verifies its SHA-256, and emits `SOURCE_CHANGED` with exit 3 on a mismatch.
+  A candidate whose own buffer requirement exceeds the budget is skipped with
+  `CANDIDATE_SKIPPED_BUDGET`; all budget events produce a report rather than an
+  exit 1 with no output.
 - Auto-detection selects a container from magic bytes and segment naming;
   explicit `--input-format raw` remains available. Ordinary raw images still
   use the unchanged `RawFile` path, so frozen benchmark behavior is preserved.

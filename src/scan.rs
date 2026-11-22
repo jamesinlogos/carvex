@@ -5,18 +5,20 @@ use crate::signatures::{
     ValidationLimits, ValidationMode,
 };
 use crate::util::{
-    complement_extents, human_size, merge_extents, sha256_hex, unix_timestamp, Extent,
+    complement_extents, hex, human_size, merge_extents, sha256_hex, sha256_hex_with_suffix,
+    unix_timestamp, Extent,
 };
 use anyhow::{bail, Context, Result};
 use clap::ValueEnum;
 use rayon::prelude::*;
 use serde::Serialize;
+use sha2::Digest;
 use std::collections::{HashMap, HashSet};
-use std::fs;
+use std::fs::{self, File};
 use std::io::{IsTerminal, Write};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 /// Report schema version emitted by this build.
@@ -61,56 +63,57 @@ impl CandidateBudget {
     }
 }
 
-/// Shared byte budget for carve buffers, retained outputs and B-06 joins.
+/// Shared byte budget for concurrent working buffers.
+///
+/// H-08 changed `--max-memory` from a post-hoc cap on retained output into a
+/// blocking permit pool. A request larger than the whole budget fails
+/// immediately (a deterministic per-candidate skip); otherwise the caller
+/// waits until enough permits are available. Threads waiting for growth first
+/// release and drop their old buffer, so a worker holding no permit can always
+/// make progress.
 #[derive(Debug)]
 struct MemoryBudget {
     limit: u64,
-    used: AtomicU64,
+    used: Mutex<u64>,
+    changed: Condvar,
 }
 
 impl MemoryBudget {
     fn new(limit: u64) -> Self {
         Self {
             limit,
-            used: AtomicU64::new(0),
+            used: Mutex::new(0),
+            changed: Condvar::new(),
         }
     }
 
-    fn used(&self) -> u64 {
-        self.used.load(Ordering::Relaxed)
-    }
-
-    fn try_reserve(&self, bytes: u64) -> bool {
-        if bytes == 0 {
-            return true;
-        }
-        let mut cur = self.used.load(Ordering::Relaxed);
-        loop {
-            let Some(next) = cur.checked_add(bytes) else {
-                return false;
-            };
-            if next > self.limit {
-                return false;
-            }
-            match self
-                .used
-                .compare_exchange_weak(cur, next, Ordering::Relaxed, Ordering::Relaxed)
-            {
-                Ok(_) => return true,
-                Err(actual) => cur = actual,
-            }
-        }
+    fn limit(&self) -> u64 {
+        self.limit
     }
 
     fn reserve(&self, bytes: u64, what: &str) -> Result<()> {
-        if self.try_reserve(bytes) {
-            Ok(())
-        } else {
+        if bytes > self.limit {
             bail!(
-                "{what} would exceed --max-memory {} (currently using {})",
-                human_size(self.limit),
-                human_size(self.used())
-            )
+                "{what} requires {} which exceeds --max-memory {}",
+                human_size(bytes),
+                human_size(self.limit)
+            );
+        }
+        if bytes == 0 {
+            return Ok(());
+        }
+        let mut used = self.used.lock().unwrap_or_else(|e| e.into_inner());
+        loop {
+            let Some(next) = used.checked_add(bytes) else {
+                bail!("{what} would overflow the --max-memory accounting");
+            };
+            if next <= self.limit {
+                *used = next;
+                drop(used);
+                self.changed.notify_all();
+                return Ok(());
+            }
+            used = self.changed.wait(used).unwrap_or_else(|e| e.into_inner());
         }
     }
 
@@ -118,17 +121,11 @@ impl MemoryBudget {
         if bytes == 0 {
             return;
         }
-        let mut cur = self.used.load(Ordering::Relaxed);
-        loop {
-            let next = cur.saturating_sub(bytes);
-            match self
-                .used
-                .compare_exchange_weak(cur, next, Ordering::Relaxed, Ordering::Relaxed)
-            {
-                Ok(_) => return,
-                Err(actual) => cur = actual,
-            }
+        {
+            let mut used = self.used.lock().unwrap_or_else(|e| e.into_inner());
+            *used = used.saturating_sub(bytes);
         }
+        self.changed.notify_all();
     }
 }
 
@@ -145,31 +142,11 @@ impl<'a> BudgetGuard<'a> {
         Ok(Self { budget, bytes })
     }
 
-    fn resize(&mut self, new_bytes: u64, what: &str) -> Result<()> {
-        if new_bytes == self.bytes {
-            return Ok(());
-        }
-        if new_bytes > self.bytes {
-            self.budget.reserve(new_bytes - self.bytes, what)?;
-            self.bytes = new_bytes;
-        } else {
-            self.budget.release(self.bytes - new_bytes);
-            self.bytes = new_bytes;
-        }
-        Ok(())
-    }
-
     fn release(&mut self) {
         if self.bytes != 0 {
             self.budget.release(self.bytes);
             self.bytes = 0;
         }
-    }
-
-    fn into_bytes(mut self) -> u64 {
-        let bytes = self.bytes;
-        self.bytes = 0;
-        bytes
     }
 }
 
@@ -401,6 +378,8 @@ impl Warning {
                 | "IMAGE_MODIFIED"
                 | "UNREADABLE_REGION"
                 | "CANDIDATE_SKIPPED_UNREADABLE"
+                | "CANDIDATE_SKIPPED_BUDGET"
+                | "SOURCE_CHANGED"
         )
     }
 }
@@ -552,23 +531,49 @@ impl Progress {
     }
 }
 
+/// How the write stage reconstructs one output from the read-only source.
+#[derive(Debug, Clone)]
+enum PayloadSpec {
+    /// One contiguous carved range, optionally with a repair suffix appended.
+    Range { offset: u64, len: u64 },
+    /// A B-06 stitch: read and hash each fragment in order.
+    Join { fragments: Vec<Fragment> },
+}
+
+impl PayloadSpec {
+    fn ranges(&self) -> Vec<(u64, u64)> {
+        match self {
+            Self::Range { offset, len } => vec![(*offset, *len)],
+            Self::Join { fragments } => fragments.iter().map(|f| (f.offset, f.len)).collect(),
+        }
+    }
+}
+
+/// Metadata for one output. H-08: no carved bytes are retained; the write
+/// stage re-reads `payload` from the source and verifies the recorded digest.
 struct CarvedData {
     candidate: Candidate,
-    bytes: Vec<u8>,
+    payload: PayloadSpec,
+    output_len: u64,
     analysis: Analysis,
     sha256: String,
     repaired: bool,
     validation: Validation,
     validation_notes: Vec<String>,
-    /// Set only for B-06 stitched output.
+    /// Set only for B-06 stitched output (also used for reporting).
     fragments: Vec<Fragment>,
     checks: Option<u64>,
     confidence: Option<u8>,
 }
 
 enum CarveOutcome {
-    Carved(CarvedData),
+    Carved(Box<CarvedData>),
     Rejected(String),
+    SkippedBudget {
+        offset: u64,
+        kind: FileType,
+        needed: u64,
+    },
     TooSmall(u64),
     LowScore(u8),
     NotComplete,
@@ -703,14 +708,15 @@ pub fn run_scan(
         ..Default::default()
     };
 
+    let mut warnings = Vec::new();
     let carve_progress = Arc::new(Progress::new(candidates.len() as u64));
     let carve_thread = start_progress(carve_progress.clone(), opts.quiet, "Carving");
     let budget = Arc::new(MemoryBudget::new(opts.max_memory));
     let mut outcomes = Vec::with_capacity(candidates.len());
-    let per_candidate = opts.max_size.max(64 * 1024);
-    let batch_size = ((opts.max_memory / per_candidate.max(1)) as usize)
-        .clamp(1, 64)
-        .min(thread_count.max(1));
+    // Batching is only a scheduling aid now: the budget itself bounds
+    // concurrent buffers. A fixed multiple of the thread count keeps result
+    // order deterministic (`par_iter().collect()` preserves input order).
+    let batch_size = thread_count.max(1).saturating_mul(4);
     for batch in candidates.chunks(batch_size.max(1)) {
         if !opts.time_budget.is_zero() && t0.elapsed() > opts.time_budget {
             bail!("scan exceeded --time-budget");
@@ -724,9 +730,8 @@ pub fn run_scan(
         eprint!("\r{:100}\r", "");
     }
 
-    // Postfilter releases budget for every carved result it does not keep.
-    let mut kept = postfilter(outcomes, opts, &mut stats, &budget);
-    let mut warnings = Vec::new();
+    // Postfilter works on descriptors only; no carved bytes are retained.
+    let mut kept = postfilter(outcomes, opts, &mut stats, &mut warnings);
     if opts.fragment_recovery {
         kept = recover_fragments(
             source,
@@ -748,10 +753,12 @@ pub fn run_scan(
     if !unreadable_snapshot.is_empty() {
         let mut skipped = Vec::new();
         for (idx, data) in kept.iter_mut().enumerate() {
-            let start = data.candidate.offset;
-            let end = start.saturating_add(data.bytes.len() as u64);
+            let ranges = data.payload.ranges();
             let overlapping = unreadable_snapshot.iter().find(|region| {
-                start < region.offset.saturating_add(region.len) && region.offset < end
+                ranges.iter().any(|&(start, len)| {
+                    let end = start.saturating_add(len);
+                    start < region.offset.saturating_add(region.len) && region.offset < end
+                })
             });
             if let Some(region) = overlapping {
                 if skip_unreadable {
@@ -792,7 +799,7 @@ pub fn run_scan(
                 "[+] {:<4} offset={:>12} size={:>9} score={:>3} {:<9} {:05}_{}_{:016x}.{}",
                 file.candidate.kind.label(),
                 file.candidate.offset,
-                file.bytes.len(),
+                file.output_len,
                 file.analysis.score,
                 format!("{:?}", file.analysis.status(file.repaired)).to_lowercase(),
                 idx + 1,
@@ -803,17 +810,10 @@ pub fn run_scan(
         }
     }
 
-    let total_carved: u64 = kept.iter().map(|f| f.bytes.len() as u64).sum();
-    if total_carved > opts.max_memory {
-        bail!(
-            "carved output would use {} which exceeds --max-memory {}; \
-             reduce --max-size/--max-truncated-size or raise --max-memory",
-            human_size(total_carved),
-            human_size(opts.max_memory)
-        );
-    }
-
-    let files = write_outputs(out_dir, &kept, volumes, mode, &mut stats, opts)?;
+    let (files, write_warnings) = write_outputs(
+        source, out_dir, &kept, volumes, mode, &mut stats, opts, &budget,
+    )?;
+    warnings.extend(write_warnings);
     stats.carved = files.len();
     stats.truncated = files
         .iter()
@@ -1147,22 +1147,29 @@ fn carve_one(
             "file candidate too close to extent end".into(),
         ));
     }
-    let mut buf_len = hard_limit.min(64 * 1024);
-    let mut buf_res = BudgetGuard::reserve(budget, buf_len, "allocating a carve buffer")?;
-    let mut buf = vec![0u8; buf_len as usize];
-    if let Err(e) = read_exact_at(source, &mut buf, cand.offset) {
-        return Ok(CarveOutcome::Rejected(format!("read error: {e}")));
-    }
-    let mut guard = 0;
+    let initial_len = hard_limit.min(64 * 1024);
+    let mut guard = match BudgetGuard::reserve(budget, initial_len, "allocating a carve buffer") {
+        Ok(guard) => guard,
+        Err(_) => {
+            return Ok(CarveOutcome::SkippedBudget {
+                offset: cand.offset,
+                kind: cand.kind,
+                needed: initial_len,
+            })
+        }
+    };
+    let mut buf = vec![0u8; initial_len as usize];
+    let mut buf_len = initial_len;
+
     loop {
-        guard += 1;
-        if guard > 64 {
-            return Ok(CarveOutcome::Rejected(
-                "carve read growth guard exceeded".into(),
-            ));
+        // Every growth step re-reads the full prefix after dropping the old
+        // buffer and its permit. Waiting threads therefore hold no permit and
+        // cannot deadlock each other.
+        if let Err(e) = read_exact_at(source, &mut buf[..buf_len as usize], cand.offset) {
+            return Ok(CarveOutcome::Rejected(format!("read error: {e}")));
         }
         let at_limit = buf_len >= hard_limit;
-        let read_len = buf_len.min(buf.len() as u64) as usize;
+        let read_len = buf_len as usize;
         match analyze(cand.kind, &buf[..read_len], at_limit, opts.pdf_eof) {
             Need::Analyzed(mut analysis) => {
                 if analysis.end == 0 || analysis.end > read_len {
@@ -1188,34 +1195,24 @@ fn carve_one(
                 if opts.complete_only && !analysis.complete {
                     return Ok(CarveOutcome::NotComplete);
                 }
-                let mut out_len = end as u64;
-                if opts.repair && !analysis.complete {
-                    out_len = out_len.saturating_add(analysis.repair_suffix.len() as u64);
+                let repaired = opts.repair && !analysis.complete;
+                let suffix: &[u8] = if repaired {
+                    analysis.repair_suffix
+                } else {
+                    &[]
+                };
+                let output_len = (end as u64).saturating_add(suffix.len() as u64);
+                if output_len < opts.min_size {
+                    return Ok(CarveOutcome::TooSmall(output_len));
                 }
-                if out_len < opts.min_size {
-                    return Ok(CarveOutcome::TooSmall(out_len));
-                }
-                // Reserve memory for the retained carved bytes before copying.
-                let mut out_res = BudgetGuard::reserve(budget, out_len, "retaining a carved file")?;
-                let mut bytes = buf[..end].to_vec();
-                buf_res.release();
+
+                // Validator scratch is bounded by its own flag and, for this
+                // scan, can never raise the shared working-memory ceiling.
+                let limits = ValidationLimits::new(opts.max_validator_memory.min(budget.limit()));
                 let (validation, mut validation_notes) = if opts.validate == ValidationMode::Decode
                 {
                     if analysis.complete {
-                        // Best-effort reservation for decoder temporaries.
-                        let mut decode_guard = BudgetGuard::reserve(
-                            budget,
-                            bytes.len() as u64,
-                            "allocating decode-validation buffers",
-                        )?;
-                        let v = validate_deep_with_limits(
-                            cand.kind,
-                            &bytes,
-                            &analysis,
-                            ValidationLimits::new(opts.max_validator_memory),
-                        );
-                        decode_guard.release();
-                        v
+                        validate_deep_with_limits(cand.kind, &buf[..end], &analysis, limits)
                     } else {
                         (
                             Validation::Partial,
@@ -1235,27 +1232,21 @@ fn carve_one(
                     analysis.notes.append(&mut validation_notes);
                     validation_notes = Vec::new();
                     if analysis.score < opts.min_score {
-                        out_res.release();
                         return Ok(CarveOutcome::LowScore(analysis.score));
                     }
                 }
-                let mut repaired = false;
-                if opts.repair && !analysis.complete {
-                    bytes.extend_from_slice(analysis.repair_suffix);
-                    repaired = true;
-                }
-                let size = bytes.len() as u64;
-                if size < opts.min_size {
-                    out_res.release();
-                    return Ok(CarveOutcome::TooSmall(size));
-                }
-                let sha256 = sha256_hex(&bytes);
-                // Transfer reservation ownership to the carved result; it is
-                // released explicitly when the result is discarded or after use.
-                out_res.into_bytes();
-                return Ok(CarveOutcome::Carved(CarvedData {
+                let sha256 = if suffix.is_empty() {
+                    sha256_hex(&buf[..end])
+                } else {
+                    sha256_hex_with_suffix(&buf[..end], suffix)
+                };
+                return Ok(CarveOutcome::Carved(Box::new(CarvedData {
                     candidate: cand.clone(),
-                    bytes,
+                    payload: PayloadSpec::Range {
+                        offset: cand.offset,
+                        len: end as u64,
+                    },
+                    output_len,
                     analysis,
                     sha256,
                     repaired,
@@ -1264,7 +1255,7 @@ fn carve_one(
                     fragments: Vec::new(),
                     checks: None,
                     confidence: None,
-                }));
+                })));
             }
             Need::More => {
                 if at_limit {
@@ -1276,13 +1267,17 @@ fn carve_one(
                 if next <= buf_len {
                     return Ok(CarveOutcome::Rejected("carve buffer cannot grow".into()));
                 }
-                buf_res.resize(next, "growing a carve buffer")?;
-                buf.resize(next as usize, 0);
-                if let Err(e) =
-                    read_exact_at(source, &mut buf[buf_len as usize..], cand.offset + buf_len)
-                {
-                    return Ok(CarveOutcome::Rejected(format!("read error: {e}")));
+                if next > budget.limit() {
+                    return Ok(CarveOutcome::SkippedBudget {
+                        offset: cand.offset,
+                        kind: cand.kind,
+                        needed: next,
+                    });
                 }
+                drop(buf);
+                guard.release();
+                guard = BudgetGuard::reserve(budget, next, "growing a carve buffer")?;
+                buf = vec![0u8; next as usize];
                 buf_len = next;
             }
             Need::Reject(reason) => return Ok(CarveOutcome::Rejected(reason)),
@@ -1323,6 +1318,7 @@ struct FragmentJoin {
 struct JoinAttempt {
     data: Option<CarvedData>,
     deep_checked: bool,
+    skipped_budget: Option<(u64, u64)>,
 }
 
 fn footer_needle(kind: FileType) -> &'static [u8] {
@@ -1489,77 +1485,59 @@ fn try_fragment_join(
     opts: &ScanOptions,
     budget: &MemoryBudget,
 ) -> Result<JoinAttempt> {
+    let none = || JoinAttempt {
+        data: None,
+        deep_checked: false,
+        skipped_budget: None,
+    };
     let head_len = join.cut.saturating_sub(cand.offset);
     let tail_len = join.footer_end.saturating_sub(join.tail_start);
     if head_len == 0 || tail_len == 0 {
-        return Ok(JoinAttempt {
-            data: None,
-            deep_checked: false,
-        });
+        return Ok(none());
     }
     let total = match head_len.checked_add(tail_len) {
         Some(v) if v <= opts.max_size => v,
-        _ => {
+        _ => return Ok(none()),
+    };
+    let _guard = match BudgetGuard::reserve(budget, total, "allocating a B-06 stitch buffer") {
+        Ok(guard) => guard,
+        Err(_) => {
             return Ok(JoinAttempt {
                 data: None,
                 deep_checked: false,
+                skipped_budget: Some((cand.offset, total)),
             })
         }
     };
     let capacity = usize::try_from(total).unwrap_or(usize::MAX);
-    let mut join_guard = BudgetGuard::reserve(budget, total, "allocating a B-06 stitch buffer")?;
-    let mut bytes = Vec::with_capacity(capacity);
-    let mut head = vec![0u8; head_len as usize];
-    read_exact_at(source, &mut head, cand.offset)
+    let mut bytes = vec![0u8; capacity];
+    read_exact_at(source, &mut bytes[..head_len as usize], cand.offset)
         .with_context(|| format!("cannot read B-06 head at {}", cand.offset))?;
-    let mut tail = vec![0u8; tail_len as usize];
-    read_exact_at(source, &mut tail, join.tail_start)
-        .with_context(|| format!("cannot read B-06 tail at {}", join.tail_start))?;
-    bytes.extend_from_slice(&head);
-    bytes.extend_from_slice(&tail);
+    read_exact_at(
+        source,
+        &mut bytes[head_len as usize..total as usize],
+        join.tail_start,
+    )
+    .with_context(|| format!("cannot read B-06 tail at {}", join.tail_start))?;
 
     let Need::Analyzed(mut analysis) = analyze(cand.kind, &bytes, true, opts.pdf_eof) else {
-        return Ok(JoinAttempt {
-            data: None,
-            deep_checked: false,
-        });
+        return Ok(none());
     };
     if !analysis.complete || analysis.end == 0 || analysis.end > bytes.len() {
-        return Ok(JoinAttempt {
-            data: None,
-            deep_checked: false,
-        });
+        return Ok(none());
     }
     if analysis.score < opts.min_score {
-        return Ok(JoinAttempt {
-            data: None,
-            deep_checked: false,
-        });
+        return Ok(none());
     }
     bytes.truncate(analysis.end);
     let used_tail = match analysis.end.checked_sub(head_len as usize) {
         Some(v) if v > 0 && v as u64 <= tail_len => v as u64,
-        _ => {
-            return Ok(JoinAttempt {
-                data: None,
-                deep_checked: false,
-            })
-        }
+        _ => return Ok(none()),
     };
 
-    // Best-effort reservation for decoder temporaries during deep validation.
-    let mut decode_guard = BudgetGuard::reserve(
-        budget,
-        bytes.len() as u64,
-        "allocating decode-validation buffers",
-    )?;
-    let (validation, validation_notes) = validate_deep_with_limits(
-        cand.kind,
-        &bytes,
-        &analysis,
-        ValidationLimits::new(opts.max_validator_memory),
-    );
-    decode_guard.release();
+    let limits = ValidationLimits::new(opts.max_validator_memory.min(budget.limit()));
+    let (validation, validation_notes) =
+        validate_deep_with_limits(cand.kind, &bytes, &analysis, limits);
     // B-06 requires deep validation. H-19 stage 1: PDF deep validation is
     // lexical-only and reports Unverified (never Decoded) until a real PDF
     // parser is integrated. Accept only the lexical-validated Unverified case
@@ -1575,6 +1553,7 @@ fn try_fragment_join(
         return Ok(JoinAttempt {
             data: None,
             deep_checked: true,
+            skipped_budget: None,
         });
     }
 
@@ -1584,31 +1563,35 @@ fn try_fragment_join(
     ));
     let confidence = analysis.score;
     let sha256 = sha256_hex(&bytes);
-    join_guard.resize(bytes.len() as u64, "retaining a B-06 stitch")?;
-    join_guard.into_bytes();
+    let fragments = vec![
+        Fragment {
+            offset: cand.offset,
+            len: head_len,
+        },
+        Fragment {
+            offset: join.tail_start,
+            len: used_tail,
+        },
+    ];
+    let output_len = analysis.end as u64;
     Ok(JoinAttempt {
         data: Some(CarvedData {
             candidate: cand.clone(),
-            bytes,
+            payload: PayloadSpec::Join {
+                fragments: fragments.clone(),
+            },
+            output_len,
             analysis,
             sha256,
             repaired: false,
             validation,
             validation_notes,
-            fragments: vec![
-                Fragment {
-                    offset: cand.offset,
-                    len: head_len,
-                },
-                Fragment {
-                    offset: join.tail_start,
-                    len: used_tail,
-                },
-            ],
+            fragments,
             checks: None,
             confidence: Some(confidence),
         }),
         deep_checked: true,
+        skipped_budget: None,
     })
 }
 
@@ -1698,11 +1681,21 @@ fn recover_fragments(
             if attempt.deep_checked {
                 checks += 1;
             }
+            if let Some((offset, needed)) = attempt.skipped_budget {
+                warnings.push(Warning::new(
+                    "CANDIDATE_SKIPPED_BUDGET",
+                    format!(
+                        "B-06 candidate at byte {} needs {} which exceeds --max-memory {}",
+                        offset,
+                        human_size(needed),
+                        human_size(budget.limit())
+                    ),
+                ));
+            }
             let Some(mut data) = attempt.data else {
                 continue;
             };
             if !seen_hashes.insert(data.sha256.clone()) {
-                release_carved(&data, budget);
                 continue;
             }
             data.checks = Some(checks);
@@ -1729,9 +1722,6 @@ fn recover_fragments(
 
     kept.retain(|f| {
         let replaced = successful_keys.contains(&(f.candidate.offset, f.candidate.kind));
-        if replaced {
-            release_carved(f, budget);
-        }
         !replaced
     });
     kept.extend(successes);
@@ -1739,20 +1729,31 @@ fn recover_fragments(
     Ok(kept)
 }
 
-fn release_carved(data: &CarvedData, budget: &MemoryBudget) {
-    budget.release(data.bytes.len() as u64);
-}
-
 fn postfilter(
     outcomes: Vec<CarveOutcome>,
     opts: &ScanOptions,
     stats: &mut ScanStats,
-    budget: &MemoryBudget,
+    warnings: &mut Vec<Warning>,
 ) -> Vec<CarvedData> {
     let mut candidates: Vec<CarvedData> = Vec::new();
     for outcome in outcomes {
         match outcome {
-            CarveOutcome::Carved(data) => candidates.push(data),
+            CarveOutcome::Carved(data) => candidates.push(*data),
+            CarveOutcome::SkippedBudget {
+                offset,
+                kind,
+                needed,
+            } => {
+                warnings.push(Warning::new(
+                    "CANDIDATE_SKIPPED_BUDGET",
+                    format!(
+                        "candidate at byte {} ({}) needs {} which exceeds --max-memory",
+                        offset,
+                        kind.label(),
+                        human_size(needed)
+                    ),
+                ));
+            }
             CarveOutcome::Rejected(reason) => {
                 stats.rejected += 1;
                 if opts.verbose {
@@ -1839,12 +1840,9 @@ fn postfilter(
             stack.push(i);
         }
         let mut idx = 0usize;
-        candidates.retain(|c| {
+        candidates.retain(|_c| {
             let keep_this = keep[idx];
             idx += 1;
-            if !keep_this {
-                release_carved(c, budget);
-            }
             keep_this
         });
     }
@@ -1861,7 +1859,6 @@ fn postfilter(
                         data.candidate.offset
                     );
                 }
-                release_carved(&data, budget);
             } else {
                 let seq = kept.len() as u64 + 1;
                 seen.insert(data.sha256.clone(), seq);
@@ -1875,19 +1872,54 @@ fn postfilter(
     candidates
 }
 
+/// Stream one source range into a file and a live SHA-256 context.
+fn stream_range(
+    source: &dyn ImageSource,
+    file: &mut File,
+    hasher: &mut sha2::Sha256,
+    offset: u64,
+    len: u64,
+    scratch: &mut [u8],
+) -> Result<()> {
+    let mut remaining = len;
+    let mut at = offset;
+    while remaining > 0 {
+        let chunk = usize::try_from(remaining.min(scratch.len() as u64)).unwrap_or(scratch.len());
+        if chunk == 0 {
+            bail!("write buffer is empty");
+        }
+        read_exact_at(source, &mut scratch[..chunk], at)
+            .with_context(|| format!("cannot re-read carved bytes at offset {at}"))?;
+        file.write_all(&scratch[..chunk])
+            .with_context(|| "cannot stream carved bytes to a temporary file")?;
+        hasher.update(&scratch[..chunk]);
+        at = at.saturating_add(chunk as u64);
+        remaining -= chunk as u64;
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
 fn write_outputs(
+    source: &dyn ImageSource,
     out_dir: &Path,
     files: &[CarvedData],
     volumes: &[FsInfo],
     mode: ScanMode,
     stats: &mut ScanStats,
     opts: &ScanOptions,
-) -> Result<Vec<CarvedFile>> {
+    budget: &MemoryBudget,
+) -> Result<(Vec<CarvedFile>, Vec<Warning>)> {
     // With more than one scanned volume each file goes into its own
     // `part<N>/` sub-directory so outputs of different partitions cannot be
     // confused (A-07 `--partition all`).
     let multi = volumes.len() > 1;
+    let write_buf_len = 64 * 1024u64;
+    let _write_guard = BudgetGuard::reserve(budget, write_buf_len, "allocating the write buffer")?;
+    let mut scratch = vec![0u8; write_buf_len as usize];
     let mut records = Vec::with_capacity(files.len());
+    let mut warnings = Vec::new();
+
     for (idx, data) in files.iter().enumerate() {
         let seq = idx as u64 + 1;
         let filename = format!(
@@ -1916,8 +1948,76 @@ fn write_outputs(
                 format!("cannot create output directory '{}'", parent.display())
             })?;
         }
-        write_file_atomic(&path, &data.bytes)?;
-        stats.bytes_written = stats.bytes_written.saturating_add(data.bytes.len() as u64);
+        let tmp = path.with_extension(format!(
+            "{}.tmp{}-{}",
+            path.extension().and_then(|e| e.to_str()).unwrap_or("bin"),
+            std::process::id(),
+            seq
+        ));
+
+        let digest = (|| -> Result<String> {
+            let mut file = File::create(&tmp)
+                .with_context(|| format!("cannot create temporary file '{}'", tmp.display()))?;
+            let mut hasher = sha2::Sha256::new();
+            match &data.payload {
+                PayloadSpec::Range { offset, len } => {
+                    stream_range(source, &mut file, &mut hasher, *offset, *len, &mut scratch)?;
+                }
+                PayloadSpec::Join { fragments } => {
+                    for fragment in fragments {
+                        stream_range(
+                            source,
+                            &mut file,
+                            &mut hasher,
+                            fragment.offset,
+                            fragment.len,
+                            &mut scratch,
+                        )?;
+                    }
+                }
+            }
+            if data.repaired {
+                let suffix = data.analysis.repair_suffix;
+                file.write_all(suffix)
+                    .with_context(|| "cannot append repair suffix")?;
+                hasher.update(suffix);
+            }
+            file.sync_all()
+                .with_context(|| format!("cannot flush temporary file '{}'", tmp.display()))?;
+            drop(file);
+            Ok(hex(&hasher.finalize()))
+        })();
+        let digest = match digest {
+            Ok(digest) => digest,
+            Err(e) => {
+                let _ = fs::remove_file(&tmp);
+                return Err(e);
+            }
+        };
+        if digest != data.sha256 {
+            let _ = fs::remove_file(&tmp);
+            stats.rejected = stats.rejected.saturating_add(1);
+            warnings.push(Warning::new(
+                "SOURCE_CHANGED",
+                format!(
+                    "source bytes at offset {} changed before writing {}; expected {}, wrote {}",
+                    data.candidate.offset, rel_path, data.sha256, digest
+                ),
+            ));
+            continue;
+        }
+        if path.exists() {
+            fs::remove_file(&path)
+                .with_context(|| format!("cannot replace '{}'", path.display()))?;
+        }
+        if let Err(e) = fs::rename(&tmp, &path) {
+            let _ = fs::remove_file(&tmp);
+            return Err(e).with_context(|| {
+                format!("cannot rename '{}' to '{}'", tmp.display(), path.display())
+            });
+        }
+
+        stats.bytes_written = stats.bytes_written.saturating_add(data.output_len);
         let mut notes = data.analysis.notes.clone();
         notes.extend(data.validation_notes.iter().cloned());
         if data.repaired {
@@ -1929,7 +2029,7 @@ fn write_outputs(
             seq,
             file_type: data.candidate.kind,
             offset: data.candidate.offset,
-            size: data.bytes.len() as u64,
+            size: data.output_len,
             carved_size: data.analysis.end as u64,
             sha256: data.sha256.clone(),
             status: data.analysis.status(data.repaired),
@@ -1972,7 +2072,7 @@ fn write_outputs(
         }
         records.push(record);
     }
-    Ok(records)
+    Ok((records, warnings))
 }
 
 fn allocation_metadata(
