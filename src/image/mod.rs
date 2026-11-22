@@ -189,6 +189,29 @@ pub enum InputFormat {
     Stdin,
 }
 
+impl InputFormat {
+    /// Stable report value for this container format.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Raw => "raw",
+            Self::Split => "split",
+            Self::E01 => "e01",
+            Self::Vhd => "vhd",
+            Self::Vmdk => "vmdk",
+            Self::Stdin => "stdin",
+        }
+    }
+}
+
+/// One physical file backing an image, as recorded in `input.files[]`.
+#[derive(Debug, Clone, Serialize)]
+pub struct SourceFile {
+    pub path: PathBuf,
+    pub size: u64,
+    pub modified_unix: Option<u64>,
+}
+
 /// Size and mtime snapshot of every file backing an opened image.
 ///
 /// Multi-segment containers have a logical length that differs from the size
@@ -198,6 +221,7 @@ pub enum InputFormat {
 #[derive(Debug, Clone)]
 pub struct SourceIdentity {
     paths: Vec<PathBuf>,
+    files: Vec<SourceFile>,
     size: u64,
     mtime: Option<u64>,
 }
@@ -208,11 +232,28 @@ impl SourceIdentity {
         if paths.is_empty() {
             bail!("image source has no backing files");
         }
-        let (size, mtime, ok) = measure(&paths);
-        if !ok {
-            bail!("cannot stat every file backing the image source");
+        let files = measure_files(&paths)?;
+        let mut size = 0u64;
+        let mut mtime = None;
+        for file in &files {
+            size = size
+                .checked_add(file.size)
+                .context("backing-file size overflow")?;
+            if file.modified_unix > mtime {
+                mtime = file.modified_unix;
+            }
         }
-        Ok(Self { paths, size, mtime })
+        Ok(Self {
+            paths,
+            files,
+            size,
+            mtime,
+        })
+    }
+
+    /// Per-file sizes and mtimes recorded when the image was opened.
+    pub fn files(&self) -> &[SourceFile] {
+        &self.files
     }
 
     /// Aggregate backing-file size recorded at open time.
@@ -250,6 +291,20 @@ fn measure(paths: &[PathBuf]) -> (u64, Option<u64>, bool) {
         }
     }
     (size, mtime, ok)
+}
+
+fn measure_files(paths: &[PathBuf]) -> Result<Vec<SourceFile>> {
+    paths
+        .iter()
+        .map(|path| {
+            let (size, modified_unix) = file_identity(path)?;
+            Ok(SourceFile {
+                path: path.clone(),
+                size,
+                modified_unix,
+            })
+        })
+        .collect()
 }
 
 /// An opened image plus the metadata the CLI needs for reporting.

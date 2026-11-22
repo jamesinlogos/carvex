@@ -642,6 +642,13 @@ fn scan(args: ScanArgs) -> Result<i32> {
         examiner: args.examiner.clone(),
         image_sha256,
         image_mtime,
+        input_format: image.format.as_str().to_string(),
+        input_physical_size: Some(
+            image
+                .identity
+                .as_ref()
+                .map_or(len, crate::io::SourceIdentity::initial_size),
+        ),
     };
 
     if !args.quiet {

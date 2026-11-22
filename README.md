@@ -310,6 +310,10 @@ The JSON report (schema 2, default) has these main fields:
 
 - `schema_version`, `tool`, `tool_info` (version, commit, rustc), `argv`, `options` (all effective parameters), `case_id`, `examiner`, `started_at`/`started_at_unix`;
 - `image`, `image_size`, `filesystem`, `mode`, `duration_ms`, `throughput_mib_s`;
+- `input`: legacy `size`/`size_after` plus additive schema-2 `logical_size`,
+  `logical_size_after`, `physical_size`, `physical_size_after`, resolved
+  `format`, and backing `files[]` (`path`, `size`, `modified_unix`). `unchanged`
+  is a boolean for disk-backed images and `null` for stdin;
 - `stats`: candidate count, carved file count, filtering reasons, extent count, bytes scanned;
 - `volumes[]` and `regions[]`: every detected volume/partition/gap and the `scanned` flag for this run (A-07);
 - `warnings[]`: a list of `{code, message}`; `*_NOT_SCANNED`-style codes correspond to exit code 3, while `READ_ABORTED` accompanies an exit-1 partial report;

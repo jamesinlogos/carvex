@@ -64,16 +64,16 @@ scripts/coverage.sh 60                                OK (4456/6391 lines = 69.7
 scripts/fuzz.sh 60                                   7 targets x 60 s, 18,520,025 runs, no crashes/artifacts
 ```
 
-Current gate after H-22 (2026-11-22): **GATE GREEN**, 123 tests
-(43 unit + 13 cli_contract + 5 evidence_formats + 2 fragment_recovery +
+Current gate after H-25 (2026-11-22): **GATE GREEN**, 125 tests
+(43 unit + 13 cli_contract + 7 evidence_formats + 2 fragment_recovery +
 8 fs_detect + 2 jpeg_frame_budget + 4 memory_budget + 3 panic_containment +
 2 png_crc_validity + 4 png_decode_budget + 2 png_validator_budget +
 8 pdf_structure_validation + 5 properties + 4 regress_e01_safety +
 4 regress_vmdk_safety + 3 repair_validation + 6 scan_integration +
 1 validity_model + 4 work_budgets), 34 repro scenarios with 0 failures/
 2 SKIPs/0 XPASS, G7 and benchmark smoke green. `scripts/perf_gate.py
---carvex target/release/carvex` reported **PERF GREEN**: s9_4m median 0.151 s
-(limit 3.0 s), rand64m median 0.034 s.
+--carvex target/release/carvex` reported **PERF GREEN**: s9_4m median 0.146 s
+(limit 3.0 s), rand64m median 0.033 s.
 
 ### Pre-execution protocol correction (protocol-v1.1)
 
@@ -122,7 +122,7 @@ Windows**.
 | A-08 | PARTIAL | green | `trait ImageSource {len, read_at}` + unchanged `RawFile` default; `seek(End)` fallback when metadata len = 0. B-04 adds split raw, E01, VHD, VMDK and stdin sources under `src/image/`. `--on-read-error` and report `unreadable_regions[]` are present (H-22); raw/split reads are retried per 512-byte sector, and abort leaves a partial report. No `BlockDevice`/`--sector-size` yet and real device/Windows not tested. |
 | A-09 | PARTIAL | green | Fixed the NTFS sector off-by-one (`field+1`, D-21, unit test `volume_sector_count_includes_the_backup_boot_sector`); FS errors → `FS_DETECTION_FAILED`. No `$ATTRIBUTE_LIST`/multi-extent `$MFT`/`$MFTMirr`/backup boot/FAT #2 yet. |
 | A-10 | DONE | green | Lib crate + thin `main.rs`; pipeline `plan_extents → build_tasks → scan_task → carve_batch → postfilter → write_outputs`; format registry; `ScanInput<'a>` groups the input parameters for `run_scan`, with targeted `too_many_arguments` allows only on the two R-01/R-02 helpers that take explicit budget/deadline state; `cargo doc -D warnings` passes. |
-| A-11 | PARTIAL | green | **123 tests** in the current gate (43 unit + 13 cli_contract + 5 evidence_formats + 2 fragment_recovery + 8 fs_detect + 2 jpeg_frame_budget + 4 memory_budget + 3 panic_containment + 2 png_crc_validity + 4 png_decode_budget + 2 png_validator_budget + 8 pdf_structure_validation + 5 properties + 4 regress_e01_safety + 4 regress_vmdk_safety + 3 repair_validation + 6 scan_integration + 1 validity_model + 4 work_budgets); `scripts/review_repro.py --assert/--xfail --carvex` 34 scenarios, 0 failures, 2 SKIPs, 0 XPASS; red baseline `docs/baseline/repro_v0.1.0.txt`. Post-R-01/R-02 `cargo-llvm-cov 0.9.1` measured 4456/6391 lines = **69.72%**; CI/local floor set to 60%, not the earlier aspirational 80%. No new coverage run after H-14/H-16/H-17/H-18/H-19/H-21/H-22. |
+| A-11 | PARTIAL | green | **125 tests** in the current gate (43 unit + 13 cli_contract + 7 evidence_formats + 2 fragment_recovery + 8 fs_detect + 2 jpeg_frame_budget + 4 memory_budget + 3 panic_containment + 2 png_crc_validity + 4 png_decode_budget + 2 png_validator_budget + 8 pdf_structure_validation + 5 properties + 4 regress_e01_safety + 4 regress_vmdk_safety + 3 repair_validation + 6 scan_integration + 1 validity_model + 4 work_budgets); `scripts/review_repro.py --assert/--xfail --carvex` 34 scenarios, 0 failures, 2 SKIPs, 0 XPASS; red baseline `docs/baseline/repro_v0.1.0.txt`. Post-R-01/R-02 `cargo-llvm-cov 0.9.1` measured 4456/6391 lines = **69.72%**; CI/local floor set to 60%, not the earlier aspirational 80%. No new coverage run after H-14/H-16/H-17/H-18/H-19/H-21/H-22/H-25. |
 | A-12 | PARTIAL | green | MSRV 1.85 (`rust-version`, README corrected from "Rust 1.74"); `cargo +1.85 check` in the gate; `.github/workflows/ci.yml` adds actionlint + coverage and uses a pinned direct actionlint install; `rustfmt.toml`/`clippy.toml`/`deny.toml`; dist 0.2.0 + `SHA256SUMS`. Local `cargo deny check`, `cargo audit` and `actionlint 1.7.12` pass. Real GitHub run `44548142275` on commit `42376a9` succeeded (all jobs; push-event fuzz matrix skipped), but it predates B-04, B-06 and R-01/R-02. Distributed Windows binary not executed; no SBOM/signatures yet; removing binaries from `dist/` is STOP-AND-ASK (kept). |
 | A-13 | PARTIAL | green | Exit 0/1/2/3/4 documented + CLI contract tests; coded warnings; `RAW_SCANS_ALLOCATED` informational (D-20). No `thiserror`/leveled logger/`ProgressSink`/partial report on interrupt yet. |
 | A-14 | DONE | green | Report schema v2: `schema_version`, `argv`, `options`, `tool_info`, `input` (before–after SHA-256), ISO-8601, `case_id`, `examiner`, `warnings[]` object, `volumes[]`, `regions[]`, `lba`, real `cluster`, `partition_index`, `extent_id`, `allocated`, `source`, `fragments`. `docs/report.schema.json` + key-matching test; atomic write; `--manifest` generates `SHA256SUMS`; `--report-schema 1`. `unreadable_regions[]` belongs to A-08 (not present). |
@@ -192,7 +192,7 @@ Windows**.
 | H-19 | HIGH | 2026-11-22 source | CLOSED | cb591a3 | tests/pdf_structure_validation.rs; tests/fragment_recovery.rs; tests/scan_integration.rs; scripts/review_repro.py X11 | Stage 1 removed the false Decoded label; stage 2 adds bounded classic/xref-stream/ObjStm/trailer/catalog/length checking. Clean PDFs are `decoded`/`verified`; mismatches are `partial`/`suspect`; unsupported or budget-limited checks are `unverified`/`structural`. All 10 corpus PDFs were verified with no suspect result; qpdf/pdftoppm controls SKIPPED. |
 | H-21 | HIGH | 2026-11-22 source | CLOSED | 3b0c15c | tests/repair_validation.rs; scripts/review_repro.py X14 | Red tests proved the static footer produced an invalid PDF labelled `repaired` with no `sha256_original`. Now PDF repair rebuilds classic xref/trailer; JPEG/PNG append real footers; every repair is revalidated before `repaired`. Failed repair stays `truncated`/`partial` with `repair attempted, not validated`; `sha256_original` is emitted whenever output bytes change. X14 passes with pypdf 6.9.2 and validator checks. Generic `--salvage` is a disclosed `[SHOULD]` skip (D-47). |
 | H-22 | CRIT | 2026-11-22 in-memory fixture | CLOSED | d7d991e | tests/regress_e01_safety.rs::{partial_final_chunk_is_tolerated, damaged_chunk_is_reported_and_outputs_are_not_verified, abort_writes_partial_report_and_exits_one}; tests/image/mod.rs raw-policy unit tests; X16 | Short final chunks are accepted; damaged E01 chunks and raw/split read errors follow `--on-read-error`; `unreadable_regions[]`, `UNREADABLE_REGION` and overlap downgrade are reported. `abort` exits 1 and writes a schema-2 partial report with `READ_ABORTED`; `skip` drops overlapping candidates; `zero-fill` remains the default. Real libewf/.E02 fixtures are SKIPPED because `ewfacquire` is unavailable. |
-| H-25 | LOW | 2026-11-21 source | REPRODUCED | - | scripts/review_repro.py X22 | stdin report has `unchanged=true` with null `modified_unix`; missing `logical_size`. |
+| H-25 | LOW | 2026-11-22 source | CLOSED | - | tests/evidence_formats.rs::{compressed_e01_report_records_logical_and_physical_identity, vmdk_report_records_logical_and_physical_identity}; stdin schema test; X22 | Red tests failed with `left: Null, right: "e01"/"vmdk"/"stdin"`. Schema 2 now adds `input.logical_size`, `physical_size`, both `_after` fields, `format` and `files[]`; legacy `size`/`size_after` keep their meanings. Stdin reports `unchanged: null`. X22 checks compressed E01, VMDK and stdin and was removed from xfail. |
 | H-26 | MED | 2026-11-21 source | REPRODUCED | - | scripts/review_repro.py X19 | Corrupted NTFS in multi-volume disk: exit 0, no parse-failure warning. |
 | H-23 | MED | 2026-11-21 source | CLOSED | 080b76a | tests/regress_vmdk_safety.rs | Missing grain table returned "index out of range"; now reads zeros like qemu-img. |
 
@@ -524,6 +524,33 @@ Residual risk / next: real libewf and multi-segment `.E02` fixtures remain
   SKIPPED because `ewfacquire` is unavailable; Windows, real block devices and
   raw-device error injection are not tested. VHD/VMDK readers keep their own
   container-specific error semantics and are not wrapped by `PolicySource`.
+
+Task: H-25 — Container identity in reports
+Reviews: v5:F-26 (RT/SRC)
+Repro: REPRODUCED — X22 showed stdin `unchanged=true` with null
+  `modified_unix`, no `logical_size`, and a logical `size` paired with a
+  physical `size_after` for containers.
+Change: `SourceIdentity` now records per-file size and mtime; `ScanContext`
+  carries the resolved format and physical size; schema-2 `input` adds
+  `logical_size`, `logical_size_after`, `physical_size`, `physical_size_after`,
+  `format` and `files[]`. Legacy `size`, `size_after`, mtime fields and schema 1
+  are unchanged. Stdin `unchanged` is now null because there is no stable
+  backing path.
+New tests: `tests/evidence_formats.rs` compressed-E01 and VMDK identity tests,
+  plus the updated stdin test (red first: `left: Null` for `format` and the new
+  fields). `tests/cli_contract.rs::emitted_report_matches_the_published_schema`
+  checks the new `input` and `input_file` definitions.
+Gate: green, 125 tests, 34 repro scenarios, 0 failures/2 SKIPs/0 XPASS, G7 green;
+  G8 PERF GREEN (s9_4m median 0.146 s, rand64m median 0.033 s). X22 now builds
+  a compressed E01 and a monolithicSparse VMDK and was removed from xfail.
+Measurement: compressed E01 and sparse VMDK report logical capacity from the
+  container header and physical bytes from their backing files; `unchanged`
+  stays true when those files are stable. Stdin reports equal logical/physical
+  spool sizes, no backing files, and `unchanged: null`.
+Residual risk / next: `input.files[]` lists backing files, not byte-level
+  resolved grain/extent maps; no libewf-made multi-segment `.E01`/`.E02`
+  fixture was available. The logical size is fixed at open time for containers
+  and is not re-read from a changed descriptor during the run.
 
 ### Conflict measurements (C1-C13)
 

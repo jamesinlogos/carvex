@@ -60,9 +60,9 @@ decode budget, a 50,335,744-byte expansion with a peak-RSS assertion, and an
 invalid filter byte. Smoke output remained metric-identical to the frozen 0.2.0
 behavior.
 
-The gate was re-run after H-14, H-16, H-17, H-18, H-19 stage 2, H-21 and H-22
-on 2026-11-22 and remained green.
-The current test count is 123: 43 unit, 13 CLI contract, 5 evidence-format,
+The gate was re-run after H-14, H-16, H-17, H-18, H-19 stage 2, H-21, H-22 and
+H-25 on 2026-11-22 and remained green.
+The current test count is 125: 43 unit, 13 CLI contract, 7 evidence-format,
 2 fragment recovery, 8 filesystem detection, 2 JPEG frame budget, 4 memory
 budget, 3 panic containment, 2 PNG CRC validity, 4 PNG decode budget,
 2 PNG validator budget, 8 PDF structure validation, 5 property, 4 E01 safety,
@@ -96,12 +96,17 @@ the fix the aborted scan exited 1 but wrote no report; after the fix it writes a
 schema-2 report with `READ_ABORTED`, `UNREADABLE_REGION` and the one 4,096-byte
 EWF chunk range. Two `src/image/mod.rs` unit tests use a failing mock
 `ImageSource` to verify per-sector zero-fill and abort recording. X16 now checks
-zero-fill, abort and skip on the same damaged synthetic E01. The repro harness
-ran 34 scenarios with 0 failures, 2 SKIPs and 0 XPASS; G7 and the benchmark
-smoke were green. `scripts/perf_gate.py --carvex target/release/carvex`
-reported **PERF GREEN**: s9_4m median 0.151 s and rand64m median 0.034 s. No
-new coverage measurement was made for
-H-14/H-16/H-17/H-18/H-19/H-21/H-22.
+zero-fill, abort and skip on the same damaged synthetic E01. H-25 added two
+red-first container-identity tests in `tests/evidence_formats.rs` plus the
+updated stdin expectations; before the fix all three failed with `left: Null`
+for `format` and the new `input` fields. The schema contract test now checks the
+new `input` and `input_file` definitions. X22 builds a compressed E01 and a
+monolithicSparse VMDK in addition to the stdin case and was removed from
+`scripts/repro_xfail.txt`. The repro harness ran 34 scenarios with 0 failures,
+2 SKIPs and 0 XPASS; G7 and the benchmark smoke were green.
+`scripts/perf_gate.py --carvex target/release/carvex` reported **PERF GREEN**:
+s9_4m median 0.146 s and rand64m median 0.033 s. No new coverage measurement
+was made for H-14/H-16/H-17/H-18/H-19/H-21/H-22/H-25.
 
 ## 3. GitHub Actions
 

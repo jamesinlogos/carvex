@@ -26,6 +26,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import zlib
 from pathlib import Path
 
 PDF_EOF = b"%%EOF\n"
@@ -1259,24 +1260,126 @@ def case_x19(carvex: Path, work: Path, corpus: Path, ntfs: Path | None) -> str:
     return ""
 
 
+def _build_vmdk_sparse(data: bytes) -> bytes:
+    """Build a minimal monolithicSparse VMDK with one grain of data."""
+    grain_bytes = 16 * 512
+    out = bytearray((16 * 512) + len(data))
+    header = bytearray(512)
+    header[:4] = b"KDMV"
+    struct.pack_into("<I", header, 4, 1)
+    struct.pack_into("<Q", header, 12, len(data) // 512)
+    struct.pack_into("<Q", header, 20, 16)
+    struct.pack_into("<Q", header, 28, 1)
+    struct.pack_into("<Q", header, 36, 1)
+    struct.pack_into("<I", header, 44, 512)
+    struct.pack_into("<Q", header, 56, 2)
+    struct.pack_into("<Q", header, 64, 1)
+    out[:512] = header
+    descriptor = (
+        f"# Disk DescriptorFile\n# Extent description\n"
+        f'RW {len(data) // 512} SPARSE "sparse.vmdk" 0\n'
+    ).encode()
+    out[512:512 + len(descriptor)] = descriptor
+    struct.pack_into("<I", out, 1024, 3)
+    struct.pack_into("<I", out, 1536, 16)
+    out[16 * 512:] = data
+    return bytes(out)
+
+
 def case_x22(carvex: Path, work: Path, corpus: Path, ntfs: Path | None) -> str:
-    """H-25: container report should distinguish logical/physical size."""
-    # Use stdin - easy to check
+    """H-25: container reports must separate logical and physical identity."""
     pngs = sorted((corpus / "png").glob("*.png"))
     if not pngs:
         return "SKIP: corpus png missing"
-    src = pngs[0]
-    out = work/"out"; out.mkdir()
-    proc = subprocess.run([str(carvex), "scan", "-", "-o", str(out), "--mode","raw","--no-fs","--types","png","--min-score","0","--quiet","--json-report",str(out/"report.json")], input=src.read_bytes(), capture_output=True, text=False, timeout=60)
+    payload = pngs[0].read_bytes()
+
+    def check_input(label: str, inp: dict, fmt: str, logical: int, physical: int,
+                    files: list[tuple[str, int]], unchanged: bool | None) -> str:
+        if inp.get("format") != fmt:
+            return f"{label}: format {inp.get('format')!r}, expected {fmt!r}"
+        for key, expected in (
+            ("logical_size", logical),
+            ("logical_size_after", logical),
+            ("physical_size", physical),
+            ("physical_size_after", physical),
+            ("size", logical),
+            ("size_after", physical),
+        ):
+            if inp.get(key) != expected:
+                return f"{label}: {key}={inp.get(key)!r}, expected {expected}"
+        if inp.get("unchanged") is not unchanged:
+            return f"{label}: unchanged={inp.get('unchanged')!r}, expected {unchanged!r}"
+        actual_files = inp.get("files")
+        expected_files = [{"path": p, "size": n} for p, n in files]
+        if not isinstance(actual_files, list) or len(actual_files) != len(expected_files):
+            return f"{label}: files={actual_files!r}, expected {expected_files!r}"
+        for actual, expected in zip(actual_files, expected_files):
+            for key, value in expected.items():
+                if actual.get(key) != value:
+                    return f"{label}: files[] {key}={actual.get(key)!r}, expected {value!r}"
+            if "modified_unix" not in actual:
+                return f"{label}: files[] missing modified_unix"
+        return ""
+
+    # Stdin has no stable backing path, so `unchanged` must be null.
+    stdin_work = work / "stdin"
+    stdin_work.mkdir()
+    out = stdin_work / "out"
+    proc = subprocess.run(
+        [str(carvex), "scan", "-", "-o", str(out), "--mode", "raw", "--no-fs",
+         "--types", "png", "--min-score", "0", "--quiet",
+         "--json-report", str(stdin_work / "report.json")],
+        input=payload, capture_output=True, timeout=60,
+    )
     if proc.returncode != 0:
-        return f"exit {proc.returncode}"
-    report = json.loads((out/"report.json").read_text())
-    inp = report.get("input", {})
-    # H-25: stdin unchanged should be null; logical/physical size fields should exist
-    if inp.get("unchanged") is True and inp.get("modified_unix") is None:
-        return "stdin reports unchanged=true with null modified_unix (should be null/unknown semantics per H-25)"
-    if "logical_size" not in inp:
-        return "missing input.logical_size"
+        return f"stdin: exit {proc.returncode}"
+    report = json.loads((stdin_work / "report.json").read_text())
+    if err := check_input("stdin", report.get("input", {}), "stdin", len(payload),
+                          len(payload), [], None):
+        return err
+    if report["input"]["modified_unix"] is not None:
+        return "stdin: modified_unix must be null"
+
+    # Compressed E01: the zlib stream is smaller than the logical media.
+    e01_work = work / "e01"
+    e01_work.mkdir()
+    logical = (payload[:8192] + b"\x00" * (64 * 1024))[:64 * 1024]
+    e01 = e01_work / "compressed.E01"
+    _build_e01(e01, logical, 4096, compressed=True)
+    physical = e01.stat().st_size
+    res = run_carvex(
+        carvex, e01, e01_work,
+        ["--input-format", "e01", "--mode", "raw", "--no-fs", "--types", "png",
+         "--min-score", "0"],
+        timeout=60,
+    )
+    if res.report is None:
+        return f"e01: no report (exit {res.proc.returncode})"
+    if physical >= len(logical):
+        return "e01 fixture is not compressed"
+    if err := check_input("e01", res.report.get("input", {}), "e01", len(logical),
+                          physical, [(str(e01), physical)], True):
+        return err
+
+    # monolithicSparse VMDK: descriptor capacity exceeds the backing file.
+    vmdk_work = work / "vmdk"
+    vmdk_work.mkdir()
+    sample = payload[:8192]
+    logical = sample + b"\x00" * ((-len(sample)) % 512)
+    vmdk = vmdk_work / "sparse.vmdk"
+    physical_bytes = _build_vmdk_sparse(logical)
+    vmdk.write_bytes(physical_bytes)
+    res = run_carvex(
+        carvex, vmdk, vmdk_work,
+        ["--input-format", "vmdk", "--mode", "raw", "--no-fs", "--types", "png",
+         "--min-score", "0"],
+        timeout=60,
+    )
+    if res.report is None:
+        return f"vmdk: no report (exit {res.proc.returncode})"
+    if err := check_input("vmdk", res.report.get("input", {}), "vmdk", len(logical),
+                          len(physical_bytes), [(str(vmdk), len(physical_bytes))], True):
+        return err
     return ""
 
 
@@ -1382,8 +1485,8 @@ def case_x15(carvex: Path, work: Path, corpus: Path, ntfs: Path | None) -> str:
     return ""
 
 
-def _build_e01(path: Path, data: bytes, chunk: int) -> None:
-    """Build a minimal uncompressed E01 with one or more full chunks."""
+def _build_e01(path: Path, data: bytes, chunk: int, compressed: bool = False) -> None:
+    """Build a minimal E01 with one or more full chunks."""
     def descriptor(kind: bytes) -> int:
         pos = len(buf)
         desc = bytearray(76)
@@ -1410,8 +1513,11 @@ def _build_e01(path: Path, data: bytes, chunk: int) -> None:
     for part in (data[i:i + chunk] for i in range(0, len(data), chunk)):
         full = part + b"\x00" * (chunk - len(part))
         offsets.append(len(buf))
-        buf.extend(full)
-        buf.extend(struct.pack("<I", zlib_adler32(full)))
+        if compressed:
+            buf.extend(zlib.compress(full))
+        else:
+            buf.extend(full)
+            buf.extend(struct.pack("<I", zlib_adler32(full)))
     patch(sd, len(buf), len(buf) - sectors_data)
 
     td = descriptor(b"table")
@@ -1419,7 +1525,8 @@ def _build_e01(path: Path, data: bytes, chunk: int) -> None:
     buf.extend(struct.pack("<I", len(offsets)))
     buf.extend(b"\x00" * 20)
     for offset in offsets:
-        buf.extend(struct.pack("<I", offset))
+        flag = 0x80000000 if compressed else 0
+        buf.extend(struct.pack("<I", offset | flag))
     buf.extend(b"\x00" * 4)
     patch(td, len(buf), len(buf) - table_data)
 

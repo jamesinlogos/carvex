@@ -13,9 +13,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   VHD, flat/sparse VMDK extents, and stdin via a temporary spool.
 - `--input-format auto|raw|split|e01|vhd|vmdk|stdin` for `info` and `scan`;
   `IMAGE` may be `-` to read stdin.
-- Five fixture-based tests in `tests/evidence_formats.rs` verify byte-for-byte
+- Seven fixture-based tests in `tests/evidence_formats.rs` verify byte-for-byte
   reads, stable source identity for disk-backed containers (no false
-  `IMAGE_MODIFIED`), and stdin report identity.
+  `IMAGE_MODIFIED`), stdin report identity, and H-25 logical/physical size
+  reporting for compressed E01 and VMDK containers.
 - B-06 bounded bifragment gap carving behind the opt-in
   `--fragment-recovery` flag, with `--max-gap`, `--max-frag-candidates` and
   `--frag-time-limit`. Accepted stitches pass the deep validator and add
@@ -53,6 +54,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   recorded unreadable ranges, `UNREADABLE_REGION` and `READ_ABORTED`, then exits
   1. The report contains no carved files because the run stopped before a
   complete candidate set existed.
+- H-25: report schema 2 adds `input.logical_size`, `logical_size_after`,
+  `physical_size`, `physical_size_after`, `format` and `files[]`. Legacy `size`,
+  `size_after` and schema 1 are unchanged.
 
 ### Changed
 
@@ -66,7 +70,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Auto-detection selects a container from magic bytes and segment naming;
   explicit `--input-format raw` remains available. Ordinary raw images still
   use the unchanged `RawFile` path, so frozen benchmark behavior is preserved.
-- Updated test count to 123. Re-measured line coverage after R-01/R-02 is
+- H-25: stdin reports `input.unchanged: null` instead of `true`; disk-backed
+  sources keep the boolean value. No carve behavior, score, emission or output
+  name changed.
+- Updated test count to 125. Re-measured line coverage after R-01/R-02 is
   4456/6391 lines = 69.72%; the honest CI/local floor remains 60%.
 - E01 read errors now follow `--on-read-error`; the default changed from
   failing the whole run to zero-filling the affected chunk and recording it.

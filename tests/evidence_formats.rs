@@ -223,7 +223,129 @@ fn stdin_scan_reports_stdin_as_the_source() {
         .any(|w| w["code"] == "FS_DETECTION_FAILED"));
     assert_eq!(report["image"], "-");
     assert_eq!(report["input"]["path"], "-");
-    assert_eq!(report["input"]["unchanged"], true);
+    assert_eq!(report["input"]["format"], "stdin");
+    assert_eq!(
+        report["input"]["logical_size"],
+        mixed_raw_image().len() as u64
+    );
+    assert_eq!(
+        report["input"]["logical_size_after"],
+        mixed_raw_image().len() as u64
+    );
+    assert_eq!(
+        report["input"]["physical_size"],
+        mixed_raw_image().len() as u64
+    );
+    assert_eq!(
+        report["input"]["physical_size_after"],
+        mixed_raw_image().len() as u64
+    );
+    assert_eq!(report["input"]["files"].as_array().unwrap().len(), 0);
+    assert!(report["input"]["unchanged"].is_null());
     assert!(report["input"]["modified_unix"].is_null());
     assert_eq!(report["stats"]["carved"].as_u64().unwrap(), 3);
+}
+
+/// H-25: a compressed E01 must report its logical reconstruction size and the
+/// physical size of its backing segment separately.
+#[test]
+fn compressed_e01_report_records_logical_and_physical_identity() {
+    let dir = tempfile::tempdir().unwrap();
+    let logical = pad_to_sector(&mixed_raw_image());
+    let container = dir.path().join("compressed.E01");
+    let physical = build_e01(&logical, true);
+    fs::write(&container, &physical).unwrap();
+    let output = dir.path().join("out");
+    let report_path = dir.path().join("report.json");
+    let result = Command::new(bin())
+        .args([
+            "scan",
+            container.to_str().unwrap(),
+            "--input-format",
+            "e01",
+            "-o",
+            output.to_str().unwrap(),
+            "--mode",
+            "raw",
+            "--no-fs",
+            "--min-size",
+            "1",
+            "--quiet",
+            "--json-report",
+            report_path.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let report: Value = serde_json::from_slice(&fs::read(&report_path).unwrap()).unwrap();
+    let input = &report["input"];
+    assert_eq!(input["format"], "e01");
+    assert_eq!(input["logical_size"], logical.len() as u64);
+    assert_eq!(input["logical_size_after"], logical.len() as u64);
+    assert_eq!(input["physical_size"], physical.len() as u64);
+    assert_eq!(input["physical_size_after"], physical.len() as u64);
+    assert_eq!(input["size"], logical.len() as u64);
+    assert_eq!(input["size_after"], physical.len() as u64);
+    assert_eq!(input["unchanged"], true);
+    let files = input["files"].as_array().unwrap();
+    assert_eq!(files.len(), 1, "unexpected files: {files:?}");
+    assert_eq!(files[0]["path"], container.to_str().unwrap());
+    assert_eq!(files[0]["size"], physical.len() as u64);
+    assert!(files[0]["modified_unix"].is_number());
+}
+
+/// H-25: a monolithic VMDK records every backing file and the descriptor's
+/// logical capacity without conflating them.
+#[test]
+fn vmdk_report_records_logical_and_physical_identity() {
+    let dir = tempfile::tempdir().unwrap();
+    let logical = pad_to_sector(&mixed_raw_image());
+    let container = dir.path().join("sparse.vmdk");
+    let physical = build_vmdk_sparse(&logical);
+    fs::write(&container, &physical).unwrap();
+    let output = dir.path().join("out");
+    let report_path = dir.path().join("report.json");
+    let result = Command::new(bin())
+        .args([
+            "scan",
+            container.to_str().unwrap(),
+            "--input-format",
+            "vmdk",
+            "-o",
+            output.to_str().unwrap(),
+            "--mode",
+            "raw",
+            "--no-fs",
+            "--min-size",
+            "1",
+            "--quiet",
+            "--json-report",
+            report_path.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let report: Value = serde_json::from_slice(&fs::read(&report_path).unwrap()).unwrap();
+    let input = &report["input"];
+    assert_eq!(input["format"], "vmdk");
+    assert_eq!(input["logical_size"], logical.len() as u64);
+    assert_eq!(input["logical_size_after"], logical.len() as u64);
+    assert_eq!(input["physical_size"], physical.len() as u64);
+    assert_eq!(input["physical_size_after"], physical.len() as u64);
+    assert_eq!(input["size"], logical.len() as u64);
+    assert_eq!(input["size_after"], physical.len() as u64);
+    assert_eq!(input["unchanged"], true);
+    let files = input["files"].as_array().unwrap();
+    assert_eq!(files.len(), 1, "unexpected files: {files:?}");
+    assert_eq!(files[0]["path"], container.to_str().unwrap());
+    assert_eq!(files[0]["size"], physical.len() as u64);
+    assert!(files[0]["modified_unix"].is_number());
 }

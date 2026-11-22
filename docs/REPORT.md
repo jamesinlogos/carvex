@@ -485,7 +485,26 @@ still exits 3 as an incomplete run. VHD and VMDK keep their own
 container-specific error semantics; real libewf and `.E02` controls are
 SKIPPED because `ewfacquire` is unavailable.
 
-### 3.10. CLI and reporting
+### 3.10. Container identity in reports (H-25)
+
+Schema 2 keeps the historical `input.size` (logical image length) and
+`input.size_after` (aggregate physical bytes of the backing files) unchanged,
+and adds an explicit distinction: `logical_size` with `logical_size_after`,
+`physical_size` with `physical_size_after`, the resolved `format`, and
+`files[]` with each backing file's path, size and mtime. `format` is never
+`auto`. The logical capacity of an E01, VHD or VMDK is fixed when its
+descriptor is opened; raw and split sources have no separate physical layer, so
+their logical size follows the current backing size when a change is observed.
+
+For stdin, logical and physical sizes both describe the temporary spool,
+`files[]` is empty, and `unchanged` is `null`: there is no stable backing path
+to compare. Disk-backed sources still report a boolean `unchanged`. All new
+fields are omitted by `--report-schema 1`, which removes the whole `input`
+object. The executed controls use a compressed E01, a monolithicSparse VMDK
+and a stdin PNG; real libewf-made multi-segment E01/.E02 containers are
+SKIPPED because `ewfacquire` is unavailable.
+
+### 3.11. CLI and reporting
 
 - Three commands: `info`, `scan`, `signatures`.
 - `--json-report` outputs all metadata and the file list.

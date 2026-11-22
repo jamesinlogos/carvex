@@ -485,18 +485,33 @@ fn build_input_info(
     image_identity: Option<&crate::io::SourceIdentity>,
     ctx: &ScanContext,
 ) -> InputInfo {
-    let (size_after, modified_unix_after, unchanged) = match image_identity {
-        Some(identity) => {
-            let (size, mtime, readable) = identity.current();
-            (
-                size,
-                mtime,
-                readable && size == identity.initial_size() && mtime == identity.initial_mtime(),
-            )
-        }
+    let (size_after, modified_unix_after, readable) = match image_identity {
+        Some(identity) => identity.current(),
         // Stdin has no backing path; the spool is controlled by this process.
         None => (image_len, ctx.image_mtime, true),
     };
+    let physical_size = image_identity.map_or(
+        ctx.input_physical_size.unwrap_or(image_len),
+        crate::io::SourceIdentity::initial_size,
+    );
+    let physical_size_after = if image_identity.is_some() {
+        size_after
+    } else {
+        physical_size
+    };
+    // Container logical capacity is fixed when the image is opened. Raw and
+    // split sources have no separate physical layer, so their logical size
+    // follows the backing files if those change during the run.
+    let logical_size_after = if matches!(ctx.input_format.as_str(), "raw" | "split" | "stdin") {
+        physical_size_after
+    } else {
+        image_len
+    };
+    let unchanged = image_identity.map(|identity| {
+        readable
+            && size_after == identity.initial_size()
+            && modified_unix_after == identity.initial_mtime()
+    });
     InputInfo {
         path: image.to_string(),
         size: image_len,
@@ -505,17 +520,41 @@ fn build_input_info(
         size_after,
         modified_unix_after,
         unchanged,
+        logical_size: image_len,
+        logical_size_after,
+        physical_size,
+        physical_size_after,
+        format: ctx.input_format.clone(),
+        files: image_identity.map_or_else(Vec::new, |identity| identity.files().to_vec()),
     }
 }
 
 /// Run-specific metadata that is not a scanning option.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct ScanContext {
     pub argv: Vec<String>,
     pub case_id: Option<String>,
     pub examiner: Option<String>,
     pub image_sha256: Option<String>,
     pub image_mtime: Option<u64>,
+    /// Resolved container format emitted in `input.format`.
+    pub input_format: String,
+    /// Physical backing size for sources without a `SourceIdentity` (stdin).
+    pub input_physical_size: Option<u64>,
+}
+
+impl Default for ScanContext {
+    fn default() -> Self {
+        Self {
+            argv: Vec::new(),
+            case_id: None,
+            examiner: None,
+            image_sha256: None,
+            image_mtime: None,
+            input_format: "raw".into(),
+            input_physical_size: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -533,7 +572,18 @@ pub struct InputInfo {
     pub modified_unix: Option<u64>,
     pub size_after: u64,
     pub modified_unix_after: Option<u64>,
-    pub unchanged: bool,
+    /// Unknown for stdin, which has no stable backing path (H-25).
+    pub unchanged: Option<bool>,
+    /// Logical image bytes exposed by the container (H-25).
+    pub logical_size: u64,
+    pub logical_size_after: u64,
+    /// Sum of the physical bytes in the backing files (H-25).
+    pub physical_size: u64,
+    pub physical_size_after: u64,
+    /// Resolved container format, never `auto` (H-25).
+    pub format: String,
+    /// Backing files with their observed sizes and mtimes (H-25).
+    pub files: Vec<crate::io::SourceFile>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1153,7 +1203,7 @@ pub fn run_scan(
     };
 
     let input = build_input_info(image, image_len, image_identity, ctx);
-    if !input.unchanged {
+    if input.unchanged == Some(false) {
         warnings.push(Warning::new(
             "IMAGE_MODIFIED",
             "source image size or mtime changed during the scan",
@@ -1214,7 +1264,7 @@ pub fn partial_report(
     };
     let mut warnings = warnings;
     let input_info = build_input_info(input.image, input.image_len, input.image_identity, ctx);
-    if !input_info.unchanged {
+    if input_info.unchanged == Some(false) {
         warnings.push(Warning::new(
             "IMAGE_MODIFIED",
             "source image size or mtime changed during the scan",

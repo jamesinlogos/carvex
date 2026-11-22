@@ -804,3 +804,27 @@ decision, and the consequences.
   recorded unreadable range. Real libewf and `.E02` controls remain SKIPPED
   because `ewfacquire` is unavailable; synthetic E01 fixtures and mock-source
   unit tests are the executed evidence.
+
+## D-49. Container identity fields (H-25)
+
+- **Context:** schema-2 `input.size` is the logical image length while
+  `input.size_after` is the aggregate physical size of the backing files. For
+  containers these differ, yet the report had no field naming that distinction,
+  no resolved format, and no list of the backing files. Stdin had a null mtime
+  but asserted `unchanged: true`, which implied a comparison that did not exist.
+- **Decision:** keep every legacy field and its meaning. Add additive schema-2
+  fields `input.logical_size`, `logical_size_after`, `physical_size`,
+  `physical_size_after`, `format` and `files[]`. `format` is the resolved format
+  and never `auto`. `files[]` contains each backing file's path, size and mtime
+  as observed when the image was opened. For raw and split sources the logical
+  size follows the current backing size; for E01/VHD/VMDK containers it remains
+  the capacity fixed when the descriptor was parsed.
+- **Stdin:** there is no stable backing path or comparison to perform, so
+  `unchanged` is now `null` (JSON), not `true`. Logical and physical sizes both
+  describe the temporary spool and `files[]` is empty.
+- **Compatibility:** CSV columns, scores, emission, output naming, warning
+  codes, published benchmarks and the default raw path are unchanged. Schema 1
+  still removes the whole `input` object, so the legacy JSON shape is intact.
+- **Evidence:** compressed E01, monolithicSparse VMDK and stdin are exercised
+  by the Rust fixture tests and X22. Real libewf-made multi-segment E01/.E02
+  containers remain SKIPPED because `ewfacquire` is unavailable.
