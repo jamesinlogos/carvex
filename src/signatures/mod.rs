@@ -717,13 +717,18 @@ fn validate_pdf(data: &[u8], analysis: &Analysis) -> (Validation, Vec<String>) {
         .any(|n| n.contains("target validated"))
     {
         (
-            Validation::Decoded,
-            vec!["xref/startxref target validated".into()],
+            Validation::Unverified,
+            vec![
+                "PDF decode is lexical-only (startxref target validated); content not fully verified"
+                    .into(),
+            ],
         )
     } else {
         (
-            Validation::Partial,
-            vec!["PDF footer present but xref target was not validated".into()],
+            Validation::Unverified,
+            vec![
+                "PDF footer present but xref target was not validated; content not checked".into(),
+            ],
         )
     }
 }

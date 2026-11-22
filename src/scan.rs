@@ -1498,7 +1498,18 @@ fn try_fragment_join(
         ValidationLimits::new(opts.max_decode_bytes),
     );
     decode_guard.release();
-    if validation != Validation::Decoded {
+    // B-06 requires deep validation. H-19 stage 1: PDF deep validation is
+    // lexical-only and reports Unverified (never Decoded) until a real PDF
+    // parser is integrated. Accept only the lexical-validated Unverified case
+    // for PDF; all other formats still require Decoded.
+    let accepted = match validation {
+        Validation::Decoded => true,
+        Validation::Unverified if cand.kind == FileType::Pdf => validation_notes
+            .iter()
+            .any(|n| n.contains("startxref target validated")),
+        _ => false,
+    };
+    if !accepted {
         return Ok(JoinAttempt {
             data: None,
             deep_checked: true,

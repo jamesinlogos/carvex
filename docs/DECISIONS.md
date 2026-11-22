@@ -469,3 +469,22 @@ decision, and the consequences.
   tree, one commit ahead of `706a12a` with R-01/R-02 already applied). Any
   finding not reproduced is recorded as `NOT-REPRODUCED` with evidence, not
   silently dropped.
+
+## D-34. H-19 stage 1 PDF validation honesty vs B-06 stitch acceptance (E-1)
+
+- **Context:** H-19 stage 1 changes PDF deep validation to return
+  `Validation::Unverified` with an explicit lexical-only note, never
+  `Validation::Decoded`, because the current check validates startxref/xref
+  structure but not PDF content. The B-06 fragment recovery path
+  (`try_fragment_join` in `src/scan.rs`) and S12 acceptance test
+  (`tests/fragment_recovery.rs`) previously required `Validation::Decoded` for
+  all stitched outputs.
+- **Decision:** Keep H-19 honest. B-06 accepts `Validation::Decoded`, or for
+  PDF only `Validation::Unverified` when the validation notes include
+  "startxref target validated" (lexical-validated case). S12 is updated with an
+  E-1 comment: PDF BGC stitches assert `Unverified` plus the lexical-validation
+  note; JPEG/PNG still assert `Decoded`. No PDF carve is labeled Decoded.
+- **Consequences:** B-06 PDF recovery remains possible with an honest label.
+  Full PDF content decode (H-19 stage 2) can later promote lexical-validated
+  PDFs to Decoded by changing `validate_pdf` and tightening S12/B-06 back to
+  Decoded-only.

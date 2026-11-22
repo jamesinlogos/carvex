@@ -175,7 +175,7 @@ Windows**.
 | H-14 | HIGH | - | OPEN | - | - | No new fuzz targets for image parsers yet. |
 | H-15 | MED | 2026-11-21 source | NOT-REPRODUCED | - | scripts/review_repro.py X23 | Default threads not slower than 1 thread on 4M flood source build. |
 | H-18 | HIGH | 2026-11-21 source | CLOSED (partial) | - | scripts/review_repro.py X12 | Unsupported JPEG strict-scan variants now return Validation::Unverified; splice property/rate not yet measured. |
-| H-19 | HIGH | 2026-11-21 source | REPRODUCED | - | scripts/review_repro.py X11 | Broken-xref PDF reported decoded (lexical-only validation). |
+| H-19 | HIGH | 2026-11-21 source | CLOSED (stage 1) | - | scripts/review_repro.py X11 | PDF decode no longer returns Decoded; returns Unverified with explicit lexical-only note (stage 1 honesty). S12/B-06 acceptance adjusted with E-1 note: PDF stitches accepted as lexical-validated Unverified, not Decoded. |
 | H-21 | HIGH | 2026-11-21 source | REPRODUCED | - | scripts/review_repro.py X14 | Repaired PDF missing `sha256_original`. |
 | H-22 | CRIT | - | OPEN | - | - | E01 partial/damaged chunk handling not reproduced (ewfacquire missing). |
 | H-25 | LOW | 2026-11-21 source | REPRODUCED | - | scripts/review_repro.py X22 | stdin report has `unchanged=true` with null `modified_unix`; missing `logical_size`. |
