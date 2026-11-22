@@ -11,7 +11,10 @@ use std::fs::File;
 use std::io::{self, Seek, SeekFrom};
 use std::path::Path;
 
-pub use crate::image::{open_image, open_image_with, InputFormat, OpenedImage, SourceIdentity};
+pub use crate::image::{
+    open_image, open_image_with_options, InputFormat, OnReadError, OpenOptions, OpenedImage,
+    SourceIdentity, UnreadableRegion,
+};
 
 /// A random-access, read-only byte source.
 pub trait ImageSource: Send + Sync {

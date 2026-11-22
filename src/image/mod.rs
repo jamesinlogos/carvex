@@ -14,14 +14,62 @@ use crate::io::{read_exact_at, read_vec_at, ImageSource, RawFile};
 use crate::util::file_identity;
 use anyhow::{bail, Context, Result};
 use clap::ValueEnum;
-use std::io::{self, Write};
+use serde::Serialize;
+use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 use tempfile::NamedTempFile;
 
 pub use e01::E01Image;
 pub use split::SplitRaw;
 pub use vhd::VhdImage;
 pub use vmdk::VmdkImage;
+
+/// How to react when a byte range of the image cannot be read (A-08, H-22).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum OnReadError {
+    /// Stop and fail (pre-0.3.0 behaviour).
+    Abort,
+    /// Treat the unreadable bytes as `0x00` and record the region.
+    ZeroFill,
+    /// Skip candidates that need the unreadable bytes.
+    Skip,
+}
+
+#[allow(clippy::derivable_impls)]
+impl Default for OnReadError {
+    fn default() -> Self {
+        Self::ZeroFill
+    }
+}
+
+/// A byte range that could not be read from the source, with the reason.
+#[derive(Debug, Clone, Serialize)]
+pub struct UnreadableRegion {
+    pub offset: u64,
+    pub len: u64,
+    pub reason: String,
+}
+
+/// Shared log of unreadable ranges discovered while reading an image.
+pub type RegionLog = Arc<Mutex<Vec<UnreadableRegion>>>;
+
+pub(crate) fn record_unreadable(log: &RegionLog, offset: u64, len: u64, reason: &str) {
+    if let Ok(mut regions) = log.lock() {
+        if let Some(last) = regions.last_mut() {
+            if last.offset + last.len == offset && last.reason == reason {
+                last.len += len;
+                return;
+            }
+        }
+        regions.push(UnreadableRegion {
+            offset,
+            len,
+            reason: reason.to_string(),
+        });
+    }
+}
 
 /// Explicit image container selection for `info` and `scan`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -116,6 +164,9 @@ pub struct OpenedImage {
     pub display: String,
     pub identity: Option<SourceIdentity>,
     pub format: InputFormat,
+    /// Byte ranges that could not be read (H-22).  Filled by container
+    /// readers and copied into the scan report by the CLI.
+    pub unreadable_regions: RegionLog,
     _temp_guard: Option<NamedTempFile>,
 }
 
@@ -126,21 +177,41 @@ pub struct OpenedImage {
 /// used for split raw and E01 segment discovery.  An explicit format bypasses
 /// detection so unusual files can still be opened as raw.
 pub fn open_image(path: &Path, format: InputFormat) -> Result<OpenedImage> {
-    open_image_with(path, format, false)
+    open_image_with_options(path, format, &OpenOptions::default())
 }
 
-/// Open an image with explicit permission to resolve VMDK extents outside the
-/// descriptor directory.  The default `open_image` never allows this (H-13).
-pub fn open_image_with(
+/// Options controlling how an image is opened (H-11, H-13, H-22).
+pub struct OpenOptions {
+    pub allow_external_extents: bool,
+    pub on_read_error: OnReadError,
+    /// Maximum bytes spooled from stdin; 0 means unlimited.
+    pub max_stdin_bytes: u64,
+    pub spool_dir: Option<PathBuf>,
+}
+
+impl Default for OpenOptions {
+    fn default() -> Self {
+        Self {
+            allow_external_extents: false,
+            on_read_error: OnReadError::ZeroFill,
+            max_stdin_bytes: 0,
+            spool_dir: None,
+        }
+    }
+}
+
+/// Open an image with the supplied options.  The default [`open_image`] never
+/// allows external VMDK extents and zero-fills unreadable regions.
+pub fn open_image_with_options(
     path: &Path,
     format: InputFormat,
-    allow_external_extents: bool,
+    options: &OpenOptions,
 ) -> Result<OpenedImage> {
     if path == Path::new("-") {
         if !matches!(format, InputFormat::Auto | InputFormat::Stdin) {
             bail!("an explicit container cannot be used with stdin; use auto or stdin");
         }
-        return open_stdin();
+        return open_stdin(options);
     }
     if format == InputFormat::Stdin {
         bail!("--input-format stdin requires the image path '-'");
@@ -154,6 +225,7 @@ pub fn open_image_with(
         format
     };
 
+    let regions: RegionLog = Arc::new(Mutex::new(Vec::new()));
     let (source, len, paths): (Box<dyn ImageSource>, u64, Vec<PathBuf>) = match chosen {
         InputFormat::Auto => unreachable!("auto was resolved above"),
         InputFormat::Raw => (Box::new(probe), len, vec![path.to_path_buf()]),
@@ -164,7 +236,7 @@ pub fn open_image_with(
             (Box::new(image), len, paths)
         }
         InputFormat::E01 => {
-            let image = E01Image::open(path)?;
+            let image = E01Image::open_with(path, options.on_read_error, Arc::clone(&regions))?;
             let len = image.len();
             let paths = image.source_paths();
             (Box::new(image), len, paths)
@@ -176,7 +248,7 @@ pub fn open_image_with(
             (Box::new(image), len, paths)
         }
         InputFormat::Vmdk => {
-            let image = VmdkImage::open_with(path, allow_external_extents)?;
+            let image = VmdkImage::open_with(path, options.allow_external_extents)?;
             let len = image.len();
             let paths = image.source_paths();
             (Box::new(image), len, paths)
@@ -191,13 +263,29 @@ pub fn open_image_with(
         display: path.display().to_string(),
         identity: Some(identity),
         format: chosen,
+        unreadable_regions: regions,
         _temp_guard: None,
     })
 }
 
-fn open_stdin() -> Result<OpenedImage> {
-    let mut temp = NamedTempFile::new().context("cannot create stdin spool file")?;
-    io::copy(&mut io::stdin().lock(), &mut temp).context("cannot read image from stdin")?;
+fn open_stdin(options: &OpenOptions) -> Result<OpenedImage> {
+    let mut temp = match &options.spool_dir {
+        Some(dir) => NamedTempFile::new_in(dir).context("cannot create stdin spool file")?,
+        None => NamedTempFile::new().context("cannot create stdin spool file")?,
+    };
+    let mut stdin = io::stdin().lock();
+    let copied = if options.max_stdin_bytes > 0 {
+        let mut limited = stdin.take(options.max_stdin_bytes + 1);
+        io::copy(&mut limited, &mut temp).context("cannot read image from stdin")?
+    } else {
+        io::copy(&mut stdin, &mut temp).context("cannot read image from stdin")?
+    };
+    if options.max_stdin_bytes > 0 && copied > options.max_stdin_bytes {
+        bail!(
+            "stdin image exceeds --max-stdin-bytes ({})",
+            options.max_stdin_bytes
+        );
+    }
     temp.flush().context("cannot flush stdin spool file")?;
     let len = temp
         .as_file()
@@ -214,6 +302,7 @@ fn open_stdin() -> Result<OpenedImage> {
         display: "-".to_string(),
         identity: None,
         format: InputFormat::Stdin,
+        unreadable_regions: Arc::new(Mutex::new(Vec::new())),
         _temp_guard: Some(temp),
     })
 }

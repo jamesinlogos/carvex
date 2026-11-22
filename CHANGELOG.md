@@ -27,6 +27,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `--max-decode-bytes` (default `256M`) sets the expected PNG decoded-size
   bound for `--validate decode`; the effective value is recorded in report
   schema v2 (`options.max_decode_bytes`). Schema 1 is unchanged.
+- `--on-read-error abort|zero-fill|skip` controls how unreadable bytes from an
+  evidence source are handled; the default is `zero-fill`. `--max-stdin-bytes`
+  and `--spool-dir` bound and locate the temporary stdin spool file.
 
 ### Changed
 
@@ -35,6 +38,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   use the unchanged `RawFile` path, so frozen benchmark behavior is preserved.
 - Updated test count to 80. Re-measured line coverage after R-01/R-02 is
   4456/6391 lines = 69.72%; the honest CI/local floor remains 60%.
+- E01 read errors now follow `--on-read-error`; the default changed from
+  failing the whole run to zero-filling the affected chunk and recording it.
+  Use `--on-read-error abort` for the previous behaviour. Chunk sizes declared
+  in an E01 header are capped at 64 MiB before allocation.
 
 ### Fixed
 
@@ -47,6 +54,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   long-running scans; `--max-memory` CLI/report/schema semantics were updated
   accordingly. Three `tests/memory_budget.rs` checks cover early budget and
   candidate enforcement.
+- H-11/H-22: hostile E01 chunk sizes are rejected with a typed error before
+  allocation; stdin spooling accepts an explicit byte limit and spool directory;
+  short final E01 chunks are read at their logical length; checksum/inflate
+  failures are handled by the configured read-error policy instead of aborting
+  unconditionally. Two `tests/regress_e01_safety.rs` tests cover the hostile
+  header and the short final chunk.
 - R-02: PNG decode validation now checks the expected filtered-scanline size
   at IHDR against the validator budget before inflating anything. Inflation
   streams IDAT chunks through a fixed 64 KiB buffer, checks filter bytes as

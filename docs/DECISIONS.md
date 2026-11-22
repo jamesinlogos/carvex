@@ -488,3 +488,22 @@ decision, and the consequences.
   Full PDF content decode (H-19 stage 2) can later promote lexical-validated
   PDFs to Decoded by changing `validate_pdf` and tightening S12/B-06 back to
   Decoded-only.
+
+## D-35. E01 chunk cap and read-error policy (H-11, H-22)
+
+- **Context:** an E01 header can declare a chunk size derived from
+  `sectors_per_chunk × bytes_per_sector`. A hostile value of 2^27 sectors at
+  512 bytes/sector previously drove a 64 GiB allocation in `load_chunk`. Real
+  EWF images use 32 KiB or 64 KiB chunks. Separately, a damaged or short final
+  chunk aborted the entire scan, losing results already obtained.
+- **Decision:** cap declared chunks at `MAX_EWF_CHUNK = 64 MiB`, validate
+  `bytes_per_sector` as a plausible power of two in 128…65,536, and allocate
+  with `try_reserve_exact`. The default `--on-read-error` is `zero-fill` as
+  confirmed by the user in harness §3.6; `abort` restores the old behaviour and
+  `skip` is reserved for candidate-level skipping. Unreadable ranges are
+  recorded in `OpenedImage.unreadable_regions` for report surfacing.
+- **Consequences:** `info` and `scan` reject a 64 GiB-declaring E01 in a few
+  milliseconds with a typed error. A short final chunk is read at its logical
+  length; both short-checksum and full-chunk-checksum variants are accepted.
+  The frozen benchmark, default raw path, output naming and schema 1/2 legacy
+  fields are unchanged.

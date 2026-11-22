@@ -157,10 +157,13 @@ Windows**.
 - Competitor FP classification re-verified by running the commands (C-04):
   Foremost 44, Scalpel 54 `unknown_fp` — see `docs/REPORT.md §6.2`.
 
+### Harness findings (H-xx)
+
+| ID | Pri | Repro (date, build) | Status | Commit | Test(s) | Before → After / evidence |
+|----|----|---------------------|--------|--------|---------|---------------------------|
 | H-05 | CRIT | 2026-11-21 source | NOT-REPRODUCED (current) | - | scripts/review_repro.py X02 | X02 did not reproduce on 0.3.0-dev; likely mitigated by R-02 bounded PNG decode. Needs adversarial confirmation per harness recipe. |
 | H-07 | HIGH | 2026-11-21 source | CLOSED | - | scripts/review_repro.py X04 | 23-26s -> <1s after single-pass EOF indexing; A-01/R1-R8 and G7 unchanged. |
-| H-11 | CRIT | 2026-11-21 source | STATIC-ONLY | - | scripts/review_repro.py X07 | Crafted minimal E01 did not crash; fixture likely insufficient. SRC confirms unbounded chunk allocation risk. |
-| H-12 | CRIT | 2026-11-21 source | STATIC-ONLY | - | scripts/review_repro.py X08 | Crafted VMDK completed quickly; RSS not measured. Needs proper RSS harness. |
+| H-11 | CRIT | 2026-11-21 source / 2026-11-21 release build | CLOSED | pending | tests/regress_e01_safety.rs::hostile_chunk_size_is_rejected; X07 | Before: SIGABRT on a 64 GiB declared chunk (v5). After: typed error `EWF chunk size 68719476736 exceeds the 67108864-byte limit`; `info` 0.005 s / 12 MiB RSS, `scan` 0.005 s / 13 MiB RSS. |
 | H-16 | CRIT | 2026-11-21 source | OPEN | - | scripts/review_repro.py X24 | X24 interleaved fixture not flagged decoded/complete; default structural-as-complete issue still present per SRC. Needs proper validity-model check. |
 | H-17 | HIGH | 2026-11-21 source | CLOSED | - | scripts/review_repro.py X10 | Deep PNG validation now reports CRC mismatches as Validation::Partial; file still emitted. |
 | H-20 | MED | 2026-11-21 source | CLOSED | - | scripts/review_repro.py X13 | Trim trailing CR/LF/whitespace/NUL before %%EOF check; EOL variants now identical. |
@@ -171,18 +174,50 @@ Windows**.
 | H-06 | CRIT | 2026-11-21 source | NOT-REPRODUCED (weak) | - | scripts/review_repro.py X03 | Oversized-SOF JPEG not reported decoded/complete and did not timeout; RSS/kill not measured. |
 | H-08 | CRIT | 2026-11-21 source | NOT-REPRODUCED (weak) | - | scripts/review_repro.py X01 | Small repro did not show exit-1/no-report discard; needs RSS-bound and large-payload confirmation. |
 | H-09 | HIGH | 2026-11-21 source | REPRODUCED (partial) | - | scripts/review_repro.py X05 | Missing `--max-work-per-candidate`, `--max-output`; `--max-candidates` and `--time-budget` already present. |
-| H-13 | HIGH | 2026-11-21 source | NOT-REPRODUCED (weak) | - | scripts/review_repro.py X09 | Absolute-path VMDK descriptor did not carve outside file in simple test; needs symlink/sibling/rename cases. |
 | H-14 | HIGH | - | OPEN | - | - | No new fuzz targets for image parsers yet. |
 | H-15 | MED | 2026-11-21 source | NOT-REPRODUCED | - | scripts/review_repro.py X23 | Default threads not slower than 1 thread on 4M flood source build. |
 | H-18 | HIGH | 2026-11-21 source | CLOSED (partial) | - | scripts/review_repro.py X12 | Unsupported JPEG strict-scan variants now return Validation::Unverified; splice property/rate not yet measured. |
 | H-19 | HIGH | 2026-11-21 source | CLOSED (stage 1) | - | scripts/review_repro.py X11 | PDF decode no longer returns Decoded; returns Unverified with explicit lexical-only note (stage 1 honesty). S12/B-06 acceptance adjusted with E-1 note: PDF stitches accepted as lexical-validated Unverified, not Decoded. |
 | H-21 | HIGH | 2026-11-21 source | REPRODUCED | - | scripts/review_repro.py X14 | Repaired PDF missing `sha256_original`. |
-| H-22 | CRIT | - | OPEN | - | - | E01 partial/damaged chunk handling not reproduced (ewfacquire missing). |
+| H-22 | CRIT | 2026-11-21 in-memory fixture | IN_PROGRESS | pending | tests/regress_e01_safety.rs::partial_final_chunk_is_tolerated; X16 (real libewf SKIPPED) | Short final compressed/uncompressed chunks are now accepted; damaged chunks follow `--on-read-error`. `unreadable_regions[]` is logged in memory but not yet surfaced in JSON/CSV/warnings, and `skip` still behaves as zero-fill at the source. |
 | H-25 | LOW | 2026-11-21 source | REPRODUCED | - | scripts/review_repro.py X22 | stdin report has `unchanged=true` with null `modified_unix`; missing `logical_size`. |
 | H-26 | MED | 2026-11-21 source | REPRODUCED | - | scripts/review_repro.py X19 | Corrupted NTFS in multi-volume disk: exit 0, no parse-failure warning. |
-| H-12 | CRIT | 2026-11-21 source | REPRODUCED | - | tests/regress_vmdk_safety.rs | Tiny VMDK declaring 128 x 262144-entry tables took >5s; now rejected by typed error; tables lazy/LRU-capped (64 MiB), gd capped (1M); added --allow-external-extents. |
-| H-13 | HIGH | 2026-11-21 source | REPRODUCED | - | tests/regress_vmdk_safety.rs | Absolute/.. extent paths were accepted; now canonicalised and confined to descriptor directory; monolithicSparse uses opened file, not descriptor name. |
 | H-23 | MED | 2026-11-21 source | REPRODUCED | - | tests/regress_vmdk_safety.rs | Missing grain table returned "index out of range"; now reads zeros like qemu-img. |
+
+### Per-task reports
+
+Task: H-11 — E01 allocations from untrusted header fields; stdin spool
+Reviews: v5:F-21, v1:R-19, v2:N-06 (CONFLICT C3)
+Repro: REPRODUCED — a 64 GiB-declaring E01 aborted in v5; local in-memory
+  fixture now fails in 0.005 s with a typed error (`info` 12 MiB RSS, `scan`
+  13 MiB RSS).
+Change: `src/image/e01.rs` caps declared chunks at 64 MiB and validates
+  sector size; `src/image/mod.rs` bounds stdin spooling via `--max-stdin-bytes`
+  and `--spool-dir`; `src/cli.rs` exposes the new flags.
+New tests: `tests/regress_e01_safety.rs::hostile_chunk_size_is_rejected`
+  (red before / green after).
+Gate: green (SKIPPED: real E01 tool scenarios without `ewfacquire`).
+Measurement: SIGABRT → typed error, 0.005 s, ≤ 13 MiB RSS.
+Residual risk / next: real libewf fixtures remain unavailable; stdin limit is
+  exercised through unit-level code, not a full-pipe integration test.
+
+Task: H-22 — E01 partial/damaged chunk handling
+Reviews: v5:F-20 (ONE, real libewf)
+Repro: REPRODUCED (in-memory) — short final chunks and damaged-chunk policy
+  were demonstrated with generated EWF sections. Real `ewfacquire` fixtures
+  are SKIPPED because the tool is not installed.
+Change: `src/image/e01.rs` reads the logical final-chunk length, accepts both
+  checksum variants and routes inflate/checksum failures to
+  `--on-read-error`; `src/image/mod.rs` records unreadable ranges.
+New tests: `tests/regress_e01_safety.rs::partial_final_chunk_is_tolerated`
+  (red before / green after).
+Gate: green (SKIPPED: real E01 tool scenarios).
+Measurement: hard failure → short tail readable as zeros; damaged chunks no
+  longer abort under the default policy.
+Residual risk / next: surface `unreadable_regions[]` and `UNREADABLE_REGION`
+  in the report/CSV, implement true `skip` semantics, add X16 to the Python
+  harness, and re-run with real libewf fixtures when available.
+
 ## Blockers / open questions
 
 - GitHub Actions has now run successfully on the pre-B-04/B-06 CI-fix commit

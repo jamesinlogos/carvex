@@ -6,7 +6,7 @@
 //! compressed and Adler-32 protected uncompressed chunks are supported.  EWF2
 //! (`.Ex01`), encrypted images and Logical Evidence Files (`.L01`) are not.
 
-use super::{adler32, le_u16, le_u32, le_u64};
+use super::{adler32, le_u16, le_u32, le_u64, record_unreadable, OnReadError, RegionLog};
 use crate::io::{read_vec_at, ImageSource, RawFile};
 use anyhow::{bail, Context, Result};
 use flate2::read::ZlibDecoder;
@@ -18,12 +18,16 @@ use std::sync::{Arc, Mutex};
 const EWF_MAGIC: &[u8] = b"EVF\x09\x0d\x0a\xff\x00";
 const LVF_MAGIC: &[u8] = b"LVF\x09\x0d\x0a\xff\x00";
 const CACHE_CHUNKS: usize = 8;
+/// Hard cap on a declared EWF chunk (H-11).  Real images use 32 KiB or 64 KiB.
+const MAX_EWF_CHUNK: u64 = 64 * 1024 * 1024;
 
 #[derive(Debug, Clone)]
 struct ChunkRef {
     segment: usize,
     offset: u64,
     compressed: bool,
+    /// Logical chunk index, used to size the final (partial) chunk.
+    index: usize,
 }
 
 #[derive(Default)]
@@ -40,11 +44,26 @@ pub struct E01Image {
     chunk_size: usize,
     len: u64,
     cache: Mutex<Cache>,
+    on_read_error: OnReadError,
+    unreadable: RegionLog,
 }
 
 impl E01Image {
     /// Open the segment set that starts at (or contains) `path`.
     pub fn open(path: &Path) -> Result<Self> {
+        Self::open_with(
+            path,
+            OnReadError::ZeroFill,
+            Arc::new(Mutex::new(Vec::new())),
+        )
+    }
+
+    /// Open with control over unreadable-chunk handling (H-22).
+    pub fn open_with(
+        path: &Path,
+        on_read_error: OnReadError,
+        unreadable: RegionLog,
+    ) -> Result<Self> {
         let paths = segment_paths(path)?;
         let mut opened = Vec::with_capacity(paths.len());
 
@@ -117,8 +136,17 @@ impl E01Image {
         if chunk_size == 0 {
             bail!("EWF image does not declare a chunk size");
         }
+        if (chunk_size as u64) > MAX_EWF_CHUNK {
+            bail!(
+                "EWF chunk size {} exceeds the {MAX_EWF_CHUNK}-byte limit",
+                chunk_size
+            );
+        }
         if len == 0 {
             bail!("EWF image does not declare a media size");
+        }
+        for (index, chunk) in chunks.iter_mut().enumerate() {
+            chunk.index = index;
         }
         let expected = len.div_ceil(chunk_size as u64) as usize;
         if chunks.len() < expected {
@@ -142,6 +170,8 @@ impl E01Image {
             chunk_size,
             len,
             cache: Mutex::new(Cache::default()),
+            on_read_error,
+            unreadable,
         })
     }
 
@@ -182,46 +212,109 @@ impl E01Image {
         Ok(data)
     }
 
+    /// Logical byte length of `reference`, accounting for a short final chunk.
+    fn chunk_len(&self, reference: &ChunkRef) -> usize {
+        let full = self.chunk_size as u64;
+        let start = reference.index as u64 * full;
+        (self.len.saturating_sub(start)).min(full) as usize
+    }
+
     fn load_chunk(&self, reference: &ChunkRef) -> Result<Vec<u8>> {
         let file = &self.files[reference.segment];
         let available = file.len().saturating_sub(reference.offset);
-        let size = self.chunk_size as u64;
+        let expected = self.chunk_len(reference);
+        let chunk_start = reference.index as u64 * self.chunk_size as u64;
+
+        let allocate = |bytes: usize| -> Result<Vec<u8>> {
+            let mut out = Vec::new();
+            out.try_reserve_exact(bytes)
+                .context("EWF chunk allocation failed")?;
+            out.resize(bytes, 0);
+            Ok(out)
+        };
+
         if reference.compressed {
-            // A compressed chunk is shorter than the logical chunk.  Stream
-            // directly from the segment so a large E01 does not allocate the
-            // remainder of the file for every 64 KiB chunk.
             if available < 2 {
-                bail!(
-                    "EWF compressed chunk at byte {} is truncated",
-                    reference.offset
+                return self.unreadable_or_bail(
+                    chunk_start,
+                    expected as u64,
+                    format!(
+                        "EWF compressed chunk at byte {} is truncated",
+                        reference.offset
+                    ),
                 );
             }
-            let mut out = vec![0u8; self.chunk_size];
-            ZlibDecoder::new(EwfChunkReader {
+            let mut out = allocate(expected)?;
+            let mut decoder = ZlibDecoder::new(EwfChunkReader {
                 file,
                 offset: reference.offset,
                 end: file.len(),
             })
-            .read_exact(&mut out)
-            .with_context(|| format!("cannot decompress EWF chunk at byte {}", reference.offset))?;
+            .take(expected as u64);
+            let mut filled = 0usize;
+            while filled < expected {
+                match decoder.read(&mut out[filled..]) {
+                    Ok(0) => break, // a short final chunk is zero-filled
+                    Ok(n) => filled += n,
+                    Err(e) => {
+                        return self.unreadable_or_bail(
+                            chunk_start,
+                            expected as u64,
+                            format!(
+                                "cannot decompress EWF chunk at byte {}: {e}",
+                                reference.offset
+                            ),
+                        );
+                    }
+                }
+            }
             Ok(out)
         } else {
-            if available < size + 4 {
-                bail!(
-                    "EWF uncompressed chunk at byte {} is truncated",
-                    reference.offset
-                );
+            // A final chunk may be stored short (its checksum then covers only
+            // the real bytes) or padded to the full chunk size (some writers,
+            // and our fixtures, checksum the full chunk).  Accept either.
+            let mut candidates = vec![expected];
+            if self.chunk_size != expected {
+                candidates.push(self.chunk_size);
             }
-            let raw = read_vec_at(file, reference.offset, (size + 4) as usize)?;
-            let stored = adler32(&raw[..self.chunk_size]);
-            let expected = le_u32(&raw, self.chunk_size, "EWF chunk checksum")?;
-            if stored != expected {
-                bail!(
+            for stored_len in candidates {
+                let want = stored_len as u64 + 4;
+                if available < want {
+                    continue;
+                }
+                let raw = read_vec_at(file, reference.offset, want as usize)?;
+                let stored = adler32(&raw[..stored_len]);
+                let checksum = le_u32(&raw, stored_len, "EWF chunk checksum")?;
+                if stored == checksum {
+                    let mut out = allocate(expected)?;
+                    let copy = expected.min(stored_len);
+                    out[..copy].copy_from_slice(&raw[..copy]);
+                    return Ok(out);
+                }
+            }
+            self.unreadable_or_bail(
+                chunk_start,
+                expected as u64,
+                format!(
                     "checksum mismatch in EWF chunk at byte {}",
                     reference.offset
-                );
+                ),
+            )
+        }
+    }
+
+    /// Apply the configured `--on-read-error` policy for an unreadable chunk.
+    fn unreadable_or_bail(&self, offset: u64, len: u64, reason: String) -> Result<Vec<u8>> {
+        match self.on_read_error {
+            OnReadError::Abort => bail!(reason),
+            OnReadError::ZeroFill | OnReadError::Skip => {
+                record_unreadable(&self.unreadable, offset, len, &reason);
+                let mut out = Vec::new();
+                out.try_reserve_exact(len as usize)
+                    .context("EWF zero-fill allocation failed")?;
+                out.resize(len as usize, 0);
+                Ok(out)
             }
-            Ok(raw[..self.chunk_size].to_vec())
         }
     }
 }
@@ -296,6 +389,12 @@ fn parse_sections(file: &RawFile, segment: usize) -> Result<(Vec<ChunkRef>, usiz
             let data = read_vec_at(file, data_offset, want)?;
             let sectors_per_chunk = le_u32(&data, 8, "EWF sectors per chunk")?;
             let bytes_per_sector = le_u32(&data, 12, "EWF bytes per sector")?;
+            if bytes_per_sector != 0
+                && (!bytes_per_sector.is_power_of_two()
+                    || !(128..=65_536).contains(&bytes_per_sector))
+            {
+                bail!("implausible EWF bytes per sector {bytes_per_sector}");
+            }
             if sectors_per_chunk != 0 && bytes_per_sector != 0 {
                 let bytes = (sectors_per_chunk as u64)
                     .checked_mul(bytes_per_sector as u64)
@@ -354,6 +453,7 @@ fn parse_sections(file: &RawFile, segment: usize) -> Result<(Vec<ChunkRef>, usiz
                         segment,
                         offset,
                         compressed,
+                        index: 0, // assigned after all segments are merged
                     });
                 }
             }
