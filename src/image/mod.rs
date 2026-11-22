@@ -208,6 +208,37 @@ fn open_stdin() -> Result<OpenedImage> {
     })
 }
 
+fn vhd_footer_checksum_valid(footer: &[u8]) -> bool {
+    if footer.len() < 512 {
+        return false;
+    }
+    let mut sum: u32 = 0;
+    for (i, b) in footer.iter().enumerate() {
+        if (64..68).contains(&i) {
+            continue;
+        }
+        sum = sum.wrapping_add(u32::from(*b));
+    }
+    let expected = !sum;
+    let actual = u32::from_be_bytes([footer[64], footer[65], footer[66], footer[67]]);
+    expected == actual
+}
+
+fn looks_like_vmdk_descriptor(prefix: &[u8]) -> bool {
+    if !prefix.windows(20).any(|w| w == b"# Extent description") {
+        return false;
+    }
+    // Require additional VMDK descriptor markers to avoid false positives on
+    // arbitrary raw data (H-24).
+    let has_ver = prefix.windows(8).any(|w| w == b"version=");
+    let has_cid = prefix.windows(4).any(|w| w == b"CID=");
+    let has_create = prefix.windows(10).any(|w| w == b"createType");
+    let has_extent = prefix
+        .windows(5)
+        .any(|w| w == b"\nRW " || w == b"\nRD " || w == b"\nNOAC");
+    has_ver || has_cid || has_create || has_extent
+}
+
 fn detect(path: &Path, probe: &RawFile, len: u64) -> Result<InputFormat> {
     const EWF_MAGIC: &[u8] = b"EVF\x09\x0d\x0a\xff\x00";
     const LVF_MAGIC: &[u8] = b"LVF\x09\x0d\x0a\xff\x00";
@@ -233,13 +264,13 @@ fn detect(path: &Path, probe: &RawFile, len: u64) -> Result<InputFormat> {
 
     if len >= 512 {
         let footer = read_vec_at(probe, len - 512, 512)?;
-        if &footer[..8] == b"conectix" {
+        if &footer[..8] == b"conectix" && vhd_footer_checksum_valid(&footer) {
             return Ok(InputFormat::Vhd);
         }
     }
 
     let prefix = read_vec_at(probe, 0, len.min(64 * 1024) as usize)?;
-    if prefix.windows(20).any(|w| w == b"# Extent description") {
+    if looks_like_vmdk_descriptor(&prefix) {
         return Ok(InputFormat::Vmdk);
     }
 

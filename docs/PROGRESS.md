@@ -164,7 +164,7 @@ Windows**.
 | H-16 | CRIT | 2026-11-21 source | OPEN | - | scripts/review_repro.py X24 | X24 interleaved fixture not flagged as decoded/complete; default structural-as-complete issue still present per SRC. Needs proper validity-model check. |
 | H-17 | HIGH | 2026-11-21 source | REPRODUCED | - | scripts/review_repro.py X10 | Bad CRC PNG reported decoded/complete score=85. |
 | H-20 | MED | 2026-11-21 source | CLOSED | - | scripts/review_repro.py X13 | Trim trailing CR/LF/whitespace/NUL before %%EOF check; EOL variants now identical. |
-| H-24 | MED | 2026-11-21 source | REPRODUCED | - | scripts/review_repro.py X18 | Raw scan with trailing `conectix` sector fails: VHD footer checksum mismatch. |
+| H-24 | MED | 2026-11-21 source | CLOSED | - | scripts/review_repro.py X18 | Auto-detect now validates VHD footer checksum and requires strong VMDK descriptor markers before classifying. |
 
 | P0.7 | - | 2026-11-21 source | DONE | - | scripts/perf_gate.py | Perf baseline recorded (s9_4m median ~0.39s, rand64m ~0.03s); thresholds.toml committed; x04 marked xfail in thresholds. |
 
@@ -217,7 +217,6 @@ Windows**.
 ## Open xfail tests / scenarios
 
 - `X10` (H-17): REPRODUCED - bad CRC PNG reported as decoded/complete (score 85).
-- `X18` (H-24): REPRODUCED - raw-mode scan of file with `conectix` last sector fails with VHD footer checksum mismatch.
 
 ## Blockers / open questions
 
