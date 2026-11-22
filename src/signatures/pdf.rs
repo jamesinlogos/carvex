@@ -203,7 +203,9 @@ fn document_boundaries(data: &[u8]) -> Vec<usize> {
 }
 
 fn looks_like_more_revision(tail: &[u8]) -> bool {
-    let window = tail.get(..tail.len().min(4096)).unwrap_or(tail);
+    // Bounded window (H-07): revision markers appear immediately after %%EOF;
+    // keep the scan small to avoid per-candidate overhead.
+    let window = tail.get(..tail.len().min(64)).unwrap_or(tail);
     if window.iter().all(|b| *b == 0 || b.is_ascii_whitespace()) {
         return false;
     }
@@ -213,6 +215,17 @@ fn looks_like_more_revision(tail: &[u8]) -> bool {
 }
 
 fn find_eofs(data: &[u8]) -> Vec<EofCandidate> {
+    // Precompute once: " obj" offsets and first /Root position. This keeps the
+    // per-EOF work O(log N) instead of rescanning the whole prefix (H-07/X04).
+    let mut obj_offsets: Vec<usize> = Vec::new();
+    for p in memchr::memmem::find_iter(data, b" obj") {
+        obj_offsets.push(p);
+        if obj_offsets.len() >= 2_000_000 {
+            break;
+        }
+    }
+    let first_root = memchr::memmem::find(data, b"/Root");
+
     let mut eofs = Vec::new();
     for p in memchr::memmem::find_iter(data, b"%%EOF") {
         if p < 8 {
@@ -228,8 +241,8 @@ fn find_eofs(data: &[u8]) -> Vec<EofCandidate> {
             }
         }
         let (startxref, xref_target) = find_startxref(data, p);
-        let objects = count_objects(data.get(..end).unwrap_or(data));
-        let has_root = memchr::memmem::find(data.get(..end).unwrap_or(data), b"/Root").is_some();
+        let objects = obj_offsets.partition_point(|&off| off < end) as u32;
+        let has_root = first_root.is_some_and(|r| r < end);
         eofs.push(EofCandidate {
             marker_pos: p,
             end,

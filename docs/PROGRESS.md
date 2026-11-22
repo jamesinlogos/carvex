@@ -158,7 +158,7 @@ Windows**.
   Foremost 44, Scalpel 54 `unknown_fp` — see `docs/REPORT.md §6.2`.
 
 | H-05 | CRIT | 2026-11-21 source | NOT-REPRODUCED (current) | - | scripts/review_repro.py X02 | X02 did not reproduce on 0.3.0-dev; likely mitigated by R-02 bounded PNG decode. Needs adversarial confirmation per harness recipe. |
-| H-07 | HIGH | 2026-11-21 source | REPRODUCED | - | scripts/review_repro.py X04 | 4096 EOF markers in 64 MiB: 23-26s (target <=1s). |
+| H-07 | HIGH | 2026-11-21 source | CLOSED | - | scripts/review_repro.py X04 | 23-26s -> <1s after single-pass EOF indexing; A-01/R1-R8 and G7 unchanged. |
 | H-11 | CRIT | 2026-11-21 source | STATIC-ONLY | - | scripts/review_repro.py X07 | Crafted minimal E01 did not crash; fixture likely insufficient. SRC confirms unbounded chunk allocation risk. |
 | H-12 | CRIT | 2026-11-21 source | STATIC-ONLY | - | scripts/review_repro.py X08 | Crafted VMDK completed quickly; RSS not measured. Needs proper RSS harness. |
 | H-16 | CRIT | 2026-11-21 source | OPEN | - | scripts/review_repro.py X24 | X24 interleaved fixture not flagged as decoded/complete; default structural-as-complete issue still present per SRC. Needs proper validity-model check. |
@@ -216,7 +216,6 @@ Windows**.
 
 ## Open xfail tests / scenarios
 
-- `X04` (H-07): REPRODUCED on 0.3.0-dev - 4096 EOF markers, 64 MiB took ~23s.
 - `X10` (H-17): REPRODUCED - bad CRC PNG reported as decoded/complete (score 85).
 - `X13` (H-20): REPRODUCED - CRLF/CR PDF endings become partial/80 vs decoded/100.
 - `X18` (H-24): REPRODUCED - raw-mode scan of file with `conectix` last sector fails with VHD footer checksum mismatch.
