@@ -1,0 +1,80 @@
+CarveX harness reproduction baseline
+====================================
+
+This file preserves the "before" evidence used by harness.md Appendix A. The
+reviewer-reported v0.2.0 values below are quoted from the harness and were not
+re-measured on a live 0.2.0 checkout by this work. The current 0.3.0-dev red
+run at the end of the file was executed locally; it is not presented as a
+v0.2.0 measurement.
+
+Reviewer-reported v0.2.0 values (harness.md Appendix A)
+-------------------------------------------------------
+X01  --max-memory 16M: exit 1, 0 files, no report, RSS 107 MiB [v5]
+X02  PNG inflate: 325 MiB / 1,063 MiB / up to 2,088 MiB [v5, v1, v2]
+X03  JPEG 65535x65535 SOF: killed rc -9 at 5,948 MiB [v2]
+X04  4096 %%EOF markers: 18.7-19.2 s [v5]; 18.05 s vs 0.14 s control [v2]
+X05  --max-work-per-candidate and --max-output absent [v5, v2]
+X06  no per-candidate panic containment (SRC x5); 3,840 mutants found none
+X07  crafted E01 64 GiB chunk: SIGABRT [v5]
+X08  crafted VMDK tables: 520 MiB / 1,029 MiB RSS; 512 TiB ZERO killed [v5, v1]
+X09  VMDK descriptor reads absolute / ../ outside files [v1, v5]
+X10  PNG bad CRC: complete/decoded, score 85/55 [v1, v2, v5]
+X11  broken PDF xref/root: CarveX decoded/100, qpdf rc 3/2/3 [v1, v2]
+X12  JPEG splice rate disputed (C1); progressive decoded/100 [v2, v5]
+X13  PDF %%EOF\r\n or \r: partial/80 vs decoded/100 [v2, v5]
+X14  repaired PDF at 70%: repaired/partial/60, no sha256_original [v5]
+X15  realistic B-06 layout: 0/3 stitched, 5.1 s, FRAGMENT_TIME_LIMIT [v5]
+X16  libewf E01 tail: exit 1 "cannot decompress EWF chunk", no report [v5]
+X17  qemu VMDK zeroed grain: exit 1 "VMDK grain index out of range" [v5]
+X18  raw image misdetected as VHD/VMDK: exit 1 [v5]
+X19  corrupt NTFS in multi-volume disk: exit 0, no warning [v5]
+X20  regions[] sum 102,760,448 B vs bytes_scanned 95,367,168 B [v5]
+X21  SIGINT: killed by signal, rc -2, nothing written [v5]
+X22  stdin report unchanged=true with null modified_unix [v5]
+X23  musl dist: default 10.87 s vs 6.37 s with --threads 1 [v2]
+X24  interleaved fragments: complete/structure/100 with wrong bytes [v5]
+
+Local 0.3.0-dev red run
+-----------------------
+Command: python3 scripts/review_repro.py --carvex target/release/carvex \
+  --corpus bench/corpus --workdir /tmp/carvex-repro-baseline \
+  --ntfs-image bench/images/all-deleted_ntfs.img \
+  --fat32-image bench/images/all-deleted_fat32.img \
+  --xfail scripts/repro_xfail.txt
+
+PASS  R1   PDF revision after an early %%EOF
+PASS  R2   incremental update across the 1 MiB window
+PASS  R3   embedded PDF is not a boundary
+PASS  R4a  truncated JPEG head is salvaged
+PASS  R4b  PNG without IEND is salvaged
+PASS  R4c  spliced JPEG is not decoded
+PASS  R5   fake-header flood performance
+PASS  R6   zero-tail truncation
+PASS  R7   corrupt NTFS falls back to raw
+PASS  R8   two volumes and a gap are never skipped silently (S1)
+PASS  X02  PNG decode inflation must be bounded [H-05]
+PASS  X04  PDF %%EOF evaluation should be near-linear/single-pass [H-07]
+PASS  X07  crafted E01 header must not cause huge allocation/abort [H-11]
+SKIP  X08  crafted VMDK grain tables must not explode memory [H-12]: SKIP: completed quickly; RSS not measured in this repro (needs RSS harness)
+PASS  X10  PNG bad CRC must not be reported as decoded/complete [H-17]
+PASS  X13  PDF EOL variants should not change validity class [H-20]
+PASS  X18  raw image with VHD/VMDK-looking bytes should not be misdetected [H-24]
+PASS  X24  interleaved fragments must not be labelled complete/decoded [H-16]
+PASS  X01  --max-memory must bound working memory [H-08]
+PASS  X03  JPEG SOF dimensions must not cause unbounded decode alloc [H-06]
+XFAIL X05  required work budgets are absent [H-09]: missing flags: ['--max-work-per-candidate', '--max-output']
+PASS  X09  VMDK descriptors must not read arbitrary files [H-13]
+PASS  X11  PDF decoded must not be lexical-only on broken xref/root [H-19]
+PASS  X12  JPEG strict scan unsupported/decoded labelling [H-18]
+XFAIL X14  --repair must not label unreadable PDF repaired without validation [H-21]: repaired PDF missing sha256_original
+XFAIL X19  unparsable volume in multi-volume disk must not be silent [H-26]: exit 0 with no parse-failure warning (codes=set())
+XFAIL X22  container report logical/physical size identity [H-25]: stdin reports unchanged=true with null modified_unix (should be null/unknown semantics per H-25)
+PASS  X23  parallel carve should not be slower than 1 thread [H-15]
+SKIP  X06  per-candidate panic containment [H-10]: SKIP: no panic-injection seam in the CLI
+XFAIL X15  B-06 stitches realistic interleaved fragments [H-29]: B-06 stitched none of the interleaved files
+PASS  X16  damaged E01 chunks produce a report [H-22]
+SKIP  X17  unallocated VMDK grain tables read as zeros [H-23]: SKIP: qemu-img missing
+XFAIL X20  regions[] is a faithful coverage map [H-27]: regions overlap or are unsorted
+XFAIL X21  SIGINT produces exit 4 and a partial report [H-28]: exit -2 after SIGINT (expected 4)
+
+34 scenario(s), 0 failure(s), 3 SKIP(s), 0 XPASS

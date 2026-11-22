@@ -1,0 +1,40 @@
+JPEG splice acceptance baseline (H-18 step 0 / conflict C1)
+=========================================================
+
+Protocol: harness.md §6.2 H-18(0). The script
+`scripts/jpeg_splice_property.py` generated 50 distinct images per content
+class (noise, gradient+noise, photo-like from `bench/corpus/jpeg`), saved each
+as baseline and progressive JPEG, and evaluated 1,000 independent pairs with
+cuts aligned to 512 or 4096 bytes inside 10-90% of the shorter file. A splice
+counts as accepted when an emitted output has `validation=decoded` and a
+SHA-256 that matches neither input. Wilson intervals are 95%.
+
+Baseline build
+--------------
+Commit: a7a5c08 (`706a12a` + R-01/R-02), `carvex 0.2.0`
+Command: python3 scripts/jpeg_splice_property.py \
+  --carvex /tmp/carvex-v020-baseline/target/release/carvex \
+  --corpus bench/corpus --pairs 1000 \
+  --workdir /tmp/carvex-splice-baseline
+
+pairs=1000 accepted=218 rate=0.2180
+wilson95=[0.1935,0.2446]
+gradient: 65/315 rate=0.2063 wilson95=[0.1653,0.2544]
+noise: 74/347 rate=0.2133 wilson95=[0.1734,0.2594]
+photo: 79/338 rate=0.2337 wilson95=[0.1918,0.2817]
+
+Conclusion: C1 is resolved on source builds. The v1 hypothesis of a
+substantial accepted-splice rate is reproduced locally (21.8%, not the
+reviewer's 15-98% range because the fixtures and pair count differ). H-18
+step 2 remains required if the post-fix accepted rate exceeds 0.1%.
+
+Current 0.3.0-dev check (after the H-18 partial fix, not a v0.2.0 measurement)
+-----------------------------------------------------------------------------
+Command: python3 scripts/jpeg_splice_property.py \
+  --carvex target/release/carvex --corpus bench/corpus --pairs 1000
+
+pairs=1000 accepted=1 rate=0.0010
+wilson95=[0.0002,0.0056]
+gradient: 1/315 rate=0.0032 wilson95=[0.0006,0.0178]
+noise: 0/347 rate=0.0000 wilson95=[0.0000,0.0109]
+photo: 0/338 rate=0.0000 wilson95=[0.0000,0.0112]

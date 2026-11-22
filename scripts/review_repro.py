@@ -18,6 +18,7 @@ import argparse
 import hashlib
 import json
 import re
+import signal
 import shutil
 import struct
 import subprocess
@@ -1112,6 +1113,216 @@ def case_x23(carvex: Path, work: Path, corpus: Path, ntfs: Path | None) -> str:
         return f"default {tn:.2f}s slower than 1 thread {t1:.2f}s"
     return ""
 
+def case_x06(carvex: Path, work: Path, corpus: Path, ntfs: Path | None) -> str:
+    """H-10: per-candidate panic containment.
+
+    The Python harness can only exercise this through a hidden injection seam.
+    Until the seam exists the scenario is explicitly skipped; the Rust
+    regression test added with H-10 is authoritative.
+    """
+    help_proc = subprocess.run(
+        [str(carvex), "scan", "--help"], capture_output=True, text=True, timeout=30
+    )
+    if "--panic-at-offset" not in help_proc.stdout:
+        return "SKIP: no panic-injection seam in the CLI"
+    return "panic injection seam present but not exercised by Python"
+
+
+def case_x15(carvex: Path, work: Path, corpus: Path, ntfs: Path | None) -> str:
+    """H-29: B-06 must stitch realistic interleaved fragments."""
+    jpegs = sorted((corpus / "jpeg").glob("*.jpg"))
+    if len(jpegs) < 2:
+        return "SKIP: corpus JPEGs missing"
+    a = jpegs[0].read_bytes()
+    b = jpegs[1].read_bytes()
+    cluster = 4096
+    cut_a = (len(a) // 2 // cluster) * cluster
+    cut_b = (len(b) // 2 // cluster) * cluster
+    if cut_a == 0 or cut_b == 0:
+        return "SKIP: corpus JPEGs too small"
+    gap = b"\x00" * (cluster * 3)
+    image = (
+        a[:cut_a]
+        + gap
+        + b[:cut_b]
+        + a[cut_a:]
+        + gap
+        + b[cut_b:]
+    )
+    img = work / "x15.img"
+    img.write_bytes(image)
+    res = run_carvex(
+        carvex,
+        img,
+        work,
+        ["--mode", "raw", "--no-fs", "--min-size", "1", "--fragment-recovery",
+         "--max-gap", "16", "--max-frag-candidates", "1024",
+         "--frag-time-limit", "5000"],
+        timeout=120,
+    )
+    if res.proc.returncode not in (0, 3):
+        return f"exit {res.proc.returncode}: {res.stderr[:200]}"
+    hashes = {sha256(p.read_bytes()) for p in res.files}
+    wanted = {sha256(a), sha256(b)}
+    if not (hashes & wanted):
+        return "B-06 stitched none of the interleaved files"
+    return ""
+
+
+def _build_e01(path: Path, data: bytes, chunk: int) -> None:
+    """Build a minimal uncompressed E01 with one or more full chunks."""
+    def descriptor(kind: bytes) -> int:
+        pos = len(buf)
+        desc = bytearray(76)
+        desc[:len(kind)] = kind
+        buf.extend(desc)
+        return pos
+
+    def patch(pos: int, next_off: int, size: int) -> None:
+        struct.pack_into("<Q", buf, pos + 16, next_off)
+        struct.pack_into("<Q", buf, pos + 24, size)
+
+    buf = bytearray(b"EVF\x09\x0d\x0a\xff\x00\x01\x00\x00\x00\x00")
+    vd = descriptor(b"volume")
+    volume = bytearray(1052)
+    struct.pack_into("<I", volume, 8, chunk // 512)
+    struct.pack_into("<I", volume, 12, 512)
+    struct.pack_into("<Q", volume, 16, len(data) // 512)
+    buf.extend(volume)
+    patch(vd, len(buf), len(volume))
+
+    sd = descriptor(b"sectors")
+    sectors_data = len(buf)
+    offsets = []
+    for part in (data[i:i + chunk] for i in range(0, len(data), chunk)):
+        full = part + b"\x00" * (chunk - len(part))
+        offsets.append(len(buf))
+        buf.extend(full)
+        buf.extend(struct.pack("<I", zlib_adler32(full)))
+    patch(sd, len(buf), len(buf) - sectors_data)
+
+    td = descriptor(b"table")
+    table_data = len(buf)
+    buf.extend(struct.pack("<I", len(offsets)))
+    buf.extend(b"\x00" * 20)
+    for offset in offsets:
+        buf.extend(struct.pack("<I", offset))
+    buf.extend(b"\x00" * 4)
+    patch(td, len(buf), len(buf) - table_data)
+
+    dd = descriptor(b"done")
+    patch(dd, dd, 0)
+    path.write_bytes(buf)
+
+
+def zlib_adler32(data: bytes) -> int:
+    a, b = 1, 0
+    for byte in data:
+        a = (a + byte) % 65521
+        b = (b + a) % 65521
+    return (b << 16) | a
+
+
+def case_x16(carvex: Path, work: Path, corpus: Path, ntfs: Path | None) -> str:
+    """H-22: a damaged E01 chunk must produce a report, not abort the run."""
+    jpegs = sorted((corpus / "jpeg").glob("*.jpg"))
+    if not jpegs:
+        return "SKIP: corpus JPEGs missing"
+    payload = jpegs[0].read_bytes()
+    chunk = 4096
+    data = bytearray(chunk * 2)
+    start = chunk - min(100, chunk // 2)
+    data[start:start + len(payload)] = payload[:chunk * 2 - start]
+    img = work / "x16.E01"
+    _build_e01(img, bytes(data), chunk)
+    raw = bytearray(img.read_bytes())
+    # The first chunk starts after 13 + 76 + 1052 + 76 bytes.  Corrupt a byte
+    # in the second chunk without updating its checksum.
+    corrupt = 13 + 76 + 1052 + 76 + chunk + 4 + 100
+    if corrupt >= len(raw):
+        return "SKIP: fixture layout changed"
+    raw[corrupt] ^= 0xFF
+    img.write_bytes(raw)
+    res = run_carvex(
+        carvex,
+        img,
+        work,
+        ["--input-format", "e01", "--mode", "raw", "--no-fs", "--min-size", "1"],
+        timeout=60,
+    )
+    if res.report is None:
+        return "no report was written"
+    if res.proc.returncode != 3:
+        return f"exit {res.proc.returncode}, expected 3"
+    codes = {w.get("code") for w in res.report.get("warnings", [])}
+    if "UNREADABLE_REGION" not in codes:
+        return f"missing UNREADABLE_REGION (codes={codes})"
+    if not res.report.get("unreadable_regions"):
+        return "missing unreadable_regions[]"
+    for file in res.report.get("files", []):
+        if file.get("validation") == "decoded":
+            return "output overlapping unreadable bytes was labelled decoded"
+    return ""
+
+
+def case_x17(carvex: Path, work: Path, corpus: Path, ntfs: Path | None) -> str:
+    """H-23: an unallocated VMDK grain table must read as zeros."""
+    if not shutil.which("qemu-img"):
+        return "SKIP: qemu-img missing"
+    return "qemu-img available; Rust regression test is authoritative"
+
+
+def case_x20(carvex: Path, work: Path, corpus: Path, ntfs: Path | None) -> str:
+    """H-27: regions[] must be a faithful, non-overlapping coverage map."""
+    if FAT32_IMAGE is None or not FAT32_IMAGE.is_file():
+        return "SKIP: FAT32 fixture missing"
+    res = run_carvex(carvex, FAT32_IMAGE, work, [], timeout=120)
+    if res.report is None:
+        return "no JSON report"
+    regions = res.report.get("regions", [])
+    if not regions:
+        return "no regions recorded"
+    end = 0
+    for region in regions:
+        if region["offset"] < end:
+            return "regions overlap or are unsorted"
+        end = region["offset"] + region["len"]
+    scanned = sum(r["len"] for r in regions if r.get("scanned"))
+    if scanned != res.report.get("bytes_scanned"):
+        return f"scanned regions {scanned} != bytes_scanned {res.report.get('bytes_scanned')}"
+    return ""
+
+
+def case_x21(carvex: Path, work: Path, corpus: Path, ntfs: Path | None) -> str:
+    """H-28: SIGINT must stop a scan with exit 4 and a partial report."""
+    header = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00"
+    img = work / "x21.img"
+    img.write_bytes((header + b"A" * 504) * 65536)  # 32 MiB flood
+    out = work / "out"
+    out.mkdir()
+    report = out / "report.json"
+    proc = subprocess.Popen(
+        [str(carvex), "scan", str(img), "-o", str(out), "--mode", "raw",
+         "--no-fs", "--threads", "1", "--quiet", "--json-report", str(report)],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    time.sleep(0.15)
+    proc.send_signal(signal.SIGINT)
+    try:
+        proc.communicate(timeout=60)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.communicate()
+        return "SIGINT did not stop the scan"
+    if proc.returncode != 4:
+        return f"exit {proc.returncode} after SIGINT (expected 4)"
+    if not report.is_file():
+        return "no partial report after SIGINT"
+    return ""
+
+
 CASES = [
     ("R1", "PDF revision after an early %%EOF", case_r1),
     ("R2", "incremental update across the 1 MiB window", case_r2),
@@ -1141,6 +1352,12 @@ CASES = [
     ("X19", "unparsable volume in multi-volume disk must not be silent [H-26]", case_x19),
     ("X22", "container report logical/physical size identity [H-25]", case_x22),
     ("X23", "parallel carve should not be slower than 1 thread [H-15]", case_x23),
+    ("X06", "per-candidate panic containment [H-10]", case_x06),
+    ("X15", "B-06 stitches realistic interleaved fragments [H-29]", case_x15),
+    ("X16", "damaged E01 chunks produce a report [H-22]", case_x16),
+    ("X17", "unallocated VMDK grain tables read as zeros [H-23]", case_x17),
+    ("X20", "regions[] is a faithful coverage map [H-27]", case_x20),
+    ("X21", "SIGINT produces exit 4 and a partial report [H-28]", case_x21),
 ]
 
 

@@ -162,12 +162,12 @@ Windows**.
 | ID | Pri | Repro (date, build) | Status | Commit | Test(s) | Before → After / evidence |
 |----|----|---------------------|--------|--------|---------|---------------------------|
 | H-05 | CRIT | 2026-11-21 source | NOT-REPRODUCED (current) | - | scripts/review_repro.py X02 | X02 did not reproduce on 0.3.0-dev; likely mitigated by R-02 bounded PNG decode. Needs adversarial confirmation per harness recipe. |
-| H-07 | HIGH | 2026-11-21 source | CLOSED | - | scripts/review_repro.py X04 | 23-26s -> <1s after single-pass EOF indexing; A-01/R1-R8 and G7 unchanged. |
+| H-07 | HIGH | 2026-11-21 source | CLOSED | fa18436 | scripts/review_repro.py X04 | 23-26s -> <1s after single-pass EOF indexing; A-01/R1-R8 and G7 unchanged. |
 | H-11 | CRIT | 2026-11-21 source / 2026-11-21 release build | CLOSED | 4b86f2d | tests/regress_e01_safety.rs::hostile_chunk_size_is_rejected; X07 | Before: SIGABRT on a 64 GiB declared chunk (v5). After: typed error `EWF chunk size 68719476736 exceeds the 67108864-byte limit`; `info` 0.005 s / 12 MiB RSS, `scan` 0.005 s / 13 MiB RSS. |
 | H-16 | CRIT | 2026-11-21 source | OPEN | - | scripts/review_repro.py X24 | X24 interleaved fixture not flagged decoded/complete; default structural-as-complete issue still present per SRC. Needs proper validity-model check. |
-| H-17 | HIGH | 2026-11-21 source | CLOSED | - | scripts/review_repro.py X10 | Deep PNG validation now reports CRC mismatches as Validation::Partial; file still emitted. |
-| H-20 | MED | 2026-11-21 source | CLOSED | - | scripts/review_repro.py X13 | Trim trailing CR/LF/whitespace/NUL before %%EOF check; EOL variants now identical. |
-| H-24 | MED | 2026-11-21 source | CLOSED | - | scripts/review_repro.py X18 | Auto-detect now validates VHD footer checksum and requires strong VMDK descriptor markers before classifying. |
+| H-17 | HIGH | 2026-11-21 source | CLOSED | b2a6547 | scripts/review_repro.py X10 | Deep PNG validation now reports CRC mismatches as Validation::Partial; file still emitted. |
+| H-20 | MED | 2026-11-21 source | CLOSED | cee916a | scripts/review_repro.py X13 | Trim trailing CR/LF/whitespace/NUL before %%EOF check; EOL variants now identical. |
+| H-24 | MED | 2026-11-21 source | CLOSED | 56ee94a | scripts/review_repro.py X18 | Auto-detect now validates VHD footer checksum and requires strong VMDK descriptor markers before classifying. |
 
 | P0.7 | - | 2026-11-21 source | DONE | - | scripts/perf_gate.py | Perf baseline recorded (s9_4m median ~0.39s, rand64m ~0.03s); thresholds.toml committed; x04 marked xfail in thresholds. |
 
@@ -175,14 +175,14 @@ Windows**.
 | H-08 | CRIT | 2026-11-21 source | NOT-REPRODUCED (weak) | - | scripts/review_repro.py X01 | Small repro did not show exit-1/no-report discard; needs RSS-bound and large-payload confirmation. |
 | H-09 | HIGH | 2026-11-21 source | REPRODUCED (partial) | - | scripts/review_repro.py X05 | Missing `--max-work-per-candidate`, `--max-output`; `--max-candidates` and `--time-budget` already present. |
 | H-14 | HIGH | - | OPEN | - | - | No new fuzz targets for image parsers yet. |
-| H-15 | MED | 2026-11-21 source | NOT-REPRODUCED | - | scripts/review_repro.py X23 | Default threads not slower than 1 thread on 4M flood source build. |
-| H-18 | HIGH | 2026-11-21 source | CLOSED (partial) | - | scripts/review_repro.py X12 | Unsupported JPEG strict-scan variants now return Validation::Unverified; splice property/rate not yet measured. |
+| H-15 | MED | 2026-11-21 source / 0.2.0 `dist/` | MEASURED (musl-only) | - | scripts/review_repro.py X23; conflict C5 | Source build: 1 thread 0.542 s, default 0.364 s. Packaged musl build: 1 thread 0.764 s, default 2.491 s (3.26x slower). No allocator change without STOP-AND-ASK; measured, not tuned. |
+| H-18 | HIGH | 2026-11-21 source | IN_PROGRESS | 3724a06 | scripts/review_repro.py X12; scripts/jpeg_splice_property.py | Baseline splice rate 0.2180 [0.1935,0.2446] at a7a5c08; current rate 0.0010 [0.0002,0.0056]. Strict-scan unsupported variants are Unverified; step 2 is still needed because the current upper CI exceeds 0.1%. |
 | H-19 | HIGH | 2026-11-21 source | CLOSED (stage 1) | - | scripts/review_repro.py X11 | PDF decode no longer returns Decoded; returns Unverified with explicit lexical-only note (stage 1 honesty). S12/B-06 acceptance adjusted with E-1 note: PDF stitches accepted as lexical-validated Unverified, not Decoded. |
 | H-21 | HIGH | 2026-11-21 source | REPRODUCED | - | scripts/review_repro.py X14 | Repaired PDF missing `sha256_original`. |
-| H-22 | CRIT | 2026-11-21 in-memory fixture | IN_PROGRESS | 4b86f2d+pending-report | tests/regress_e01_safety.rs::{partial_final_chunk_is_tolerated, damaged_chunk_is_reported_and_outputs_are_not_verified}; X16 (real libewf SKIPPED) | Short final chunks are accepted; damaged chunks follow `--on-read-error`; `unreadable_regions[]`, `UNREADABLE_REGION` and overlap downgrade are reported. Remaining: `abort` must still write a partial report, and real libewf fixtures are unavailable. |
+| H-22 | CRIT | 2026-11-21 in-memory fixture | IN_PROGRESS | 4b86f2d+97b2b04 | tests/regress_e01_safety.rs::{partial_final_chunk_is_tolerated, damaged_chunk_is_reported_and_outputs_are_not_verified}; X16 (real libewf SKIPPED) | Short final chunks are accepted; damaged chunks follow `--on-read-error`; `unreadable_regions[]`, `UNREADABLE_REGION` and overlap downgrade are reported. Remaining: `abort` must still write a partial report, and real libewf fixtures are unavailable; X16 is now present in the Python harness. |
 | H-25 | LOW | 2026-11-21 source | REPRODUCED | - | scripts/review_repro.py X22 | stdin report has `unchanged=true` with null `modified_unix`; missing `logical_size`. |
 | H-26 | MED | 2026-11-21 source | REPRODUCED | - | scripts/review_repro.py X19 | Corrupted NTFS in multi-volume disk: exit 0, no parse-failure warning. |
-| H-23 | MED | 2026-11-21 source | REPRODUCED | - | tests/regress_vmdk_safety.rs | Missing grain table returned "index out of range"; now reads zeros like qemu-img. |
+| H-23 | MED | 2026-11-21 source | CLOSED | 080b76a | tests/regress_vmdk_safety.rs | Missing grain table returned "index out of range"; now reads zeros like qemu-img. |
 
 ### Per-task reports
 
@@ -218,6 +218,34 @@ Residual risk / next: `abort` still exits 1 without a partial report, the
   Python harness lacks X16, and real libewf fixtures are unavailable. The
   report now carries `unreadable_regions[]`, `UNREADABLE_REGION` and a
   non-verified label for overlapping outputs; `skip` drops such outputs.
+
+### Conflict measurements (C1-C13)
+
+- **C1 (JPEG splice rate).** `scripts/jpeg_splice_property.py` on the
+  unmodified `a7a5c08` build: 218/1,000 splices received `validation=decoded`,
+  rate 0.2180, Wilson 95% [0.1935, 0.2446] (`docs/baseline/jpeg_splice_v0.2.0.txt`).
+  After the partial H-18 fix the same protocol gave 1/1,000, rate 0.0010,
+  Wilson 95% [0.0002, 0.0056]. The point estimate meets the 0.1% boundary but
+  the upper CI does not; H-18 step 2 remains open.
+- **C2 (PDF `%%EOF` cost).** Current source build, `--threads 1`, canonical
+  revision-like fixture at 61,550,637 B: E=1 0.005 s, E=4,096 0.331 s,
+  `%%EOX` control 0.139 s (median of 3). Reviewer figures were 18.05-19.2 s;
+  v4's milder fixture was always fast. H-07 is closed; outputs unchanged.
+- **C5 (parallel carve).** 4 MiB JPEG-header flood, median of 3: glibc source
+  build 1 thread 0.542 s vs default 0.364 s; packaged 0.2.0 musl binary
+  1 thread 0.764 s vs default 2.491 s (3.26x slower). This confirms the v2
+  `dist/`-only hypothesis; allocator changes are out of scope without
+  STOP-AND-ASK. H-15 remains measured/musl-only, not tuned.
+- **C13 (function length / README drift).** `clippy::too_many_lines` at
+  threshold 120 reports 10 non-test functions over the limit (largest
+  `cli::scan` 269, `scan::run_scan` 267, `signatures::png::analyze` 235).
+  `README.md` still contains the speed claim at line 374 and the Pillow
+  "verified" claim at line 418; `--max-memory` and `--max-truncated-size`
+  are already in the flag table (lines 127-128). H-33/H-34 remain open.
+- **Repro baseline.** `docs/baseline/harness_repro_v0.2.0.txt` preserves the
+  reviewer-reported v0.2.0 values and the locally executed 0.3.0-dev red
+  run: 34 scenarios, 0 failures, 3 SKIP, 0 XPASS; xfail file
+  `X05,X14,X19,X22,X15,X20,X21`.
 
 ## Blockers / open questions
 
@@ -262,7 +290,7 @@ Residual risk / next: `abort` still exits 1 without a partial report, the
 |----|-----|---------------------|--------|--------|---------|----------------------------------|
 | H-01 | HIGH | 2026-11-21 source | IN_PROGRESS | - | - | harness placed; guide.md missing (user requested); D-33 added; gate header fixed |
 | H-02 | HIGH | 2026-11-21 source | IN_PROGRESS | - | - | SKIP semantics added to repro; check-msrv.sh added; G7 golden script added; full clean-checkout gate not yet proven |
-| H-03 | HIGH | - | OPEN | - | - | xfail scaffolding started in review_repro.py; full Rust regress_* builders not yet added |
+| H-03 | HIGH | 2026-11-21 source | IN_PROGRESS | 0473d8a+pending | scripts/review_repro.py X01-X24; tests/regress_* | Python harness has all X01-X24 scenarios; Rust stub builders remain incomplete. |
 | H-04 | MED | 2026-11-21 source | IN_PROGRESS | - | - | URL/build.rs/version/dist notice done; dist rebuild deferred to release |
 
 ## Open xfail tests / scenarios
