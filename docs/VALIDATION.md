@@ -386,6 +386,13 @@ is `/tmp/opencode/gate_repro_temp.log`. These local runs support the fixes but
 are not the CI-green claim; that claim rests only on observed run
 `45121233267` at `86ae15f`.
 
+R2-09 archive: run-level JSON and job list for `45121233267` are stored as
+`bench/results/ci_run_45121233267.json` and
+`bench/results/ci_run_45121233267_jobs.json`. Full GitHub Actions job logs
+were unavailable through the public API (`403 Must have admin rights to
+Repository`); status/conclusions and annotations were the observed evidence.
+A current-HEAD CI run must be recorded after the next push.
+
 ## 4. Fuzz runtime
 
 ### Historical seven-target run (before H-14)
