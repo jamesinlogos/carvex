@@ -213,6 +213,65 @@ def main() -> int:
             if first_path(tests, ROOT) is None:
                 errors.append(f"{item}: linked {hid} has no existing test/control")
 
+    # R2-06: flag obvious CI-run status contradictions in current-state docs.
+    ci_docs = [ROOT / "docs/PROGRESS.md", ROOT / "docs/VALIDATION.md", ROOT / "CHANGELOG.md", ROOT / "dist/README.md"]
+    run_status: dict[str, set[str]] = {}
+    for doc in ci_docs:
+        if not doc.exists():
+            continue
+        for line in doc.read_text().splitlines():
+            # ignore historical/archive sections by simple markers
+            if "historical" in line.lower() and "run" not in line.lower():
+                continue
+            for m in re.finditer(r"\b(\d{8,12})\b", line):
+                rid = m.group(1)
+                l = line.lower()
+                # detect status claims tied to this run id
+                if "failure" in l or " failed" in l:
+                    # avoid "earlier runs failed; ... green run <id>" by requiring proximity not perfect; conservative
+                    if rid in l[l.find(rid)-40:l.find(rid)+40] if rid in l else l:
+                        pass
+                # simpler: classify line per id
+            # per-line classification
+        for line in doc.read_text().splitlines():
+            l = line.lower()
+            ids = re.findall(r"\b(\d{8,12})\b", line)
+            if not ids:
+                continue
+            # skip lines that are clearly historical narrative about old failed runs when also mentioning green fix
+            has_fail = (" completed failure" in l) or (" failed (" in l) or ("status fail" in l)
+            has_green = ("completed success" in l) or (" success (" in l) or ("green run" in l) or ("27/27" in l and "success" in l)
+            # a line saying "earlier runs failed; ... run X completed success" should mark X as green only
+            for rid in ids:
+                # local window around id
+                idx = l.find(rid)
+                win = l[max(0, idx-60): idx+60]
+                local_fail = ("completed failure" in win) or (" failed" in win and "fixed" not in win)
+                local_green = ("completed success" in win) or ("success" in win) or ("green" in win)
+                if local_fail and not local_green:
+                    run_status.setdefault(rid, set()).add("failed")
+                if local_green and not local_fail:
+                    run_status.setdefault(rid, set()).add("green")
+    for rid, statuses in sorted(run_status.items()):
+        if "failed" in statuses and "green" in statuses:
+            errors.append(f"CI run {rid} is described as both failed and green in current-state docs")
+
+    # R2-06: test-count claims in PROGRESS should be consistent for current state.
+    progress_text = (ROOT / "docs/PROGRESS.md").read_text()
+    test_counts = set()
+    for m in re.finditer(r"\b(\d+)\s+tests?\b", progress_text, re.I):
+        n = int(m.group(1))
+        if n < 30:
+            continue
+        win = progress_text[max(0,m.start()-60):m.end()+60].lower()
+        if "historical" in win:
+            continue
+        # only current-gate claims
+        if "current gate" in win or "in the current gate" in win or "a-11" in win:
+            test_counts.add(n)
+    if len(test_counts) > 1:
+        errors.append(f"PROGRESS.md has conflicting current-gate test counts: {sorted(test_counts)}")
+
     if errors:
         print("STATUS FAIL")
         for error in errors:

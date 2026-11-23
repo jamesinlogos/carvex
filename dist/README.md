@@ -35,9 +35,10 @@ The exact files in this directory were executed after copying/stripping:
   `bench/images/mixed_fat32.img` succeeded from the tagged source worktree.
 - Windows GNU: the same three commands succeeded under Wine 10.0 on Linux
   (`WINEDEBUG=-all`). No Windows runner was available here, so this is **not**
-  a Windows-runner execution. The CI `Windows packaged binary smoke` job at
-  final source HEAD failed and its logs were unavailable through the public
-  API; no cause is claimed.
+  a Windows-runner execution. An earlier CI Windows packaged smoke job failed
+  and logs were unavailable through the public API; later observed run
+  `45121233267` at `86ae15f` had green Windows packaged smoke, but that run did
+  not execute these committed 0.3.0 dist files as release artifacts.
 - Both reports recorded `version = 0.3.0` and
   `commit = 5480f1084f85`.
 

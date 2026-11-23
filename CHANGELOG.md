@@ -264,7 +264,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The 0.3.0 release binaries were rebuilt from local tag `v0.3.0`, executed,
   and checksummed; the Windows executable was run under Wine 10.0 on Linux,
   not on a Windows runner. Final-head CI run `45095456201` failed and logs
-  were unavailable, so no CI-green or Windows-runner claim is made.
+  were unavailable at the time of the 0.3.0 release note; later CI fixes
+  (N-35..N-40/D-60..D-62) produced observed green run `45121233267` at
+  `86ae15f` (27/27 jobs, archived). No Windows-runner execution claim is made.
 
 ## [0.2.0] — 2026-11-19
 
