@@ -977,15 +977,16 @@ def case_x05(carvex: Path, work: Path, corpus: Path, ntfs: Path | None) -> str:
             return f"{name}: nondeterministic_stop not set"
         return None
 
-    # Candidate flood: 512-byte-spaced JPEG headers in a 256 MiB image.  The
+    # Candidate flood: 512-byte-spaced JPEG headers in a 1024 MiB image.  The
     # one-second time-budget control needs a workload that still exceeds the
-    # budget on faster hosted runners; 64 MiB completed within 1 s on CI.
+    # budget on faster hosted runners; 256 MiB still completed within 1 s on
+    # some CI runners.
     flood = work / "x05_flood.img"
     if not flood.exists():
         header = b"\xff\xd8\xff\xe0\x00\x00JFIF\x00"
         chunk = header + b"\x00" * (512 - len(header))
         with flood.open("wb") as fh:
-            for _ in range(256 * 1024 * 1024 // len(chunk)):
+            for _ in range(1024 * 1024 * 1024 // len(chunk)):
                 fh.write(chunk)
 
     # Work limit: one complete JPEG carrying a 4 KiB comment segment.
