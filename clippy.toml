@@ -1,3 +1,4 @@
 # Clippy configuration.  Keep the MSRV in sync with Cargo.toml; clippy then
 # avoids suggesting APIs that are newer than the declared minimum toolchain.
 msrv = "1.85"
+too-many-lines-threshold = 120

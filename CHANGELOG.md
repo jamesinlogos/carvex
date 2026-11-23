@@ -84,6 +84,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- H-34: long functions were split into behavior-preserving helpers so no
+  non-test function exceeds 120 lines. Public API items are documented and
+  pedantic lint stage 1 is enabled; numeric-cast and API-ergonomics stages are
+  deferred rather than blanket-allowed. No scan behavior, warning, score or
+  output changed.
 - H-33: the unsourced README speed sentence was replaced by a reference to the
   generated timing table; the CFReDS Pillow wording now says the files were
   structurally parsed, not verified (see `validity`); the README tree lists

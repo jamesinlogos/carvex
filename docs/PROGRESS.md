@@ -122,7 +122,7 @@ Windows**.
 | A-07 | DONE (steps 1 + 2) | green | `detect_all()` → `VolumeSet{volumes,partitions,unsupported,errors,gaps}`; report schema 2 adds `volumes[]`, `regions[]`, `warnings[]` object; `*_NOT_SCANNED` ⇒ exit 3. **Step 2 approved (D-23):** default `--partition all` + gaps, S1 carves 60 files (30+30, `part1/`/`part2/`) exit 0; `--partition largest --no-gaps` restores 30 files + WARNING + exit 3. `--include-gaps` is still accepted. **Baselines:** red `docs/baseline/A-07_v0.1.0.txt`; step 1 green `docs/baseline/A-07_green_v0.2.0.txt`; step 2 green `docs/baseline/A-07_green_v0.2.0_step2.txt`. Fixture `target/a07/s1.img`. |
 | A-08 | PARTIAL | green | `trait ImageSource {len, read_at}` + unchanged `RawFile` default; `seek(End)` fallback when metadata len = 0. B-04 adds split raw, E01, VHD, VMDK and stdin sources under `src/image/`. `--on-read-error` and report `unreadable_regions[]` are present (H-22); raw/split reads are retried per 512-byte sector, and abort leaves a partial report. No `BlockDevice`/`--sector-size` yet and real device/Windows not tested. |
 | A-09 | PARTIAL | green | Fixed the NTFS sector off-by-one (`field+1`, D-21, unit test `volume_sector_count_includes_the_backup_boot_sector`); FS errors → `FS_DETECTION_FAILED`. No `$ATTRIBUTE_LIST`/multi-extent `$MFT`/`$MFTMirr`/backup boot/FAT #2 yet. |
-| A-10 | PARTIAL | green | Lib crate + thin `main.rs`; pipeline `plan_extents → build_tasks → scan_task → carve_batch → postfilter → write_outputs`; format registry; `ScanInput<'a>` groups the input parameters for `run_scan`, with targeted `too_many_arguments` allows only on the two R-01/R-02 helpers that take explicit budget/deadline state; `cargo doc -D warnings` passes. Long functions and staged `missing_docs`/pedantic work remain (H-34). |
+| A-10 | PARTIAL | green | Lib crate + thin `main.rs`; pipeline `plan_extents → build_tasks → scan_task → carve_batch → postfilter → write_outputs`; format registry; `ScanInput<'a>` groups the input parameters for `run_scan`. H-34 split the remaining long functions into behavior-preserving helpers, enabled public `missing_docs` and pedantic stage 1, and documented every remaining `too_many_arguments` allow; the commit hash is backfilled separately. No non-test function exceeds 120 lines. |
 | A-11 | PARTIAL | green | **134 tests** in the current gate (43 unit + 13 cli_contract + 7 evidence_formats + 5 fragment_recovery + 8 fs_detect + 2 jpeg_frame_budget + 4 memory_budget + 3 panic_containment + 2 png_crc_validity + 4 png_decode_budget + 2 png_validator_budget + 8 pdf_structure_validation + 5 properties + 4 regress_e01_safety + 4 regress_vmdk_safety + 3 repair_validation + 6 scan_integration + 1 validity_model + 4 work_budgets + 3 volume_parse_errors + 3 region_coverage); `scripts/review_repro.py --assert/--xfail --carvex` 34 scenarios, 0 failures, 2 SKIPs, 0 XPASS; red baseline `docs/baseline/repro_v0.1.0.txt`. Post-R-01/R-02 `cargo-llvm-cov 0.9.1` measured 4456/6391 lines = **69.72%**; CI/local floor set to 60%, not the earlier aspirational 80%. No new coverage run after H-14/H-16/H-17/H-18/H-19/H-21/H-22/H-25/H-26/H-27/H-29. |
 | A-12 | PARTIAL | green | MSRV 1.85 (`rust-version`, README corrected from "Rust 1.74"); `cargo +1.85 check` in the gate; `.github/workflows/ci.yml` adds actionlint + coverage and uses a pinned direct actionlint install; `rustfmt.toml`/`clippy.toml`/`deny.toml`; dist 0.2.0 + `SHA256SUMS`. Local `cargo deny check`, `cargo audit` and `actionlint 1.7.12` pass. Real GitHub run `44548142275` on commit `42376a9` succeeded (all jobs; push-event fuzz matrix skipped), but it predates B-04, B-06 and R-01/R-02. Distributed Windows binary not executed; no SBOM/signatures yet; removing binaries from `dist/` is STOP-AND-ASK (kept). |
 | A-13 | PARTIAL | green | Exit 0/1/2/3/4 documented + CLI contract tests; coded warnings; `RAW_SCANS_ALLOCATED` informational (D-20); H-28 writes a partial report with `INTERRUPTED` and exit 4. No `thiserror` types, leveled logger or `ProgressSink`/ETA yet. |
@@ -150,7 +150,7 @@ Windows**.
 | C-09 | PARTIAL | - | Median time/throughput table present; full 4-image/3-rep 0.2.0 re-run completed in `bench/results/full-0.2.0` with all checksums verified. No 1–16 GiB scale images, no cold cache + IQR ≥10 repetitions. |
 | D-01 | PARTIAL | n/a | Removed absolute paths like `/home/…` (REPORT/CFREDS/README → `$CARVEX`/`$HOME`); fixed "Pillow/ReportLab"; "100%" in the abstract tied to n/CI/conditions; 16 tables numbered `Table 1…16`; SHA-256 of tools (foremost/scalpel/photorec) + explicit note that benchmark binary hashes were not recorded; §6.2 explains the evidenced FP 40/44 and 40/54; README "Rust 1.74" → 1.85; "fairness" conclusion limited; F-16 confound in §6.4; Windows `.exe` noted as untested. |
 | D-02 | DONE | n/a | REPORT §1.4 Related Work (5 branches + comparison table); references [11]–[16] had their DOI/publisher pages opened before insertion. |
-| D-03 | PARTIAL | n/a | `CHANGELOG.md` (0.2.0), `SECURITY.md`, `CONTRIBUTING.md`, `docs/ARCHITECTURE.md`, `docs/DECISIONS.md` (D-01…D-57), `docs/DEPENDENCIES.md`, `docs/REVIEW_RESPONSE.md` (38 IDs), `docs/REPORT.md`, `docs/VALIDATION.md` (execution evidence only). Quality limits (H-34) are still OPEN; the evidence manifest and documentation drift are closed. |
+| D-03 | PARTIAL | n/a | `CHANGELOG.md` (0.2.0), `SECURITY.md`, `CONTRIBUTING.md`, `docs/ARCHITECTURE.md`, `docs/DECISIONS.md` (D-01…D-58), `docs/DEPENDENCIES.md`, `docs/REVIEW_RESPONSE.md` (38 IDs), `docs/REPORT.md`, `docs/VALIDATION.md` (execution evidence only). H-34 quality work is implemented with its hash pending backfill; the evidence manifest and documentation drift are closed. |
 
 ## Earlier summary rows (not guide IDs)
 
@@ -211,7 +211,7 @@ Windows**.
 | H-31 | MED | 2026-11-22 source/docs | CLOSED | efd6d9f | scripts/check_status.py; scripts/gate.sh; .github/workflows/ci.yml | Static red: the checker failed with `STATUS FAIL: section heading not found` before the reconciliation; a deliberately wrong A-10 label fails after the fix. Status tables now agree across both documents. |
 | H-32 | MED | 2026-11-22 docs | CLOSED | bd9ebd0 | bench/results/EVIDENCE.md; bench/results/EVIDENCE.sha256; bench/results/evidence-bundle-0.2.0.tar.gz; bench/lockbox.log; docs/VALIDATION.md | Static red showed ignored evidence paths, no manifest and no reconstructed lockbox log. The manifest covers 47 bundled artefacts; historical figures without retained raw logs are labelled author-reported; no lockbox regeneration. |
 | H-33 | MED | 2026-11-22 docs | CLOSED | 240ef42 | README.md; docs/DECISIONS.md; docs/REPORT.md; docs/baseline/h33_static_red.txt; bench/render_docs.py | Static grep red found the speed and Pillow overstatements and a missing `fuzz/` tree entry. Speed sentence removed; Pillow wording corrected; `fuzz/` added; already-fixed items recorded as NOT-REPRODUCED. Frozen results and `/home/kali` paths were not edited. |
-| H-34 | LOW | 2026-11-22 source | OPEN | - | clippy.toml | The `too_many_lines` threshold and staged `missing_docs`/pedantic work have not yet been applied. |
+| H-34 | LOW | 2026-11-22 source | CLOSED | pending | clippy.toml; src/lib.rs; src/scan.rs; src/cli.rs; docs/baseline/h34_static_red.txt; docs/baseline/h34_static_green.txt | Static red found 15 non-test functions over 120 lines plus one 121-line test; combined missing_docs/pedantic/too_many_lines inventory had 698 warnings. All non-test functions are now ≤120 lines, public docs are complete, and pedantic stage 1 is clean. One test-only allow is justified in place. No behavior or output change. |
 
 ### Phase 0 support tasks
 
@@ -850,8 +850,55 @@ Gate: the final H-33 tree ran `scripts/gate.sh` with the default 60 s fuzz
   was changed.
 Residual risk / next: the historical `/home/kali` paths remain as provenance by
   decision D-57; regenerating them would change frozen hashes, so no edit was
-  made. H-34 remains open. No CLI, JSON/CSV, score, warning code, default,
-  warning meaning, emission, output name or frozen benchmark value changed.
+  made. No CLI, JSON/CSV, score, warning code, default, warning meaning,
+  emission, output name or frozen benchmark value changed.
+
+### Task: H-34 — A-10 quality limits
+
+Reviews: v2:N-05 (heuristic counts near `706a12a`), with v1/v3/v5 calling A-10
+mostly or confirmed. The review asked for a tool check before acting.
+
+Repro: `clippy.toml` had no `too-many-lines-threshold`. With an explicit
+  `-W clippy::too_many_lines` and threshold 120, clippy reported 15 non-test
+  functions over the limit (largest `cli::scan` 360 lines, `scan::run_scan` 307,
+  `scan::recover_fragments` 329) plus one 121-line test. Enabling
+  `missing_docs`, `pedantic` and `too_many_lines` together reported 698 warnings.
+  The verbatim inventories are `docs/baseline/h34_static_red.txt` and
+  `docs/baseline/h34_static_red_all.txt`.
+
+Change: long functions were split into behavior-preserving helpers. `cli::scan`,
+  `scan::run_scan`, `carve_one`, `postfilter`, `write_outputs`, `recover_fragments`,
+  `fs::{fat32,ntfs}::parse`, `signatures::{jpeg,png,pdf}::analyze` and
+  `pdf_validate` now delegate to named phases. `FragmentScanState` captures
+  `Instant::now()` at `recover_fragments` entry, so classification reads remain
+  inside the `--frag-time-limit` safety net exactly as before. The public API
+  gained `#![warn(missing_docs)]` and complete documentation; pedantic stage 1
+  enables eight low-risk readability lints. Numeric-cast and API-ergonomics
+  stages are deferred in D-58 rather than hidden behind blanket allows. Every
+  retained `too_many_arguments` allow has a justification comment; the sole
+  `too_many_lines` allow is test-only and justified in the test file.
+
+Preservation checks: the `WORK_LIMIT` message was byte-compared with
+  `HEAD:src/scan.rs`; the full set of string literals in `src/scan.rs` is an
+  exact multiset match with `HEAD`; G7 golden output, warning codes and
+  insertion order, budget/work-unit semantics, panic-probe sites, source-read
+  order, SIGINT handling and report fields were unchanged in the full gate.
+
+Green evidence: `docs/baseline/h34_static_green.txt` records zero warnings for
+  the explicit 120-line check, `missing_docs`, staged pedantic clippy and
+  `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --locked`, plus the passing
+  `cargo test --all-features --locked` summary.
+
+Gate: the final H-34 tree ran `scripts/gate.sh` with the default 60 s fuzz
+  budget: G9 GREEN, STATUS GREEN, G7 GOLDEN GREEN, 70% coverage, 13 fuzz targets
+  with no crashes, 34 repro scenarios with 0 failures and 0 XPASS, and
+  **GATE GREEN**. G8 thresholds were not changed.
+
+Residual risk / next: pedantic stage 2 (numeric casts) and stage 3 (API
+  ergonomics) remain deliberately unapplied and are recorded as deferred in
+  D-58. No non-test function exceeds 120 lines. No CLI, JSON/CSV, score,
+  warning code, default, warning meaning, emission, output name or frozen
+  benchmark value changed.
 
 ### Conflict measurements (C1-C13)
 
@@ -873,12 +920,13 @@ Residual risk / next: the historical `/home/kali` paths remain as provenance by
   1 thread 0.764 s vs default 2.491 s (3.26x slower). This confirms the v2
   `dist/`-only hypothesis; allocator changes are out of scope without
   STOP-AND-ASK. H-15 remains measured/musl-only, not tuned.
-- **C13 (function length / README drift).** `clippy::too_many_lines` at
-  threshold 120 reports 10 non-test functions over the limit (largest
-  `cli::scan` 269, `scan::run_scan` 267, `signatures::png::analyze` 235).
-  `README.md` still contains the speed claim at line 374 and the Pillow
-  "verified" claim at line 418; `--max-memory` and `--max-truncated-size`
-  are already in the flag table (lines 127-128). H-33/H-34 remain open.
+- **C13 (function length / README drift).** The reviewer's heuristic counts
+  (for example `cli::scan` ≈270) and the tool check at threshold 120 agreed that
+  long functions existed; the observed pre-fix tool inventory was larger
+  (`cli::scan` 360, 15 non-test functions over the limit). `README.md` had the
+  speed and Pillow "verified" claims and lacked the two flag rows; all four
+  items are recorded in `docs/baseline/h33_static_red.txt`, with already-fixed
+  items marked NOT-REPRODUCED. H-33 and H-34 are closed; no frozen figure changed.
 - **Repro baseline.** `docs/baseline/harness_repro_v0.2.0.txt` preserves the
   reviewer-reported v0.2.0 values and the locally executed 0.3.0-dev red
   run: 34 scenarios, 0 failures, 3 SKIP, 0 XPASS; xfail file

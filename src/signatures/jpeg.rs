@@ -3,6 +3,150 @@ use super::{Analysis, Need};
 
 pub(crate) const EOI: &[u8] = &[0xFF, 0xD9];
 
+#[derive(Default)]
+struct JpegProgress {
+    sof: bool,
+    sos: bool,
+    scans: u32,
+    app_segments: u32,
+    width: u32,
+    height: u32,
+    sof_name: String,
+}
+
+impl JpegProgress {
+    fn truncated(&self, end: usize, at_limit: bool, why: &str) -> Need {
+        truncated(
+            end,
+            at_limit,
+            self.sof,
+            self.sos,
+            self.width,
+            self.height,
+            why,
+        )
+    }
+
+    fn complete(&self, end: usize) -> Need {
+        Need::Analyzed(Analysis {
+            end,
+            complete: true,
+            score: 100,
+            width: Some(self.width),
+            height: Some(self.height),
+            notes: vec![format!(
+                "{} {}x{}, {} scan(s), {} APP segment(s)",
+                self.sof_name, self.width, self.height, self.scans, self.app_segments
+            )],
+            repair_suffix: EOI,
+            integrity_checks: Vec::new(),
+            validated_prefix: 0,
+        })
+    }
+}
+
+fn jpeg_segment_end(
+    data: &[u8],
+    pos: usize,
+    progress: &JpegProgress,
+    at_limit: bool,
+) -> Result<usize, Need> {
+    if pos + 2 > data.len() {
+        return Err(progress.truncated(data.len(), at_limit, "truncated segment length"));
+    }
+    let Some(seg_len) = be16(data, pos) else {
+        return Err(progress.truncated(data.len(), at_limit, "truncated segment length"));
+    };
+    let seg_len = seg_len as usize;
+    if seg_len < 2 {
+        return Err(Need::Reject(format!(
+            "invalid JPEG segment length at offset {pos}"
+        )));
+    }
+    match pos.checked_add(seg_len) {
+        Some(v) if v <= data.len() => Ok(v),
+        _ => Err(progress.truncated(data.len(), at_limit, "truncated segment payload")),
+    }
+}
+
+fn apply_sof(
+    data: &[u8],
+    pos: usize,
+    seg_len: usize,
+    marker: u8,
+    progress: &mut JpegProgress,
+    at_limit: bool,
+) -> Result<(), Need> {
+    if seg_len < 8 {
+        return Err(Need::Reject("SOF segment too short".into()));
+    }
+    let (Some(h), Some(w)) = (be16(data, pos + 3), be16(data, pos + 5)) else {
+        return Err(progress.truncated(data.len(), at_limit, "truncated SOF dimensions"));
+    };
+    progress.height = h as u32;
+    progress.width = w as u32;
+    if progress.width == 0 || progress.height == 0 {
+        return Err(Need::Reject("JPEG SOF has zero dimensions".into()));
+    }
+    progress.sof = true;
+    progress.sof_name = sof_marker_name(marker).to_string();
+    Ok(())
+}
+
+enum EntropyStep {
+    Resume(usize),
+    Complete(Need),
+    Fail(Need),
+}
+
+fn scan_entropy(
+    data: &[u8],
+    mut pos: usize,
+    progress: &JpegProgress,
+    at_limit: bool,
+) -> EntropyStep {
+    // Stuffed 0x00 and RSTn are data; EOI ends the image; any other marker
+    // returns to segment parsing (needed for progressive JPEG).
+    loop {
+        let Some(rel) = memchr::memchr(0xFF, data.get(pos..).unwrap_or_default()) else {
+            return EntropyStep::Fail(progress.truncated(
+                data.len(),
+                at_limit,
+                "end of entropy-coded data",
+            ));
+        };
+        let mut q = pos + rel;
+        while data.get(q + 1) == Some(&0xFF) {
+            q += 1;
+        }
+        if q + 1 >= data.len() {
+            return EntropyStep::Fail(progress.truncated(
+                data.len(),
+                at_limit,
+                "truncated entropy marker",
+            ));
+        }
+        let Some(&code) = data.get(q + 1) else {
+            return EntropyStep::Fail(progress.truncated(
+                data.len(),
+                at_limit,
+                "truncated entropy marker",
+            ));
+        };
+        match code {
+            0x00 | 0xD0..=0xD7 | 0x01 => pos = q + 2,
+            0xD9 => {
+                if !progress.sof {
+                    return EntropyStep::Fail(Need::Reject("JPEG EOI before SOF".into()));
+                }
+                return EntropyStep::Complete(progress.complete(q + 2));
+            }
+            _ => return EntropyStep::Resume(q),
+        }
+    }
+}
+
+/// The `analyze` function.
 pub fn analyze(data: &[u8], at_limit: bool) -> Need {
     if data.len() < 4 {
         return if at_limit {
@@ -16,25 +160,11 @@ pub fn analyze(data: &[u8], at_limit: bool) -> Need {
     }
 
     let mut pos = 2usize;
-    let mut sof = false;
-    let mut sos = false;
-    let mut scans = 0u32;
-    let mut app_segments = 0u32;
-    let mut width = 0u32;
-    let mut height = 0u32;
-    let mut sof_name = String::new();
+    let mut progress = JpegProgress::default();
 
     loop {
         if pos >= data.len() {
-            return truncated(
-                data.len(),
-                at_limit,
-                sof,
-                sos,
-                width,
-                height,
-                "end of buffer",
-            );
+            return progress.truncated(data.len(), at_limit, "end of buffer");
         }
         if data.get(pos) != Some(&0xFF) {
             return Need::Reject(format!("expected JPEG marker at offset {pos}"));
@@ -43,26 +173,10 @@ pub fn analyze(data: &[u8], at_limit: bool) -> Need {
             pos += 1;
         }
         if pos >= data.len() {
-            return truncated(
-                data.len(),
-                at_limit,
-                sof,
-                sos,
-                width,
-                height,
-                "truncated marker",
-            );
+            return progress.truncated(data.len(), at_limit, "truncated marker");
         }
         let Some(&marker) = data.get(pos) else {
-            return truncated(
-                data.len(),
-                at_limit,
-                sof,
-                sos,
-                width,
-                height,
-                "truncated marker",
-            );
+            return progress.truncated(data.len(), at_limit, "truncated marker");
         };
         pos += 1;
 
@@ -70,178 +184,43 @@ pub fn analyze(data: &[u8], at_limit: bool) -> Need {
             0x00 => return Need::Reject("invalid JPEG marker 0x00 outside entropy data".into()),
             0xD8 => return Need::Reject("nested JPEG SOI".into()),
             0xD9 => {
-                if !sof {
+                if !progress.sof {
                     return Need::Reject("JPEG EOI before any SOF".into());
                 }
-                if !sos {
+                if !progress.sos {
                     return Need::Reject("JPEG EOI before any SOS".into());
                 }
-                return Need::Analyzed(Analysis {
-                    end: pos,
-                    complete: true,
-                    score: 100,
-                    width: Some(width),
-                    height: Some(height),
-                    notes: vec![format!(
-                        "{} {}x{}, {} scan(s), {} APP segment(s)",
-                        sof_name, width, height, scans, app_segments
-                    )],
-                    repair_suffix: EOI,
-                    integrity_checks: Vec::new(),
-                    validated_prefix: 0,
-                });
+                return progress.complete(pos);
             }
             // Standalone markers (TEM, RSTn).
             0x01 | 0xD0..=0xD7 => continue,
             _ => {}
         }
 
-        if pos + 2 > data.len() {
-            return truncated(
-                data.len(),
-                at_limit,
-                sof,
-                sos,
-                width,
-                height,
-                "truncated segment length",
-            );
-        }
-        let Some(seg_len) = be16(data, pos) else {
-            return truncated(
-                data.len(),
-                at_limit,
-                sof,
-                sos,
-                width,
-                height,
-                "truncated segment length",
-            );
+        let seg_end = match jpeg_segment_end(data, pos, &progress, at_limit) {
+            Ok(v) => v,
+            Err(need) => return need,
         };
-        let seg_len = seg_len as usize;
-        if seg_len < 2 {
-            return Need::Reject(format!("invalid JPEG segment length at offset {pos}"));
-        }
-        let seg_end = match pos.checked_add(seg_len) {
-            Some(v) if v <= data.len() => v,
-            _ => {
-                return truncated(
-                    data.len(),
-                    at_limit,
-                    sof,
-                    sos,
-                    width,
-                    height,
-                    "truncated segment payload",
-                )
-            }
-        };
-
         if is_sof(marker) {
-            if seg_len < 8 {
-                return Need::Reject("SOF segment too short".into());
+            if let Err(need) = apply_sof(data, pos, seg_end - pos, marker, &mut progress, at_limit)
+            {
+                return need;
             }
-            let (Some(h), Some(w)) = (be16(data, pos + 3), be16(data, pos + 5)) else {
-                return truncated(
-                    data.len(),
-                    at_limit,
-                    sof,
-                    sos,
-                    width,
-                    height,
-                    "truncated SOF dimensions",
-                );
-            };
-            height = h as u32;
-            width = w as u32;
-            if width == 0 || height == 0 {
-                return Need::Reject("JPEG SOF has zero dimensions".into());
-            }
-            sof = true;
-            sof_name = sof_marker_name(marker).to_string();
         }
 
         if marker == 0xDA {
-            sos = true;
-            scans += 1;
+            progress.sos = true;
+            progress.scans += 1;
             pos = seg_end;
-            // Walk entropy-coded data. Stuffed 0x00 and RSTn are data; EOI ends
-            // the image; any other marker returns to segment parsing (needed for
-            // progressive JPEG, where DHT/DQT/SOS repeat).
-            loop {
-                let rel = match memchr::memchr(0xFF, data.get(pos..).unwrap_or_default()) {
-                    Some(v) => v,
-                    None => {
-                        return truncated(
-                            data.len(),
-                            at_limit,
-                            sof,
-                            sos,
-                            width,
-                            height,
-                            "end of entropy-coded data",
-                        )
-                    }
-                };
-                let mut q = pos + rel;
-                while data.get(q + 1) == Some(&0xFF) {
-                    q += 1;
-                }
-                if q + 1 >= data.len() {
-                    return truncated(
-                        data.len(),
-                        at_limit,
-                        sof,
-                        sos,
-                        width,
-                        height,
-                        "truncated entropy marker",
-                    );
-                }
-                let Some(&code) = data.get(q + 1) else {
-                    return truncated(
-                        data.len(),
-                        at_limit,
-                        sof,
-                        sos,
-                        width,
-                        height,
-                        "truncated entropy marker",
-                    );
-                };
-                match code {
-                    0x00 | 0xD0..=0xD7 | 0x01 => pos = q + 2,
-                    0xD9 => {
-                        if !sof {
-                            return Need::Reject("JPEG EOI before SOF".into());
-                        }
-                        return Need::Analyzed(Analysis {
-                            end: q + 2,
-                            complete: true,
-                            score: 100,
-                            width: Some(width),
-                            height: Some(height),
-                            notes: vec![format!(
-                                "{} {}x{}, {} scan(s), {} APP segment(s)",
-                                sof_name, width, height, scans, app_segments
-                            )],
-                            repair_suffix: EOI,
-                            integrity_checks: Vec::new(),
-                            validated_prefix: 0,
-                        });
-                    }
-                    _ => {
-                        // DHT/DQT/DNL or the next SOS: parse it as a segment.
-                        pos = q;
-                        break;
-                    }
-                }
+            match scan_entropy(data, pos, &progress, at_limit) {
+                EntropyStep::Resume(next) => pos = next,
+                EntropyStep::Complete(need) | EntropyStep::Fail(need) => return need,
             }
             continue;
         }
 
         if (0xE0..=0xEF).contains(&marker) || marker == 0xFE {
-            app_segments += 1;
+            progress.app_segments += 1;
         }
         pos = seg_end;
     }
@@ -327,6 +306,8 @@ fn truncated(
 // marker is structurally valid.
 
 use std::collections::HashMap;
+
+type HuffmanTables = Vec<(usize, usize, HuffmanTable)>;
 
 #[derive(Clone, Default)]
 struct HuffmanTable {
@@ -418,6 +399,142 @@ struct ScanInfo {
 /// model (progressive, arithmetic, multiple scans).  Returns `Some(Err)` only
 /// when the scan is decodable and the MCU count contradicts the frame header,
 /// which is the signature of a spliced file.
+fn parse_dht_segment(data: &[u8], pos: usize) -> Option<(HuffmanTables, usize)> {
+    let len = be16(data, pos)? as usize;
+    if len < 2 || pos.checked_add(len)? > data.len() {
+        return None;
+    }
+    let end = pos + len;
+    let mut q = pos + 2;
+    let mut entries = Vec::new();
+    while q < end {
+        let tc_th = *data.get(q)?;
+        q += 1;
+        let class = tc_th >> 4;
+        let id = (tc_th & 0x0F) as usize;
+        if class > 1 || id > 3 {
+            return None;
+        }
+        let counts = data.get(q..q + 16)?;
+        q += 16;
+        let total: usize = counts.iter().map(|&c| c as usize).sum();
+        let symbols = data.get(q..q + total)?;
+        q += total;
+        let mut code = 0u16;
+        let mut idx = 0usize;
+        let mut table = HuffmanTable::default();
+        for (i, &count) in counts.iter().enumerate() {
+            for _ in 0..count {
+                table
+                    .codes
+                    .insert(((i + 1) as u8, code), *symbols.get(idx)?);
+                idx += 1;
+                code = code.checked_add(1)?;
+            }
+            code <<= 1;
+        }
+        entries.push((class as usize, id, table));
+    }
+    if q != end {
+        return None;
+    }
+    Some((entries, end))
+}
+
+fn parse_baseline_frame(data: &[u8], pos: usize) -> Option<(FrameInfo, usize)> {
+    let len = be16(data, pos)? as usize;
+    if len < 8 || pos.checked_add(len)? > data.len() {
+        return None;
+    }
+    let p = pos + 2;
+    let precision = *data.get(p)?;
+    let height = be16(data, p + 1)? as u32;
+    let width = be16(data, p + 3)? as u32;
+    let count = *data.get(p + 5)? as usize;
+    if precision != 8 || width == 0 || height == 0 || !(1..=4).contains(&count) {
+        return None;
+    }
+    if len < 8 + 3 * count {
+        return None;
+    }
+    let mut components = Vec::with_capacity(count);
+    let mut max_h = 1;
+    let mut max_v = 1;
+    for i in 0..count {
+        let q = p + 6 + 3 * i;
+        let id = *data.get(q)?;
+        let sampling = *data.get(q + 1)?;
+        let h = (sampling >> 4) as u32;
+        let v = (sampling & 0x0F) as u32;
+        if h == 0 || v == 0 || h > 4 || v > 4 {
+            return None;
+        }
+        max_h = max_h.max(h);
+        max_v = max_v.max(v);
+        components.push((id, h, v));
+    }
+    Some((
+        FrameInfo {
+            width,
+            height,
+            max_h,
+            max_v,
+            components,
+        },
+        pos + len,
+    ))
+}
+
+fn parse_sos_header(data: &[u8], pos: usize, frame: &FrameInfo) -> Option<(ScanInfo, usize)> {
+    let len = be16(data, pos)? as usize;
+    if len < 3 || pos.checked_add(len)? > data.len() {
+        return None;
+    }
+    let p = pos + 2;
+    let ns = *data.get(p)? as usize;
+    if ns == 0 || ns > frame.components.len() || len < 3 + 2 * ns + 3 {
+        return None;
+    }
+    let mut components = Vec::with_capacity(ns);
+    for i in 0..ns {
+        let q = p + 1 + 2 * i;
+        let id = *data.get(q)?;
+        let tables = *data.get(q + 1)?;
+        let dc = (tables >> 4) as usize;
+        let ac = (tables & 0x0F) as usize;
+        if dc > 3 || ac > 3 {
+            return None;
+        }
+        components.push(ScanComponent { id, dc, ac });
+    }
+    let q = p + 1 + 2 * ns;
+    let scan = ScanInfo {
+        components,
+        ss: *data.get(q)?,
+        se: *data.get(q + 1)?,
+        ah: *data.get(q + 2)? >> 4,
+        al: *data.get(q + 2)? & 0x0F,
+    };
+    // Only interleaved baseline scans are modelled.
+    if scan.ss != 0
+        || scan.se != 63
+        || scan.ah != 0
+        || scan.al != 0
+        || scan.components.len() != frame.components.len()
+    {
+        return None;
+    }
+    Some((scan, pos + len))
+}
+
+fn skip_jpeg_segment(data: &[u8], pos: usize) -> Option<usize> {
+    let len = be16(data, pos)? as usize;
+    if len < 2 || pos.checked_add(len)? > data.len() {
+        return None;
+    }
+    Some(pos + len)
+}
+
 pub(crate) fn strict_baseline_scan(data: &[u8]) -> Option<Result<(), String>> {
     if data.get(0..2) != Some(&[0xFF, 0xD8]) {
         return None;
@@ -441,89 +558,20 @@ pub(crate) fn strict_baseline_scan(data: &[u8]) -> Option<Result<(), String>> {
             0xD9 => return None,
             0x01 | 0xD0..=0xD7 => {}
             0xC4 => {
-                let len = be16(data, pos)? as usize;
-                if len < 2 || pos.checked_add(len)? > data.len() {
-                    return None;
-                }
-                let end = pos + len;
-                let mut q = pos + 2;
-                while q < end {
-                    let tc_th = *data.get(q)?;
-                    q += 1;
-                    let class = tc_th >> 4;
-                    let id = (tc_th & 0x0F) as usize;
-                    if class > 1 || id > 3 {
-                        return None;
-                    }
-                    let counts = data.get(q..q + 16)?;
-                    q += 16;
-                    let total: usize = counts.iter().map(|&c| c as usize).sum();
-                    let symbols = data.get(q..q + total)?;
-                    q += total;
-                    let mut code = 0u16;
-                    let mut idx = 0usize;
-                    let mut table = HuffmanTable::default();
-                    for (i, &count) in counts.iter().enumerate() {
-                        for _ in 0..count {
-                            table
-                                .codes
-                                .insert(((i + 1) as u8, code), *symbols.get(idx)?);
-                            idx += 1;
-                            code = code.checked_add(1)?;
-                        }
-                        code <<= 1;
-                    }
+                let (entries, end) = parse_dht_segment(data, pos)?;
+                for (class, id, table) in entries {
                     if class == 0 {
                         *dc_tables.get_mut(id)? = Some(table);
                     } else {
                         *ac_tables.get_mut(id)? = Some(table);
                     }
                 }
-                if q != end {
-                    return None;
-                }
                 pos = end;
             }
             0xC0 | 0xC1 => {
-                let len = be16(data, pos)? as usize;
-                if len < 8 || pos.checked_add(len)? > data.len() {
-                    return None;
-                }
-                let p = pos + 2;
-                let precision = *data.get(p)?;
-                let height = be16(data, p + 1)? as u32;
-                let width = be16(data, p + 3)? as u32;
-                let count = *data.get(p + 5)? as usize;
-                if precision != 8 || width == 0 || height == 0 || !(1..=4).contains(&count) {
-                    return None;
-                }
-                if len < 8 + 3 * count {
-                    return None;
-                }
-                let mut components = Vec::with_capacity(count);
-                let mut max_h = 1;
-                let mut max_v = 1;
-                for i in 0..count {
-                    let q = p + 6 + 3 * i;
-                    let id = *data.get(q)?;
-                    let sampling = *data.get(q + 1)?;
-                    let h = (sampling >> 4) as u32;
-                    let v = (sampling & 0x0F) as u32;
-                    if h == 0 || v == 0 || h > 4 || v > 4 {
-                        return None;
-                    }
-                    max_h = max_h.max(h);
-                    max_v = max_v.max(v);
-                    components.push((id, h, v));
-                }
-                frame = Some(FrameInfo {
-                    width,
-                    height,
-                    max_h,
-                    max_v,
-                    components,
-                });
-                pos += len;
+                let (parsed, end) = parse_baseline_frame(data, pos)?;
+                frame = Some(parsed);
+                pos = end;
             }
             0xDD => {
                 let len = be16(data, pos)? as usize;
@@ -535,45 +583,7 @@ pub(crate) fn strict_baseline_scan(data: &[u8]) -> Option<Result<(), String>> {
             }
             0xDA => {
                 let frame = frame.as_ref()?;
-                let len = be16(data, pos)? as usize;
-                if len < 3 || pos.checked_add(len)? > data.len() {
-                    return None;
-                }
-                let p = pos + 2;
-                let ns = *data.get(p)? as usize;
-                if ns == 0 || ns > frame.components.len() || len < 3 + 2 * ns + 3 {
-                    return None;
-                }
-                let mut components = Vec::with_capacity(ns);
-                for i in 0..ns {
-                    let q = p + 1 + 2 * i;
-                    let id = *data.get(q)?;
-                    let tables = *data.get(q + 1)?;
-                    let dc = (tables >> 4) as usize;
-                    let ac = (tables & 0x0F) as usize;
-                    if dc > 3 || ac > 3 {
-                        return None;
-                    }
-                    components.push(ScanComponent { id, dc, ac });
-                }
-                let q = p + 1 + 2 * ns;
-                let scan = ScanInfo {
-                    components,
-                    ss: *data.get(q)?,
-                    se: *data.get(q + 1)?,
-                    ah: *data.get(q + 2)? >> 4,
-                    al: *data.get(q + 2)? & 0x0F,
-                };
-                // Only interleaved baseline scans are modelled.
-                if scan.ss != 0
-                    || scan.se != 63
-                    || scan.ah != 0
-                    || scan.al != 0
-                    || scan.components.len() != frame.components.len()
-                {
-                    return None;
-                }
-                let entropy = pos + len;
+                let (scan, entropy) = parse_sos_header(data, pos, frame)?;
                 return Some(check_baseline_mcus(
                     data.get(entropy..)?,
                     frame,
@@ -583,13 +593,7 @@ pub(crate) fn strict_baseline_scan(data: &[u8]) -> Option<Result<(), String>> {
                     restart_interval,
                 ));
             }
-            _ => {
-                let len = be16(data, pos)? as usize;
-                if len < 2 || pos.checked_add(len)? > data.len() {
-                    return None;
-                }
-                pos += len;
-            }
+            _ => pos = skip_jpeg_segment(data, pos)?,
         }
     }
     None

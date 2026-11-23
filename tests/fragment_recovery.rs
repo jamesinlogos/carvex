@@ -48,7 +48,9 @@ fn run_bgc(
     (dir, report)
 }
 
+// H-34: this scenario intentionally keeps all S12 assertions together; test-only length is outside A-10.
 #[test]
+#[allow(clippy::too_many_lines)]
 fn s12_interleaved_fragments_are_recovered_exactly() {
     let cases = [
         ("jpeg", FileType::Jpeg, jpeg_with_cluster_split(CLUSTER)),

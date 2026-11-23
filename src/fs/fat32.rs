@@ -22,7 +22,27 @@ fn le32(boot: &[u8], off: usize) -> u32 {
     u32::from_le_bytes(b)
 }
 
-pub fn parse(ctx: &VolumeCtx<'_>, boot: &[u8]) -> Result<FsInfo> {
+struct Fat32Geometry {
+    bps: u32,
+    spc: u32,
+    reserved: u32,
+    num_fats: u32,
+    fat_size: u64,
+    total_from_boot: u64,
+    available_sectors: u64,
+    total_sectors: u64,
+    data_start_sector: u64,
+    data_start_byte: u64,
+    total_clusters: u64,
+    cluster_size: u64,
+    fat_bytes_needed: u64,
+    fat_offset: u64,
+    volume_len: u64,
+    root_cluster: u64,
+    serial: u32,
+}
+
+fn parse_geometry(boot: &[u8], offset: u64, max_len: u64) -> Result<Fat32Geometry> {
     if boot.len() < 512 {
         bail!("FAT32: boot sector is shorter than 512 bytes");
     }
@@ -54,7 +74,7 @@ pub fn parse(ctx: &VolumeCtx<'_>, boot: &[u8]) -> Result<FsInfo> {
     if total_from_boot == 0 {
         bail!("FAT32: total sector count is zero");
     }
-    let available_sectors = ctx.max_len / bps as u64;
+    let available_sectors = max_len / bps as u64;
     let total_sectors = total_from_boot.min(available_sectors);
     let data_start_sector = reserved as u64
         + (num_fats as u64)
@@ -89,19 +109,40 @@ pub fn parse(ctx: &VolumeCtx<'_>, boot: &[u8]) -> Result<FsInfo> {
     if fat_bytes_needed > 512 * 1024 * 1024 {
         bail!("FAT32: FAT larger than 512 MiB is not supported");
     }
-    let fat_offset = ctx
-        .offset
+    let fat_offset = offset
         .checked_add(reserved as u64 * bps as u64)
         .context("FAT32: FAT offset overflow")?;
-    let fat = ctx
-        .read_vec(fat_offset, fat_bytes_needed as usize)
-        .with_context(|| format!("FAT32: cannot read FAT at byte {fat_offset}"))?;
-
-    let data_start_byte = ctx
-        .offset
+    let data_start_byte = offset
         .checked_add(data_start_sector * bps as u64)
         .context("FAT32: data offset overflow")?;
-    let volume_len = total_sectors * bps as u64;
+
+    Ok(Fat32Geometry {
+        bps,
+        spc,
+        reserved,
+        num_fats,
+        fat_size,
+        total_from_boot,
+        available_sectors,
+        total_sectors,
+        data_start_sector,
+        data_start_byte,
+        total_clusters,
+        cluster_size,
+        fat_bytes_needed,
+        fat_offset,
+        volume_len: total_sectors * bps as u64,
+        root_cluster,
+        serial,
+    })
+}
+
+fn fat_free_extents(
+    fat: &[u8],
+    data_start_byte: u64,
+    total_clusters: u64,
+    cluster_size: u64,
+) -> Result<(u64, u64, Vec<Extent>)> {
     let mut free_clusters = 0u64;
     let mut bad_clusters = 0u64;
     let mut extents: Vec<Extent> = Vec::new();
@@ -117,8 +158,7 @@ pub fn parse(ctx: &VolumeCtx<'_>, boot: &[u8]) -> Result<FsInfo> {
                 .try_into()
                 .context("FAT32: invalid FAT entry")?,
         ) & 0x0FFF_FFFF;
-        let free = raw == 0;
-        if free {
+        if raw == 0 {
             free_clusters += 1;
             let phys = data_start_byte
                 .checked_add((cluster - 2).saturating_mul(cluster_size))
@@ -155,44 +195,76 @@ pub fn parse(ctx: &VolumeCtx<'_>, boot: &[u8]) -> Result<FsInfo> {
             len: (next - first) * cluster_size,
         });
     }
+    Ok((free_clusters, bad_clusters, extents))
+}
 
+fn clamp_free_extents(
+    mut extents: Vec<Extent>,
+    volume_offset: u64,
+    volume_len: u64,
+) -> Vec<Extent> {
     // Clamp to the image (paranoia around a malformed total-sector field).
-    let vol_end = ctx.offset.saturating_add(volume_len);
+    let vol_end = volume_offset.saturating_add(volume_len);
     for e in &mut extents {
         let end = e.end().min(vol_end);
         e.len = end.saturating_sub(e.offset);
     }
     extents.retain(|e| e.len > 0);
-    let extents = crate::util::merge_extents(extents);
+    crate::util::merge_extents(extents)
+}
 
+fn fat32_details(geom: &Fat32Geometry, bad_clusters: u64) -> BTreeMap<String, String> {
+    let mut details = BTreeMap::new();
+    details.insert("total_sectors".into(), geom.total_sectors.to_string());
+    details.insert("reserved_sectors".into(), geom.reserved.to_string());
+    details.insert("fat_count".into(), geom.num_fats.to_string());
+    details.insert("fat_size_sectors".into(), geom.fat_size.to_string());
+    details.insert(
+        "data_start_sector".into(),
+        geom.data_start_sector.to_string(),
+    );
+    details.insert("root_cluster".into(), geom.root_cluster.to_string());
+    details.insert("bad_clusters".into(), bad_clusters.to_string());
+    details.insert("volume_serial".into(), format!("{:08X}", geom.serial));
+    if geom.total_from_boot > geom.available_sectors {
+        details.insert(
+            "warning".into(),
+            format!(
+                "total_sectors clamped from {} to {}",
+                geom.total_from_boot, geom.total_sectors
+            ),
+        );
+    }
+    details
+}
+
+/// The `parse` function.
+pub fn parse(ctx: &VolumeCtx<'_>, boot: &[u8]) -> Result<FsInfo> {
+    let geom = parse_geometry(boot, ctx.offset, ctx.max_len)?;
+    let fat = ctx
+        .read_vec(geom.fat_offset, geom.fat_bytes_needed as usize)
+        .with_context(|| format!("FAT32: cannot read FAT at byte {}", geom.fat_offset))?;
+    let (free_clusters, bad_clusters, extents) = fat_free_extents(
+        &fat,
+        geom.data_start_byte,
+        geom.total_clusters,
+        geom.cluster_size,
+    )?;
+    let extents = clamp_free_extents(extents, ctx.offset, geom.volume_len);
+    let details = fat32_details(&geom, bad_clusters);
     let label = String::from_utf8_lossy(boot.get(0x47..0x52).unwrap_or(&[]))
         .trim_end_matches([' ', '\0'])
         .to_string();
-    let mut details = BTreeMap::new();
-    details.insert("total_sectors".into(), total_sectors.to_string());
-    details.insert("reserved_sectors".into(), reserved.to_string());
-    details.insert("fat_count".into(), num_fats.to_string());
-    details.insert("fat_size_sectors".into(), fat_size.to_string());
-    details.insert("data_start_sector".into(), data_start_sector.to_string());
-    details.insert("root_cluster".into(), root_cluster.to_string());
-    details.insert("bad_clusters".into(), bad_clusters.to_string());
-    details.insert("volume_serial".into(), format!("{serial:08X}"));
-    if total_from_boot > available_sectors {
-        details.insert(
-            "warning".into(),
-            format!("total_sectors clamped from {total_from_boot} to {total_sectors}"),
-        );
-    }
 
     Ok(FsInfo {
         kind: FsKind::Fat32,
         offset: ctx.offset,
-        length: volume_len,
-        bytes_per_sector: bps,
-        sectors_per_cluster: spc,
-        cluster_size,
-        data_start: data_start_byte,
-        total_clusters,
+        length: geom.volume_len,
+        bytes_per_sector: geom.bps,
+        sectors_per_cluster: geom.spc,
+        cluster_size: geom.cluster_size,
+        data_start: geom.data_start_byte,
+        total_clusters: geom.total_clusters,
         free_clusters,
         free_extents: extents,
         partition_index: ctx.partition_index,

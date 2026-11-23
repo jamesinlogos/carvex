@@ -1,0 +1,188 @@
+H-34 static red evidence (before fix), 2026-11-22.
+The repository had no `too-many-lines-threshold` in clippy.toml, no public
+`missing_docs` lint and no staged pedantic lint groups. The first command
+used the H-34 threshold explicitly; the second enabled all three lint
+families for the complete inventory. Output is verbatim.
+
+--- Too-many-lines inventory ---
+$ cargo clippy --all-targets -- -W clippy::too_many_lines
+   Compiling carvex v0.3.0-dev (/home/kali/carvex)
+warning: this function has too many lines (360/120)
+   --> src/cli.rs:424:1
+    |
+424 | fn scan(args: ScanArgs) -> Result<i32> {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.100.0/index.html#too_many_lines
+    = note: requested on the command line with `-W clippy::too-many-lines`
+
+warning: this function has too many lines (168/120)
+  --> src/fs/fat32.rs:25:1
+   |
+25 | pub fn parse(ctx: &VolumeCtx<'_>, boot: &[u8]) -> Result<FsInfo> {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.100.0/index.html#too_many_lines
+
+warning: this function has too many lines (185/120)
+  --> src/fs/ntfs.rs:43:1
+   |
+43 | pub fn parse(ctx: &VolumeCtx<'_>, boot: &[u8]) -> Result<FsInfo> {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.100.0/index.html#too_many_lines
+
+warning: this function has too many lines (307/120)
+    --> src/scan.rs:1060:1
+     |
+1060 | / pub fn run_scan(
+1061 | |     input: &ScanInput<'_>,
+1062 | |     opts: &ScanOptions,
+1063 | |     ctx: &ScanContext,
+1064 | | ) -> Result<ScanReport> {
+     | |_______________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.100.0/index.html#too_many_lines
+
+warning: this function has too many lines (294/120)
+    --> src/scan.rs:1781:1
+     |
+1781 | / fn carve_one(
+1782 | |     source: &dyn ImageSource,
+1783 | |     cand: &Candidate,
+1784 | |     opts: &ScanOptions,
+1785 | |     budget: &MemoryBudget,
+1786 | |     stop: &Stop,
+1787 | | ) -> Result<CarveOutcome> {
+     | |_________________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.100.0/index.html#too_many_lines
+
+warning: this function has too many lines (131/120)
+    --> src/scan.rs:2588:1
+     |
+2588 | / fn deep_validate_head(
+2589 | |     source: &dyn ImageSource,
+2590 | |     cand: &Candidate,
+2591 | |     opts: &ScanOptions,
+...    |
+2595 | |     known_hash: Option<&str>,
+2596 | | ) -> Result<HeadProbe> {
+     | |______________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.100.0/index.html#too_many_lines
+
+warning: this function has too many lines (143/120)
+    --> src/scan.rs:2731:1
+     |
+2731 | / fn try_fragment_join(
+2732 | |     source: &dyn ImageSource,
+2733 | |     cand: &Candidate,
+2734 | |     join: &FragmentJoin,
+2735 | |     opts: &ScanOptions,
+2736 | |     budget: &MemoryBudget,
+2737 | | ) -> Result<JoinAttempt> {
+     | |________________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.100.0/index.html#too_many_lines
+
+warning: this function has too many lines (329/120)
+    --> src/scan.rs:2889:1
+     |
+2889 | / fn recover_fragments(
+2890 | |     source: &dyn ImageSource,
+2891 | |     candidates: &[Candidate],
+2892 | |     mut kept: Vec<CarvedData>,
+...    |
+2899 | |     internal_errors: &mut Vec<InternalError>,
+2900 | | ) -> Result<FragmentResult> {
+     | |___________________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.100.0/index.html#too_many_lines
+
+warning: this function has too many lines (161/120)
+    --> src/scan.rs:3268:1
+     |
+3268 | / fn postfilter(
+3269 | |     outcomes: Vec<CarveOutcome>,
+3270 | |     opts: &ScanOptions,
+3271 | |     stats: &mut ScanStats,
+3272 | |     warnings: &mut Vec<Warning>,
+3273 | |     internal_errors: &mut Vec<InternalError>,
+3274 | | ) -> Vec<CarvedData> {
+     | |____________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.100.0/index.html#too_many_lines
+
+warning: this function has too many lines (174/120)
+    --> src/scan.rs:3468:1
+     |
+3468 | / fn write_outputs(
+3469 | |     source: &dyn ImageSource,
+3470 | |     out_dir: &Path,
+3471 | |     files: &[CarvedData],
+...    |
+3477 | |     stop: &Stop,
+3478 | | ) -> Result<(Vec<CarvedFile>, Vec<Warning>)> {
+     | |____________________________________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.100.0/index.html#too_many_lines
+
+warning: this function has too many lines (229/120)
+ --> src/signatures/jpeg.rs:6:1
+  |
+6 | pub fn analyze(data: &[u8], at_limit: bool) -> Need {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.100.0/index.html#too_many_lines
+
+warning: this function has too many lines (173/120)
+   --> src/signatures/jpeg.rs:421:1
+    |
+421 | pub(crate) fn strict_baseline_scan(data: &[u8]) -> Option<Result<(), String>> {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.100.0/index.html#too_many_lines
+
+warning: this function has too many lines (152/120)
+   --> src/signatures/pdf_validate.rs:496:1
+    |
+496 | fn parse_xref_stream(data: &[u8], body: usize, limits: ValidationLimits) -> Result<Section, Issue> {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.100.0/index.html#too_many_lines
+
+warning: this function has too many lines (258/120)
+  --> src/signatures/png.rs:10:1
+   |
+10 | pub fn analyze(data: &[u8], at_limit: bool) -> Need {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.100.0/index.html#too_many_lines
+
+warning: this function has too many lines (140/120)
+   --> src/signatures/mod.rs:563:1
+    |
+563 | / fn validate_png(
+564 | |     data: &[u8],
+565 | |     analysis: &Analysis,
+566 | |     limits: ValidationLimits,
+567 | | ) -> (Validation, Vec<String>) {
+    | |______________________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.100.0/index.html#too_many_lines
+
+warning: `carvex` (lib) generated 15 warnings
+warning: `carvex` (lib test) generated 15 warnings (15 duplicates)
+warning: this function has too many lines (121/120)
+  --> tests/fragment_recovery.rs:52:1
+   |
+52 | fn s12_interleaved_fragments_are_recovered_exactly() {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.100.0/index.html#too_many_lines
+   = note: requested on the command line with `-W clippy::too-many-lines`
+
+warning: `carvex` (test "fragment_recovery") generated 1 warning
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 5.90s
+

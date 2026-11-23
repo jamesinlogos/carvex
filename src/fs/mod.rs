@@ -4,7 +4,9 @@
 //! and return the free extents reported by the FAT or NTFS `$Bitmap`.
 
 #![deny(clippy::indexing_slicing, clippy::unwrap_used, clippy::expect_used)]
+/// The `fat32` module.
 pub mod fat32;
+/// The `ntfs` module.
 pub mod ntfs;
 
 use crate::io::{read_vec_at, ImageSource};
@@ -15,10 +17,13 @@ use std::collections::BTreeMap;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::Path;
 
+/// The `FsKind` enumeration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum FsKind {
+    /// The `Fat32` variant of `FsKind`.
     Fat32,
+    /// The `Ntfs` variant of `FsKind`.
     Ntfs,
 }
 
@@ -31,52 +36,72 @@ impl std::fmt::Display for FsKind {
     }
 }
 
+/// The `FsInfo` structure.
 #[derive(Debug, Clone, Serialize)]
 pub struct FsInfo {
+    /// The `kind` field of `FsInfo`.
     pub kind: FsKind,
     /// Absolute byte offset of the volume boot sector inside the image.
     pub offset: u64,
     /// Volume length in bytes (clamped to the image).
     pub length: u64,
+    /// The `bytes_per_sector` field of `FsInfo`.
     pub bytes_per_sector: u32,
+    /// The `sectors_per_cluster` field of `FsInfo`.
     pub sectors_per_cluster: u32,
+    /// The `cluster_size` field of `FsInfo`.
     pub cluster_size: u64,
     /// Absolute offset of the first addressable cluster: cluster 2 for FAT32,
     /// cluster 0 for NTFS.  Used to report the on-disk cluster number.
     pub data_start: u64,
+    /// The `total_clusters` field of `FsInfo`.
     pub total_clusters: u64,
+    /// The `free_clusters` field of `FsInfo`.
     pub free_clusters: u64,
+    /// The `free_extents` field of `FsInfo`.
     pub free_extents: Vec<Extent>,
+    /// The `partition_index` field of `FsInfo`.
     pub partition_index: Option<usize>,
+    /// The `partition_type` field of `FsInfo`.
     pub partition_type: Option<String>,
+    /// The `label` field of `FsInfo`.
     pub label: Option<String>,
+    /// The `details` field of `FsInfo`.
     pub details: BTreeMap<String, String>,
 }
 
 impl FsInfo {
+    /// The `free_bytes` method.
     pub fn free_bytes(&self) -> u64 {
         self.free_clusters.saturating_mul(self.cluster_size)
     }
 
+    /// The `largest_free_extent` method.
     pub fn largest_free_extent(&self) -> u64 {
         self.free_extents.iter().map(|e| e.len).max().unwrap_or(0)
     }
 }
 
+/// The `Partition` structure.
 #[derive(Debug, Clone)]
 pub struct Partition {
+    /// The `index` field of `Partition`.
     pub index: usize,
+    /// The `start_lba` field of `Partition`.
     pub start_lba: u64,
     /// Partition length in 512-byte sectors.
     pub sectors: u64,
+    /// The `type_name` field of `Partition`.
     pub type_name: String,
 }
 
 impl Partition {
+    /// The `byte_offset` method.
     pub fn byte_offset(&self, sector_size: u64) -> u64 {
         self.start_lba.saturating_mul(sector_size)
     }
 
+    /// The `byte_len` method.
     pub fn byte_len(&self, sector_size: u64) -> u64 {
         self.sectors.saturating_mul(sector_size)
     }
@@ -89,8 +114,11 @@ impl Partition {
 /// `--partition largest` restores the historical single-volume behaviour.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PartitionSel {
+    /// The `Largest` variant of `PartitionSel`.
     Largest,
+    /// The `All` variant of `PartitionSel`.
     All,
+    /// The `Index` variant of `PartitionSel`.
     Index(usize),
 }
 
@@ -156,10 +184,15 @@ impl std::fmt::Display for RegionKind {
 /// extents inside that range.
 #[derive(Debug, Clone, Serialize)]
 pub struct Region {
+    /// The `kind` field of `Region`.
     pub kind: RegionKind,
+    /// The `offset` field of `Region`.
     pub offset: u64,
+    /// The `len` field of `Region`.
     pub len: u64,
+    /// The `scanned` field of `Region`.
     pub scanned: bool,
+    /// The `partition_index` field of `Region`.
     pub partition_index: Option<usize>,
     /// True when raw bytes here mix allocated and unallocated content because
     /// a filesystem parser failed (H-26).
@@ -183,8 +216,11 @@ impl Region {
 /// A filesystem probe that recognised a boot sector but could not parse it.
 #[derive(Debug, Clone)]
 pub struct VolumeParseError {
+    /// The `partition_index` field of `VolumeParseError`.
     pub partition_index: usize,
+    /// The `offset` field of `VolumeParseError`.
     pub offset: u64,
+    /// The `reason` field of `VolumeParseError`.
     pub reason: String,
 }
 
@@ -268,6 +304,7 @@ impl VolumeSet {
     /// `info`) `extent_id` is left unset. `max_regions == 0` keeps every
     /// detailed extent. Adjacent rows with the same `scanned` state may be
     /// summarised, but coverage and the sum of scanned lengths are exact.
+    // H-34: region planning keeps its original signature so coverage and summarisation inputs stay explicit.
     #[allow(clippy::too_many_arguments)]
     pub fn regions_with_plan(
         &self,
@@ -481,11 +518,7 @@ fn summarise_regions(regions: Vec<Region>, max_regions: u64) -> Vec<Region> {
     while let Some(first) = regions.get(index) {
         let scanned = first.scanned;
         let mut end = index.saturating_add(1);
-        while regions
-            .get(end)
-            .map(|r| r.scanned == scanned)
-            .unwrap_or(false)
-        {
+        while regions.get(end).is_some_and(|r| r.scanned == scanned) {
             end = end.saturating_add(1);
         }
         let Some(group) = regions.get(index..end) else {
@@ -525,14 +558,20 @@ fn summarise_regions(regions: Vec<Region>, max_regions: u64) -> Vec<Region> {
 
 /// Everything a filesystem parser needs to read one volume.
 pub struct VolumeCtx<'a> {
+    /// The `source` field of `VolumeCtx`.
     pub source: &'a dyn ImageSource,
+    /// The `offset` field of `VolumeCtx`.
     pub offset: u64,
+    /// The `max_len` field of `VolumeCtx`.
     pub max_len: u64,
+    /// The `partition_index` field of `VolumeCtx`.
     pub partition_index: Option<usize>,
+    /// The `partition_type` field of `VolumeCtx`.
     pub partition_type: Option<String>,
 }
 
 impl VolumeCtx<'_> {
+    /// The `read_vec` method.
     pub fn read_vec(&self, offset: u64, len: usize) -> Result<Vec<u8>> {
         let end = offset
             .checked_add(len as u64)
@@ -800,7 +839,7 @@ fn gap_regions(parts: &[Partition], len: u64) -> Vec<Extent> {
             (start < len && end > start).then_some((start, end))
         })
         .collect();
-    spans.sort();
+    spans.sort_unstable();
     let mut gaps = Vec::new();
     let mut cur = 0u64;
     for (start, end) in spans {
@@ -1100,6 +1139,6 @@ pub fn print_info(image: &Path, fs: &FsInfo) {
         human_size(fs.largest_free_extent())
     );
     for (k, v) in &fs.details {
-        println!("{:<15}: {}", k, v);
+        println!("{k:<15}: {v}");
     }
 }

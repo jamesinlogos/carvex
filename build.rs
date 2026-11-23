@@ -1,3 +1,4 @@
+//! Build script that records the Git commit for CarveX reports.
 use std::process::Command;
 
 fn main() {

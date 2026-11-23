@@ -40,7 +40,22 @@ pub(crate) fn volume_sectors(field: u64, available_sectors: u64) -> u64 {
     field.saturating_add(1).min(available_sectors)
 }
 
-pub fn parse(ctx: &VolumeCtx<'_>, boot: &[u8]) -> Result<FsInfo> {
+struct NtfsGeometry {
+    bps: u32,
+    spc: u32,
+    total_sectors_boot: u64,
+    available_sectors: u64,
+    total_sectors: u64,
+    total_clusters: u64,
+    volume_len: u64,
+    mft_lcn: u64,
+    mftmirr_lcn: u64,
+    record_size: u64,
+    mft_abs: u64,
+    serial: u64,
+}
+
+fn parse_geometry(boot: &[u8], offset: u64, max_len: u64) -> Result<NtfsGeometry> {
     if boot.len() < 512 {
         bail!("NTFS: boot sector is shorter than 512 bytes");
     }
@@ -62,7 +77,7 @@ pub fn parse(ctx: &VolumeCtx<'_>, boot: &[u8]) -> Result<FsInfo> {
         bail!("NTFS: total sector count is zero");
     }
     let cluster_size = bps as u64 * spc as u64;
-    let available_sectors = ctx.max_len / bps as u64;
+    let available_sectors = max_len / bps as u64;
     let total_sectors = volume_sectors(total_sectors_boot, available_sectors);
     let total_clusters = total_sectors / spc as u64;
     if total_clusters == 0 {
@@ -86,71 +101,37 @@ pub fn parse(ctx: &VolumeCtx<'_>, boot: &[u8]) -> Result<FsInfo> {
     if !(256..=65536).contains(&record_size) || record_size % bps as u64 != 0 {
         bail!("NTFS: implausible MFT record size {record_size}");
     }
-
-    let mft_byte = mft_lcn
-        .checked_mul(cluster_size)
-        .context("NTFS: $MFT offset overflow")?;
-    let mft_abs = ctx
-        .offset
-        .checked_add(mft_byte)
+    let mft_abs = offset
+        .checked_add(
+            mft_lcn
+                .checked_mul(cluster_size)
+                .context("NTFS: $MFT offset overflow")?,
+        )
         .context("NTFS: $MFT absolute offset overflow")?;
-    let ntfs = NtfsCtx {
-        source: ctx.source,
-        volume_offset: ctx.offset,
+
+    Ok(NtfsGeometry {
+        bps,
+        spc,
+        total_sectors_boot,
+        available_sectors,
+        total_sectors,
+        total_clusters,
         volume_len,
-        cluster_size,
-        bytes_per_sector: bps,
-    };
+        mft_lcn,
+        mftmirr_lcn,
+        record_size,
+        mft_abs,
+        serial,
+    })
+}
 
-    let mut rec0 = read_vec_at(ctx.source, mft_abs, record_size as usize)
-        .context("NTFS: cannot read $MFT record 0")?;
-    apply_fixup(&mut rec0, bps)?;
-    if rec0.get(0..4) != Some(b"FILE") {
-        bail!("NTFS: $MFT record 0 has bad signature");
-    }
-    let mft_attrs = parse_attrs(&rec0)?;
-    let mft_data = pick_data(&mft_attrs).context("NTFS: $MFT has no unnamed $DATA attribute")?;
-    let mft_runs = mft_data.runs.clone();
-    if mft_runs.is_empty() {
-        bail!("NTFS: $MFT $DATA has an empty runlist");
-    }
-    let mft_data_size = mft_data.data_size;
-    let mft_records = mft_data_size / record_size;
-    if mft_records <= 6 {
-        bail!("NTFS: $MFT contains only {mft_records} records; $Bitmap (record 6) missing");
-    }
-
-    // $Bitmap is MFT record number 6 and is authoritative for cluster allocation.
-    let bitmap_rec = ntfs
-        .read_record(&mft_runs, 6, record_size)
-        .context("NTFS: cannot read $Bitmap MFT record")?;
-    if bitmap_rec.get(0..4) != Some(b"FILE") {
-        bail!("NTFS: $Bitmap record has bad signature");
-    }
-    if bitmap_rec.get(0x16).copied().unwrap_or(0) & 1 == 0 {
-        bail!("NTFS: $Bitmap record is not marked in use");
-    }
-    let bitmap_attrs = parse_attrs(&bitmap_rec)?;
-    let bitmap_attr =
-        pick_data(&bitmap_attrs).context("NTFS: $Bitmap has no unnamed $DATA attribute")?;
-    let bitmap_data_size = bitmap_attr.data_size;
-    let bitmap: Vec<u8> = if let Some(res) = &bitmap_attr.resident {
-        res.clone()
-    } else {
-        if bitmap_data_size > 512 * 1024 * 1024 {
-            bail!("NTFS: $Bitmap larger than 512 MiB is not supported");
-        }
-        ntfs.read_logical(&bitmap_attr.runs, 0, bitmap_data_size)?
-    };
-    let needed_bitmap = total_clusters.div_ceil(8) as usize;
-    if bitmap.len() < needed_bitmap {
-        bail!(
-            "NTFS: $Bitmap is too small ({} bytes, {} required)",
-            bitmap.len(),
-            needed_bitmap
-        );
-    }
-
+fn bitmap_free_extents(
+    bitmap: &[u8],
+    total_clusters: u64,
+    cluster_size: u64,
+    volume_offset: u64,
+    volume_len: u64,
+) -> Result<(u64, Vec<Extent>)> {
     let mut free_clusters = 0u64;
     let mut extents: Vec<Extent> = Vec::new();
     let mut run: Option<(u64, u64, u64)> = None; // (physical start, first cluster, next cluster)
@@ -162,8 +143,7 @@ pub fn parse(ctx: &VolumeCtx<'_>, boot: &[u8]) -> Result<FsInfo> {
         let used = (byte >> (cluster % 8)) & 1 != 0;
         if !used {
             free_clusters += 1;
-            let phys = ctx
-                .offset
+            let phys = volume_offset
                 .checked_add(cluster.saturating_mul(cluster_size))
                 .context("NTFS: cluster offset overflow")?;
             match run {
@@ -193,49 +173,129 @@ pub fn parse(ctx: &VolumeCtx<'_>, boot: &[u8]) -> Result<FsInfo> {
         });
     }
     for e in &mut extents {
-        let end = e.end().min(ctx.offset.saturating_add(volume_len));
+        let end = e.end().min(volume_offset.saturating_add(volume_len));
         e.len = end.saturating_sub(e.offset);
     }
     extents.retain(|e| e.len > 0);
-    let extents = crate::util::merge_extents(extents);
+    Ok((free_clusters, crate::util::merge_extents(extents)))
+}
+
+fn ntfs_details(
+    geom: &NtfsGeometry,
+    mft_data_size: u64,
+    mft_records: u64,
+    bitmap_len: usize,
+) -> BTreeMap<String, String> {
+    let mut details = BTreeMap::new();
+    details.insert("total_sectors".into(), geom.total_sectors.to_string());
+    details.insert("mft_lcn".into(), geom.mft_lcn.to_string());
+    details.insert("mft_mirror_lcn".into(), geom.mftmirr_lcn.to_string());
+    details.insert("mft_record_size".into(), geom.record_size.to_string());
+    details.insert("mft_data_size".into(), mft_data_size.to_string());
+    details.insert("mft_records".into(), mft_records.to_string());
+    details.insert("bitmap_bytes".into(), bitmap_len.to_string());
+    details.insert("volume_serial".into(), format!("{:016X}", geom.serial));
+    if geom.total_sectors_boot > geom.available_sectors {
+        details.insert(
+            "warning".into(),
+            format!(
+                "total_sectors clamped from {} to {}",
+                geom.total_sectors_boot, geom.total_sectors
+            ),
+        );
+    }
+    details
+}
+
+/// The `parse` function.
+pub fn parse(ctx: &VolumeCtx<'_>, boot: &[u8]) -> Result<FsInfo> {
+    let geom = parse_geometry(boot, ctx.offset, ctx.max_len)?;
+    let ntfs = NtfsCtx {
+        source: ctx.source,
+        volume_offset: ctx.offset,
+        volume_len: geom.volume_len,
+        cluster_size: geom.bps as u64 * geom.spc as u64,
+        bytes_per_sector: geom.bps,
+    };
+
+    let mut rec0 = read_vec_at(ctx.source, geom.mft_abs, geom.record_size as usize)
+        .context("NTFS: cannot read $MFT record 0")?;
+    apply_fixup(&mut rec0, geom.bps)?;
+    if rec0.get(0..4) != Some(b"FILE") {
+        bail!("NTFS: $MFT record 0 has bad signature");
+    }
+    let mft_attrs = parse_attrs(&rec0)?;
+    let mft_data = pick_data(&mft_attrs).context("NTFS: $MFT has no unnamed $DATA attribute")?;
+    let mft_runs = mft_data.runs.clone();
+    if mft_runs.is_empty() {
+        bail!("NTFS: $MFT $DATA has an empty runlist");
+    }
+    let mft_data_size = mft_data.data_size;
+    let mft_records = mft_data_size / geom.record_size;
+    if mft_records <= 6 {
+        bail!("NTFS: $MFT contains only {mft_records} records; $Bitmap (record 6) missing");
+    }
+
+    // $Bitmap is MFT record number 6 and is authoritative for cluster allocation.
+    let bitmap_rec = ntfs
+        .read_record(&mft_runs, 6, geom.record_size)
+        .context("NTFS: cannot read $Bitmap MFT record")?;
+    if bitmap_rec.get(0..4) != Some(b"FILE") {
+        bail!("NTFS: $Bitmap record has bad signature");
+    }
+    if bitmap_rec.get(0x16).copied().unwrap_or(0) & 1 == 0 {
+        bail!("NTFS: $Bitmap record is not marked in use");
+    }
+    let bitmap_attrs = parse_attrs(&bitmap_rec)?;
+    let bitmap_attr =
+        pick_data(&bitmap_attrs).context("NTFS: $Bitmap has no unnamed $DATA attribute")?;
+    let bitmap_data_size = bitmap_attr.data_size;
+    let bitmap: Vec<u8> = if let Some(res) = &bitmap_attr.resident {
+        res.clone()
+    } else {
+        if bitmap_data_size > 512 * 1024 * 1024 {
+            bail!("NTFS: $Bitmap larger than 512 MiB is not supported");
+        }
+        ntfs.read_logical(&bitmap_attr.runs, 0, bitmap_data_size)?
+    };
+    let needed_bitmap = geom.total_clusters.div_ceil(8) as usize;
+    if bitmap.len() < needed_bitmap {
+        bail!(
+            "NTFS: $Bitmap is too small ({} bytes, {} required)",
+            bitmap.len(),
+            needed_bitmap
+        );
+    }
+
+    let (free_clusters, extents) = bitmap_free_extents(
+        &bitmap,
+        geom.total_clusters,
+        ntfs.cluster_size,
+        ctx.offset,
+        geom.volume_len,
+    )?;
 
     // Optional nicety: volume label from $Volume (MFT record 3), attribute 0x60.
     let label = ntfs
-        .read_volume_label(&mft_runs, record_size)
+        .read_volume_label(&mft_runs, geom.record_size)
         .ok()
         .flatten();
-
-    let mut details = BTreeMap::new();
-    details.insert("total_sectors".into(), total_sectors.to_string());
-    details.insert("mft_lcn".into(), mft_lcn.to_string());
-    details.insert("mft_mirror_lcn".into(), mftmirr_lcn.to_string());
-    details.insert("mft_record_size".into(), record_size.to_string());
-    details.insert("mft_data_size".into(), mft_data_size.to_string());
-    details.insert("mft_records".into(), mft_records.to_string());
-    details.insert("bitmap_bytes".into(), bitmap.len().to_string());
-    details.insert("volume_serial".into(), format!("{serial:016X}"));
-    if total_sectors_boot > available_sectors {
-        details.insert(
-            "warning".into(),
-            format!("total_sectors clamped from {total_sectors_boot} to {total_sectors}"),
-        );
-    }
 
     Ok(FsInfo {
         kind: FsKind::Ntfs,
         offset: ctx.offset,
-        length: volume_len,
-        bytes_per_sector: bps,
-        sectors_per_cluster: spc,
-        cluster_size,
+        length: geom.volume_len,
+        bytes_per_sector: geom.bps,
+        sectors_per_cluster: geom.spc,
+        cluster_size: ntfs.cluster_size,
         data_start: ctx.offset,
-        total_clusters,
+        total_clusters: geom.total_clusters,
         free_clusters,
         free_extents: extents,
         partition_index: ctx.partition_index,
         partition_type: ctx.partition_type.clone(),
         label,
-        details,
+        details: ntfs_details(&geom, mft_data_size, mft_records, bitmap.len()),
     })
 }
 

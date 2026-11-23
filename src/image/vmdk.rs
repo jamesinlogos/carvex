@@ -1,4 +1,4 @@
-//! Read-only VMware virtual disk (VMDK) image source.
+//! Read-only `VMware` virtual disk (VMDK) image source.
 //!
 //! The descriptor is parsed for `FLAT`, `SPARSE` and `ZERO` extents, which
 //! covers monolithicFlat, splitFlat, monolithicSparse and splitSparse images.
@@ -68,8 +68,7 @@ impl VmdkImage {
         let self_sparse = RawFile::open(path)
             .ok()
             .and_then(|f| read_vec_at(&f, 0, 4).ok())
-            .map(|h| h == b"KDMV")
-            .unwrap_or(false);
+            .is_some_and(|h| h == b"KDMV");
 
         let mut extents = Vec::with_capacity(lines.len());
         let mut paths = Vec::with_capacity(lines.len());
@@ -302,7 +301,7 @@ fn resolve(parent: &Path, name: &str, allow_external: bool) -> Result<PathBuf> {
     let path = Path::new(name);
     if path.is_absolute() {
         if !allow_external {
-            bail!("VMDK absolute extent path '{}' is not allowed", name);
+            bail!("VMDK absolute extent path '{name}' is not allowed");
         }
         return Ok(path.to_path_buf());
     }
@@ -310,7 +309,7 @@ fn resolve(parent: &Path, name: &str, allow_external: bool) -> Result<PathBuf> {
     let canonical_parent = std::fs::canonicalize(parent)
         .with_context(|| format!("cannot canonicalize VMDK directory {}", parent.display()))?;
     let canonical = std::fs::canonicalize(&joined)
-        .with_context(|| format!("VMDK extent '{}' cannot be resolved", name))?;
+        .with_context(|| format!("VMDK extent '{name}' cannot be resolved"))?;
     if !canonical.starts_with(&canonical_parent) && !allow_external {
         bail!(
             "VMDK extent '{}' escapes the descriptor directory (parent {}, resolved {})",
@@ -534,19 +533,16 @@ impl VmdkSparse {
                 done += zeros;
                 continue;
             }
-            let sector = match self
+            let Some(sector) = self
                 .table(table_sector)
                 .and_then(|t| t.get(gte_index).copied())
-            {
-                Some(s) => s,
-                None => {
-                    let zeros = (self.grain_bytes - within)
-                        .min((buf.len() - done) as u64)
-                        .min(self.len - pos) as usize;
-                    buf[done..done + zeros].fill(0);
-                    done += zeros;
-                    continue;
-                }
+            else {
+                let zeros = (self.grain_bytes - within)
+                    .min((buf.len() - done) as u64)
+                    .min(self.len - pos) as usize;
+                buf[done..done + zeros].fill(0);
+                done += zeros;
+                continue;
             };
             if sector == 0 || (self.zeroed_grain && sector == 1) {
                 let zeros = (self.grain_bytes - within)

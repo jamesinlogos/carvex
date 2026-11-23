@@ -325,15 +325,12 @@ fn check_root(
             offset,
             generation: gen,
         } => {
-            let offset = match usize::try_from(*offset) {
-                Ok(offset) => offset,
-                Err(_) => {
-                    out.fail(
-                        "root_catalog",
-                        format!("/Root {number} offset is out of range"),
-                    );
-                    return;
-                }
+            let Ok(offset) = usize::try_from(*offset) else {
+                out.fail(
+                    "root_catalog",
+                    format!("/Root {number} offset is out of range"),
+                );
+                return;
             };
             match object_body(data, offset, number, *gen) {
                 Ok(range) => data.get(range).unwrap_or_default().to_vec(),
@@ -493,7 +490,13 @@ fn parse_classic(data: &[u8], start: usize, limits: ValidationLimits) -> Result<
     common_fields(data, dict, entries, StreamKind::Classic)
 }
 
-fn parse_xref_stream(data: &[u8], body: usize, limits: ValidationLimits) -> Result<Section, Issue> {
+struct XrefStreamHeader {
+    dict: std::ops::Range<usize>,
+    pos: usize,
+    stream_end: usize,
+}
+
+fn xref_stream_header(data: &[u8], body: usize) -> Result<XrefStreamHeader, Issue> {
     let stream = find_token(
         data,
         body,
@@ -526,14 +529,14 @@ fn parse_xref_stream(data: &[u8], body: usize, limits: ValidationLimits) -> Resu
             "direct /Length does not agree with the endstream position",
         ));
     }
-    let filter = stream_filter(data, dict.clone())?;
-    let max = max_inflate(limits);
-    let payload = inflate_bounded(
-        data.get(pos..stream_end).unwrap_or_default(),
-        filter,
-        max,
-        "xref_stream",
-    )?;
+    Ok(XrefStreamHeader {
+        dict,
+        pos,
+        stream_end,
+    })
+}
+
+fn xref_widths(data: &[u8], dict: &std::ops::Range<usize>) -> Result<(u64, u64, u64), Issue> {
     let widths = array_ints(data, dict.clone(), b"/W")
         .ok_or_else(|| Issue::fail("xref_stream", "xref stream has no direct /W array"))?;
     let [w1, w2, w3] = widths.as_slice() else {
@@ -549,15 +552,16 @@ fn parse_xref_stream(data: &[u8], body: usize, limits: ValidationLimits) -> Resu
         ));
     }
     let (w1, w2, w3) = (*w1, *w2, *w3);
-    let stride = w1.saturating_add(w2).saturating_add(w3);
-    if stride == 0 {
+    if w1.saturating_add(w2).saturating_add(w3) == 0 {
         return Err(Issue::fail(
             "xref_stream",
             "xref stream /W fields are all zero",
         ));
     }
-    let size = direct_int(data, dict.clone(), b"/Size")
-        .ok_or_else(|| Issue::fail("xref_size", "xref stream has no direct /Size"))?;
+    Ok((w1, w2, w3))
+}
+
+fn xref_index(data: &[u8], dict: &std::ops::Range<usize>, size: u64) -> Result<Vec<u64>, Issue> {
     let index = array_ints(data, dict.clone(), b"/Index").unwrap_or_else(|| vec![0, size]);
     if index.len() % 2 != 0 {
         return Err(Issue::fail(
@@ -565,6 +569,17 @@ fn parse_xref_stream(data: &[u8], body: usize, limits: ValidationLimits) -> Resu
             "xref stream /Index has an odd number of fields",
         ));
     }
+    Ok(index)
+}
+
+fn decode_xref_entries(
+    data: &[u8],
+    payload: &[u8],
+    index: &[u64],
+    widths: (u64, u64, u64),
+    limits: ValidationLimits,
+) -> Result<Vec<(u64, ObjEntry)>, Issue> {
+    let (w1, w2, w3) = widths;
     let mut entries = Vec::new();
     let mut budget = max_entries(limits);
     let mut cursor = 0usize;
@@ -595,9 +610,9 @@ fn parse_xref_stream(data: &[u8], body: usize, limits: ValidationLimits) -> Resu
             let number = first.checked_add(u64::try_from(item).unwrap_or(u64::MAX));
             let number = number
                 .ok_or_else(|| Issue::fail("xref_entries", "xref stream object number overflow"))?;
-            let (field_type, next) = read_be(&payload, cursor, w1);
-            let (field_two, next) = read_be(&payload, next, w2);
-            let (field_three, next) = read_be(&payload, next, w3);
+            let (field_type, next) = read_be(payload, cursor, w1);
+            let (field_two, next) = read_be(payload, next, w2);
+            let (field_three, next) = read_be(payload, next, w3);
             cursor = next;
             match field_type {
                 0 => {}
@@ -645,7 +660,24 @@ fn parse_xref_stream(data: &[u8], body: usize, limits: ValidationLimits) -> Resu
             }
         }
     }
-    common_fields(data, dict, entries, StreamKind::Xref)
+    Ok(entries)
+}
+
+fn parse_xref_stream(data: &[u8], body: usize, limits: ValidationLimits) -> Result<Section, Issue> {
+    let header = xref_stream_header(data, body)?;
+    let filter = stream_filter(data, header.dict.clone())?;
+    let payload = inflate_bounded(
+        data.get(header.pos..header.stream_end).unwrap_or_default(),
+        filter,
+        max_inflate(limits),
+        "xref_stream",
+    )?;
+    let widths = xref_widths(data, &header.dict)?;
+    let size = direct_int(data, header.dict.clone(), b"/Size")
+        .ok_or_else(|| Issue::fail("xref_size", "xref stream has no direct /Size"))?;
+    let index = xref_index(data, &header.dict, size)?;
+    let entries = decode_xref_entries(data, &payload, &index, widths, limits)?;
+    common_fields(data, header.dict, entries, StreamKind::Xref)
 }
 
 fn common_fields(

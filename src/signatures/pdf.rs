@@ -19,6 +19,7 @@ impl EofCandidate {
     }
 }
 
+/// The `analyze` function.
 pub fn analyze(data: &[u8], at_limit: bool, mode: PdfEofMode) -> Need {
     if data.len() < 8 {
         return if at_limit {
@@ -293,9 +294,8 @@ fn find_startxref(data: &[u8], eof_pos: usize) -> (Option<u64>, bool) {
     let Some(window) = data.get(window_start..eof_pos) else {
         return (None, false);
     };
-    let rel = match memchr::memmem::rfind(window, b"startxref") {
-        Some(v) => v,
-        None => return (None, false),
+    let Some(rel) = memchr::memmem::rfind(window, b"startxref") else {
+        return (None, false);
     };
     let mut pos = window_start + rel + b"startxref".len();
     while pos < eof_pos && data.get(pos).is_some_and(u8::is_ascii_whitespace) {

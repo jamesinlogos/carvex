@@ -5,9 +5,12 @@
 //! means adding one [`FormatSpec`] and one validator module.
 
 #![deny(clippy::indexing_slicing, clippy::unwrap_used, clippy::expect_used)]
+/// The `jpeg` module.
 pub mod jpeg;
+/// The `pdf` module.
 pub mod pdf;
 mod pdf_validate;
+/// The `png` module.
 pub mod png;
 mod repair;
 
@@ -56,30 +59,38 @@ impl ValidationLimits {
     }
 }
 
+/// The `FileType` enumeration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, ValueEnum)]
 #[serde(rename_all = "lowercase")]
 pub enum FileType {
+    /// The `Jpeg` variant of `FileType`.
     #[value(alias = "jpg")]
     Jpeg,
+    /// The `Png` variant of `FileType`.
     #[value(alias = "png")]
     Png,
+    /// The `Pdf` variant of `FileType`.
     #[value(alias = "pdf")]
     Pdf,
 }
 
 impl FileType {
+    /// The `ext` method.
     pub fn ext(self) -> &'static str {
         self.spec().ext
     }
 
+    /// The `label` method.
     pub fn label(self) -> &'static str {
         self.spec().label
     }
 
+    /// The `header` method.
     pub fn header(self) -> &'static [u8] {
         self.spec().header
     }
 
+    /// The `spec` method.
     pub fn spec(self) -> &'static FormatSpec {
         FORMATS
             .iter()
@@ -87,6 +98,7 @@ impl FileType {
             .unwrap_or(&FORMATS[0])
     }
 
+    /// The `all` associated function.
     pub fn all() -> [FileType; 3] {
         [FileType::Jpeg, FileType::Png, FileType::Pdf]
     }
@@ -101,14 +113,21 @@ impl fmt::Display for FileType {
 /// One supported format.  This is intentionally data, not code, so the CLI and
 /// documentation cannot drift away from the parsers.
 pub struct FormatSpec {
+    /// The `file_type` field of `FormatSpec`.
     pub file_type: FileType,
+    /// The `ext` field of `FormatSpec`.
     pub ext: &'static str,
+    /// The `label` field of `FormatSpec`.
     pub label: &'static str,
+    /// The `header` field of `FormatSpec`.
     pub header: &'static [u8],
+    /// The `footer` field of `FormatSpec`.
     pub footer: &'static str,
+    /// The `validation` field of `FormatSpec`.
     pub validation: &'static str,
 }
 
+/// The `FORMATS` constant.
 pub const FORMATS: [FormatSpec; 3] = [
     FormatSpec {
         file_type: FileType::Jpeg,
@@ -136,11 +155,15 @@ pub const FORMATS: [FormatSpec; 3] = [
     },
 ];
 
+/// The `PdfEofMode` enumeration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, ValueEnum, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum PdfEofMode {
+    /// The `First` variant of `PdfEofMode`.
     First,
+    /// The `Last` variant of `PdfEofMode`.
     Last,
+    /// The `Smart` variant of `PdfEofMode`.
     #[default]
     Smart,
 }
@@ -180,11 +203,15 @@ pub enum Validation {
     Unverified,
 }
 
+/// The `Status` enumeration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Status {
+    /// The `Complete` variant of `Status`.
     Complete,
+    /// The `Truncated` variant of `Status`.
     Truncated,
+    /// The `Repaired` variant of `Status`.
     Repaired,
 }
 
@@ -247,13 +274,16 @@ impl Validity {
 /// One structured validation check attached to a carved file.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ValidationCheck {
+    /// The `name` field of `ValidationCheck`.
     pub name: String,
     /// `true` = passed, `false` = failed, `null` = not performed/unsupported.
     pub ok: Option<bool>,
+    /// The `note` field of `ValidationCheck`.
     pub note: String,
 }
 
 impl ValidationCheck {
+    /// The `new` associated function.
     pub fn new(name: impl Into<String>, ok: Option<bool>, note: impl Into<String>) -> Self {
         Self {
             name: name.into(),
@@ -270,13 +300,18 @@ impl ValidationCheck {
 /// tuple API used by older callers.
 #[derive(Debug, Clone)]
 pub struct ValidationDetail {
+    /// The `validation` field of `ValidationDetail`.
     pub validation: Validation,
+    /// The `notes` field of `ValidationDetail`.
     pub notes: Vec<String>,
+    /// The `checks` field of `ValidationDetail`.
     pub checks: Vec<ValidationCheck>,
+    /// The `validated_bytes` field of `ValidationDetail`.
     pub validated_bytes: u64,
 }
 
 impl ValidationDetail {
+    /// The `new` associated function.
     pub fn new(validation: Validation, notes: Vec<String>) -> Self {
         Self {
             validation,
@@ -358,14 +393,20 @@ pub(crate) fn png_chunk_crc_check(ctype: &[u8], offset: usize) -> ValidationChec
     )
 }
 
+/// The `Analysis` structure.
 #[derive(Debug, Clone)]
 pub struct Analysis {
     /// Number of input bytes that belong to the file (before any repair suffix).
     pub end: usize,
+    /// The `complete` field of `Analysis`.
     pub complete: bool,
+    /// The `score` field of `Analysis`.
     pub score: u8,
+    /// The `width` field of `Analysis`.
     pub width: Option<u32>,
+    /// The `height` field of `Analysis`.
     pub height: Option<u32>,
+    /// The `notes` field of `Analysis`.
     pub notes: Vec<String>,
     /// Appended when --repair is enabled and the file is truncated.
     pub repair_suffix: &'static [u8],
@@ -383,6 +424,7 @@ impl Analysis {
             .any(|check| check.ok == Some(false))
     }
 
+    /// The `status` method.
     pub fn status(&self, repaired: bool) -> Status {
         if repaired {
             Status::Repaired
@@ -394,7 +436,9 @@ impl Analysis {
     }
 }
 
+/// The `Need` enumeration.
 pub enum Need {
+    /// The `Analyzed` variant of `Need`.
     Analyzed(Analysis),
     /// More bytes are required because the parser reached the current read limit
     /// while the footer may still lie ahead.
@@ -492,9 +536,7 @@ fn validate_jpeg(
     match decoder.decode() {
         Ok(pixels) => {
             let info = decoder.info();
-            let (w, h) = info
-                .map(|i| (u32::from(i.width), u32::from(i.height)))
-                .unwrap_or((0, 0));
+            let (w, h) = info.map_or((0, 0), |i| (u32::from(i.width), u32::from(i.height)));
             if let (Some(ew), Some(eh)) = (analysis.width, analysis.height) {
                 if w != 0 && h != 0 && (w != ew || h != eh) {
                     return (
@@ -560,16 +602,79 @@ fn validate_jpeg_detail(
     }
 }
 
+fn png_partial(reason: impl Into<String>) -> (Validation, Vec<String>) {
+    (Validation::Partial, vec![reason.into()])
+}
+
+struct PngValidationChunk<'a> {
+    chunk_end: usize,
+    ctype: &'a [u8],
+    chunk_data: &'a [u8],
+    crc_ok: bool,
+}
+
+fn read_validation_png_chunk(data: &[u8], pos: usize) -> Option<PngValidationChunk<'_>> {
+    let len_bytes = data.get(pos..pos + 4)?;
+    let len = u32::from_be_bytes(<[u8; 4]>::try_from(len_bytes).ok()?) as usize;
+    let ctype = data.get(pos + 4..pos + 8)?;
+    let chunk_end = pos
+        .checked_add(12)?
+        .checked_add(len)
+        .filter(|&v| v <= data.len())?;
+    let chunk_data = data.get(pos + 8..pos + 8 + len)?;
+    let stored_crc = data
+        .get(pos + 8 + len..pos + 12 + len)
+        .and_then(|b| <[u8; 4]>::try_from(b).ok())
+        .map(u32::from_be_bytes);
+    let mut hasher = crc32fast::Hasher::new();
+    hasher.update(ctype);
+    hasher.update(chunk_data);
+    Some(PngValidationChunk {
+        chunk_end,
+        ctype,
+        chunk_data,
+        crc_ok: stored_crc == Some(hasher.finalize()),
+    })
+}
+
+fn start_png_inflate(
+    w: u32,
+    h: u32,
+    chunk_data: &[u8],
+    max_decoded: u64,
+) -> Result<PngInflate, String> {
+    let (Some(&depth), Some(&color_type), Some(&interlace)) =
+        (chunk_data.get(8), chunk_data.get(9), chunk_data.get(12))
+    else {
+        return Err("unsupported PNG geometry for decode validation".into());
+    };
+    let Some(expected) = expected_png_raw_size(w, h, depth, color_type, interlace) else {
+        return Err("unsupported PNG geometry for decode validation".into());
+    };
+    if expected as u64 > max_decoded {
+        return Err(format!(
+            "PNG decoded size {expected} exceeds the \
+             decode-validation budget of {max_decoded} bytes"
+        ));
+    }
+    let Some(bpp) = png_bits_per_pixel(depth, color_type) else {
+        return Err("unsupported PNG color type for decode validation".into());
+    };
+    // The budget is checked before any IDAT byte is inflated and before a row
+    // cursor or output buffer is created.
+    Ok(PngInflate::new(
+        expected,
+        PngRowCursor::new(w, h, bpp, interlace),
+    ))
+}
+
 fn validate_png(
     data: &[u8],
     analysis: &Analysis,
     limits: ValidationLimits,
 ) -> (Validation, Vec<String>) {
     let Some((w, h)) = analysis.width.zip(analysis.height) else {
-        return (
-            Validation::Partial,
-            vec!["PNG IHDR dimensions are unavailable".into()],
-        );
+        return png_partial("PNG IHDR dimensions are unavailable");
     };
     let max_decoded = limits.max_validator_memory;
     let mut pos = 8usize;
@@ -578,95 +683,41 @@ fn validate_png(
     let mut bad_crcs: Vec<String> = Vec::new();
     let mut inflate: Option<PngInflate> = None;
     while pos + 12 <= data.len() {
-        let Some(len_bytes) = data.get(pos..pos + 4) else {
+        let Some(chunk) = read_validation_png_chunk(data, pos) else {
             break;
         };
-        let Ok(len_arr) = <[u8; 4]>::try_from(len_bytes) else {
-            break;
-        };
-        let len = u32::from_be_bytes(len_arr) as usize;
-        let Some(ctype) = data.get(pos + 4..pos + 8) else {
-            break;
-        };
-        let Some(chunk_end) = pos
-            .checked_add(12)
-            .and_then(|v| v.checked_add(len))
-            .filter(|&v| v <= data.len())
-        else {
-            break;
-        };
-        let Some(chunk_data) = data.get(pos + 8..pos + 8 + len) else {
-            break;
-        };
-        let stored_crc = data
-            .get(pos + 8 + len..pos + 12 + len)
-            .and_then(|b| <[u8; 4]>::try_from(b).ok())
-            .map(u32::from_be_bytes);
-        let computed_crc = {
-            let mut hasher = crc32fast::Hasher::new();
-            hasher.update(ctype);
-            hasher.update(chunk_data);
-            hasher.finalize()
-        };
-        let crc_ok = stored_crc == Some(computed_crc);
-        if !crc_ok {
+        if !chunk.crc_ok {
             bad_crcs.push(format!(
                 "PNG chunk {} has CRC mismatch",
-                String::from_utf8_lossy(ctype)
+                String::from_utf8_lossy(chunk.ctype)
             ));
         }
-        match ctype {
-            b"IHDR" if chunk_data.len() >= 13 => {
+        match chunk.ctype {
+            b"IHDR" if chunk.chunk_data.len() >= 13 => {
                 if saw_ihdr {
-                    return (
-                        Validation::Partial,
-                        vec!["duplicate PNG IHDR during decode validation".into()],
-                    );
+                    return png_partial("duplicate PNG IHDR during decode validation");
                 }
                 saw_ihdr = true;
-                let (Some(&depth), Some(&color_type), Some(&interlace)) =
-                    (chunk_data.get(8), chunk_data.get(9), chunk_data.get(12))
-                else {
+                let (Some(&_depth), Some(&_color_type), Some(&_interlace)) = (
+                    chunk.chunk_data.get(8),
+                    chunk.chunk_data.get(9),
+                    chunk.chunk_data.get(12),
+                ) else {
                     break;
                 };
-                let Some(expected) = expected_png_raw_size(w, h, depth, color_type, interlace)
-                else {
-                    return (
-                        Validation::Partial,
-                        vec!["unsupported PNG geometry for decode validation".into()],
-                    );
-                };
-                if expected as u64 > max_decoded {
-                    return (
-                        Validation::Partial,
-                        vec![format!(
-                            "PNG decoded size {expected} exceeds the \
-                             decode-validation budget of {max_decoded} bytes"
-                        )],
-                    );
-                }
-                let Some(bpp) = png_bits_per_pixel(depth, color_type) else {
-                    return (
-                        Validation::Partial,
-                        vec!["unsupported PNG color type for decode validation".into()],
-                    );
-                };
-                // The budget is checked before any IDAT byte is inflated and
-                // before a row cursor or output buffer is created.
-                inflate = Some(PngInflate::new(
-                    expected,
-                    PngRowCursor::new(w, h, bpp, interlace),
-                ));
+                inflate = Some(
+                    match start_png_inflate(w, h, chunk.chunk_data, max_decoded) {
+                        Ok(state) => state,
+                        Err(reason) => return png_partial(reason),
+                    },
+                );
             }
             b"IDAT" => {
                 let Some(state) = inflate.as_mut() else {
-                    return (
-                        Validation::Partial,
-                        vec!["PNG IDAT appears before IHDR".into()],
-                    );
+                    return png_partial("PNG IDAT appears before IHDR");
                 };
-                if let Err(reason) = state.feed(chunk_data) {
-                    return (Validation::Partial, vec![reason]);
+                if let Err(reason) = state.feed(chunk.chunk_data) {
+                    return png_partial(reason);
                 }
             }
             b"IEND" => {
@@ -675,22 +726,16 @@ fn validate_png(
             }
             _ => {}
         }
-        pos = chunk_end;
+        pos = chunk.chunk_end;
     }
     if !saw_iend {
-        return (
-            Validation::Partial,
-            vec!["PNG decode stopped before IEND".into()],
-        );
+        return png_partial("PNG decode stopped before IEND");
     }
     let Some(mut state) = inflate else {
-        return (
-            Validation::Partial,
-            vec!["PNG decode validation found no IDAT data".into()],
-        );
+        return png_partial("PNG decode validation found no IDAT data");
     };
     if let Err(reason) = state.finish_and_check() {
-        return (Validation::Partial, vec![reason]);
+        return png_partial(reason);
     }
     if !bad_crcs.is_empty() {
         let mut notes = bad_crcs;

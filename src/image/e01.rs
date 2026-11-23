@@ -1,6 +1,6 @@
 //! Expert Witness Compression Format (EWF-E01) reader.
 //!
-//! This implements the classic EWF-E01 layout used by FTK Imager and EnCase:
+//! This implements the classic EWF-E01 layout used by FTK Imager and `EnCase`:
 //! 13-byte segment headers, 76-byte section descriptors, a volume section,
 //! `sectors` data and one or more `table` sections per segment.  Both zlib
 //! compressed and Adler-32 protected uncompressed chunks are supported.  EWF2
@@ -137,10 +137,7 @@ impl E01Image {
             bail!("EWF image does not declare a chunk size");
         }
         if (chunk_size as u64) > MAX_EWF_CHUNK {
-            bail!(
-                "EWF chunk size {} exceeds the {MAX_EWF_CHUNK}-byte limit",
-                chunk_size
-            );
+            bail!("EWF chunk size {chunk_size} exceeds the {MAX_EWF_CHUNK}-byte limit");
         }
         if len == 0 {
             bail!("EWF image does not declare a media size");
@@ -462,9 +459,8 @@ fn parse_sections(file: &RawFile, segment: usize) -> Result<(Vec<ChunkRef>, usiz
             }
         }
 
-        let next_end = match next.checked_add(76) {
-            Some(value) => value,
-            None => break,
+        let Some(next_end) = next.checked_add(76) else {
+            break;
         };
         if kind == "done" || next <= pos || next_end > file_len {
             break;

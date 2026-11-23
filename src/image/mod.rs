@@ -1,6 +1,6 @@
 //! Additional read-only image sources.
 //!
-//! CarveX historically read a single raw file.  This module keeps that path
+//! `CarveX` historically read a single raw file.  This module keeps that path
 //! byte-for-byte identical while adding the evidence containers requested by
 //! B-04.  Every implementation is an [`ImageSource`], so filesystem detection
 //! and carving never need to know which container was opened.
@@ -74,8 +74,11 @@ impl Default for OnReadError {
 /// A byte range that could not be read from the source, with the reason.
 #[derive(Debug, Clone, Serialize)]
 pub struct UnreadableRegion {
+    /// The `offset` field of `UnreadableRegion`.
     pub offset: u64,
+    /// The `len` field of `UnreadableRegion`.
     pub len: u64,
+    /// The `reason` field of `UnreadableRegion`.
     pub reason: String,
 }
 
@@ -183,7 +186,7 @@ pub enum InputFormat {
     E01,
     /// Virtual Hard Disk, fixed or dynamic.
     Vhd,
-    /// VMware virtual disk descriptor with flat or sparse extents.
+    /// `VMware` virtual disk descriptor with flat or sparse extents.
     Vmdk,
     /// Read the image from standard input into a temporary spool file.
     Stdin,
@@ -207,8 +210,11 @@ impl InputFormat {
 /// One physical file backing an image, as recorded in `input.files[]`.
 #[derive(Debug, Clone, Serialize)]
 pub struct SourceFile {
+    /// The `path` field of `SourceFile`.
     pub path: PathBuf,
+    /// The `size` field of `SourceFile`.
     pub size: u64,
+    /// The `modified_unix` field of `SourceFile`.
     pub modified_unix: Option<u64>,
 }
 
@@ -313,10 +319,15 @@ fn measure_files(paths: &[PathBuf]) -> Result<Vec<SourceFile>> {
 /// only sees the source trait object; dropping it early would unlink the spool
 /// underneath an open file handle on some platforms.
 pub struct OpenedImage {
+    /// The `source` field of `OpenedImage`.
     pub source: Box<dyn ImageSource>,
+    /// The `len` field of `OpenedImage`.
     pub len: u64,
+    /// The `display` field of `OpenedImage`.
     pub display: String,
+    /// The `identity` field of `OpenedImage`.
     pub identity: Option<SourceIdentity>,
+    /// The `format` field of `OpenedImage`.
     pub format: InputFormat,
     /// Byte ranges that could not be read (H-22).  Filled by container
     /// readers and copied into the scan report by the CLI.
@@ -336,10 +347,13 @@ pub fn open_image(path: &Path, format: InputFormat) -> Result<OpenedImage> {
 
 /// Options controlling how an image is opened (H-11, H-13, H-22).
 pub struct OpenOptions {
+    /// The `allow_external_extents` field of `OpenOptions`.
     pub allow_external_extents: bool,
+    /// The `on_read_error` field of `OpenOptions`.
     pub on_read_error: OnReadError,
     /// Maximum bytes spooled from stdin; 0 means unlimited.
     pub max_stdin_bytes: u64,
+    /// The `spool_dir` field of `OpenOptions`.
     pub spool_dir: Option<PathBuf>,
 }
 

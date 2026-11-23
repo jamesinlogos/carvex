@@ -68,8 +68,7 @@ pub fn human_duration(ms: u128) -> String {
 pub fn unix_timestamp() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
+        .map_or(0, |d| d.as_secs())
 }
 
 /// Current UTC time as an ISO-8601 string with second precision.

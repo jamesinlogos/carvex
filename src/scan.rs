@@ -19,10 +19,12 @@ use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
 use std::io::{IsTerminal, Write};
 use std::panic::{catch_unwind, AssertUnwindSafe};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::{Duration, Instant};
+
+type WorkLimit = (u64, FileType, u64, u64);
 
 /// Test-only panic injection target. Production never sets this; it exists so
 /// panic containment can be exercised from integration tests and the Python
@@ -82,6 +84,7 @@ impl Interrupt {
         }
     }
 
+    /// The `requested` method.
     pub fn requested(&self) -> bool {
         self.inner.requested.load(Ordering::SeqCst)
     }
@@ -103,9 +106,8 @@ static HANDLER_INSTALLED: Mutex<bool> = Mutex::new(false);
 pub fn install_interrupt_handler() -> Result<Interrupt> {
     let interrupt = INTERRUPT_STATE.get_or_init(Interrupt::new).clone();
     interrupt.reset();
-    let mut installed = match HANDLER_INSTALLED.lock() {
-        Ok(guard) => guard,
-        Err(_) => bail!("cannot install interrupt handler: handler state is poisoned"),
+    let Ok(mut installed) = HANDLER_INSTALLED.lock() else {
+        bail!("cannot install interrupt handler: handler state is poisoned")
     };
     if !*installed {
         let handler = interrupt.clone();
@@ -119,9 +121,12 @@ pub fn install_interrupt_handler() -> Result<Interrupt> {
 /// A contained panic in one candidate or fragment-join attempt.
 #[derive(Debug, Clone, Serialize)]
 pub struct InternalError {
+    /// The `offset` field of `InternalError`.
     pub offset: u64,
+    /// The `file_type` field of `InternalError`.
     #[serde(rename = "type")]
     pub file_type: FileType,
+    /// The `message` field of `InternalError`.
     pub message: String,
 }
 
@@ -223,9 +228,7 @@ impl Stop {
     }
 
     fn interrupted(&self) -> bool {
-        self.interrupt
-            .as_ref()
-            .is_some_and(|state| state.requested())
+        self.interrupt.as_ref().is_some_and(Interrupt::requested)
     }
 
     fn expired(&self) -> bool {
@@ -298,7 +301,10 @@ impl MemoryBudget {
         if bytes == 0 {
             return Ok(());
         }
-        let mut used = self.used.lock().unwrap_or_else(|e| e.into_inner());
+        let mut used = self
+            .used
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         loop {
             let Some(next) = used.checked_add(bytes) else {
                 bail!("{what} would overflow the --max-memory accounting");
@@ -309,7 +315,10 @@ impl MemoryBudget {
                 self.changed.notify_all();
                 return Ok(());
             }
-            used = self.changed.wait(used).unwrap_or_else(|e| e.into_inner());
+            used = self
+                .changed
+                .wait(used)
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
         }
     }
 
@@ -318,7 +327,10 @@ impl MemoryBudget {
             return;
         }
         {
-            let mut used = self.used.lock().unwrap_or_else(|e| e.into_inner());
+            let mut used = self
+                .used
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             *used = used.saturating_sub(bytes);
         }
         self.changed.notify_all();
@@ -354,16 +366,22 @@ impl Drop for BudgetGuard<'_> {
     }
 }
 
+/// The `ScanMode` enumeration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ScanMode {
+    /// The `Auto` variant of `ScanMode`.
     Auto,
+    /// The `Unallocated` variant of `ScanMode`.
     Unallocated,
+    /// The `Raw` variant of `ScanMode`.
     Raw,
+    /// The `Allocated` variant of `ScanMode`.
     Allocated,
 }
 
 impl ScanMode {
+    /// The `as_str` method.
     pub fn as_str(self) -> &'static str {
         match self {
             ScanMode::Auto => "auto",
@@ -389,31 +407,52 @@ pub enum AlignMode {
     Sector,
 }
 
+/// The `ScanOptions` structure.
 #[derive(Clone)]
 pub struct ScanOptions {
+    /// The `types` field of `ScanOptions`.
     pub types: Vec<FileType>,
+    /// The `mode` field of `ScanOptions`.
     pub mode: ScanMode,
+    /// The `min_size` field of `ScanOptions`.
     pub min_size: u64,
+    /// The `max_size` field of `ScanOptions`.
     pub max_size: u64,
+    /// The `max_truncated_size` field of `ScanOptions`.
     pub max_truncated_size: u64,
+    /// The `max_memory` field of `ScanOptions`.
     pub max_memory: u64,
     /// Maximum working memory for one decode validator
     /// (0 = the default validator bound).  The legacy report field
     /// `max_decode_bytes` mirrors this value.
     pub max_validator_memory: u64,
+    /// The `chunk_size` field of `ScanOptions`.
     pub chunk_size: u64,
+    /// The `threads` field of `ScanOptions`.
     pub threads: usize,
+    /// The `min_score` field of `ScanOptions`.
     pub min_score: u8,
+    /// The `repair` field of `ScanOptions`.
     pub repair: bool,
+    /// The `complete_only` field of `ScanOptions`.
     pub complete_only: bool,
+    /// The `pdf_eof` field of `ScanOptions`.
     pub pdf_eof: PdfEofMode,
+    /// The `dedupe_hashes` field of `ScanOptions`.
     pub dedupe_hashes: bool,
+    /// The `suppress_nested` field of `ScanOptions`.
     pub suppress_nested: bool,
+    /// The `validate` field of `ScanOptions`.
     pub validate: ValidationMode,
+    /// The `align` field of `ScanOptions`.
     pub align: AlignMode,
+    /// The `force` field of `ScanOptions`.
     pub force: bool,
+    /// The `quiet` field of `ScanOptions`.
     pub quiet: bool,
+    /// The `verbose` field of `ScanOptions`.
     pub verbose: bool,
+    /// The `manifest` field of `ScanOptions`.
     pub manifest: bool,
     /// Partition selection in effect (`largest`, `all` or a 1-based number).
     pub partition: String,
@@ -634,10 +673,15 @@ fn build_input_info(
 /// Run-specific metadata that is not a scanning option.
 #[derive(Debug, Clone)]
 pub struct ScanContext {
+    /// The `argv` field of `ScanContext`.
     pub argv: Vec<String>,
+    /// The `case_id` field of `ScanContext`.
     pub case_id: Option<String>,
+    /// The `examiner` field of `ScanContext`.
     pub examiner: Option<String>,
+    /// The `image_sha256` field of `ScanContext`.
     pub image_sha256: Option<String>,
+    /// The `image_mtime` field of `ScanContext`.
     pub image_mtime: Option<u64>,
     /// Resolved container format emitted in `input.format`.
     pub input_format: String,
@@ -659,28 +703,41 @@ impl Default for ScanContext {
     }
 }
 
+/// The `ToolInfo` structure.
 #[derive(Debug, Clone, Serialize)]
 pub struct ToolInfo {
+    /// The `name` field of `ToolInfo`.
     pub name: String,
+    /// The `version` field of `ToolInfo`.
     pub version: String,
+    /// The `commit` field of `ToolInfo`.
     pub commit: String,
 }
 
+/// The `InputInfo` structure.
 #[derive(Debug, Clone, Serialize)]
 pub struct InputInfo {
+    /// The `path` field of `InputInfo`.
     pub path: String,
+    /// The `size` field of `InputInfo`.
     pub size: u64,
+    /// The `sha256` field of `InputInfo`.
     pub sha256: Option<String>,
+    /// The `modified_unix` field of `InputInfo`.
     pub modified_unix: Option<u64>,
+    /// The `size_after` field of `InputInfo`.
     pub size_after: u64,
+    /// The `modified_unix_after` field of `InputInfo`.
     pub modified_unix_after: Option<u64>,
     /// Unknown for stdin, which has no stable backing path (H-25).
     pub unchanged: Option<bool>,
     /// Logical image bytes exposed by the container (H-25).
     pub logical_size: u64,
+    /// The `logical_size_after` field of `InputInfo`.
     pub logical_size_after: u64,
     /// Sum of the physical bytes in the backing files (H-25).
     pub physical_size: u64,
+    /// The `physical_size_after` field of `InputInfo`.
     pub physical_size_after: u64,
     /// Resolved container format, never `auto` (H-25).
     pub format: String,
@@ -688,48 +745,79 @@ pub struct InputInfo {
     pub files: Vec<crate::io::SourceFile>,
 }
 
+/// The `ReportOptions` structure.
 #[derive(Debug, Clone, Serialize)]
 pub struct ReportOptions {
+    /// The `types` field of `ReportOptions`.
     pub types: Vec<String>,
+    /// The `mode` field of `ReportOptions`.
     pub mode: String,
+    /// The `min_size` field of `ReportOptions`.
     pub min_size: u64,
+    /// The `max_size` field of `ReportOptions`.
     pub max_size: u64,
+    /// The `max_truncated_size` field of `ReportOptions`.
     pub max_truncated_size: u64,
+    /// The `max_memory` field of `ReportOptions`.
     pub max_memory: u64,
+    /// The `max_decode_bytes` field of `ReportOptions`.
     pub max_decode_bytes: u64,
     /// H-05: authoritative name for the shared decode-validator budget.
     pub max_validator_memory: u64,
+    /// The `chunk_size` field of `ReportOptions`.
     pub chunk_size: u64,
+    /// The `threads` field of `ReportOptions`.
     pub threads: usize,
+    /// The `min_score` field of `ReportOptions`.
     pub min_score: u8,
+    /// The `repair` field of `ReportOptions`.
     pub repair: bool,
+    /// The `complete_only` field of `ReportOptions`.
     pub complete_only: bool,
+    /// The `pdf_eof` field of `ReportOptions`.
     pub pdf_eof: String,
+    /// The `dedupe_hashes` field of `ReportOptions`.
     pub dedupe_hashes: bool,
+    /// The `suppress_nested` field of `ReportOptions`.
     pub suppress_nested: bool,
+    /// The `validate` field of `ReportOptions`.
     pub validate: ValidationMode,
+    /// The `align` field of `ReportOptions`.
     pub align: AlignMode,
+    /// The `partition` field of `ReportOptions`.
     pub partition: String,
+    /// The `include_gaps` field of `ReportOptions`.
     pub include_gaps: bool,
+    /// The `max_candidates` field of `ReportOptions`.
     pub max_candidates: u64,
+    /// The `max_work_per_candidate` field of `ReportOptions`.
     pub max_work_per_candidate: u64,
+    /// The `max_output` field of `ReportOptions`.
     pub max_output: u64,
+    /// The `time_budget_ms` field of `ReportOptions`.
     pub time_budget_ms: u64,
     /// Effective `regions[]` detail cap (0 = unlimited; H-27).
     pub max_regions: u64,
+    /// The `fragment_recovery` field of `ReportOptions`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fragment_recovery: Option<bool>,
+    /// The `max_gap` field of `ReportOptions`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_gap: Option<u64>,
+    /// The `max_frag_candidates` field of `ReportOptions`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_frag_candidates: Option<u64>,
+    /// The `frag_time_limit_ms` field of `ReportOptions`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub frag_time_limit_ms: Option<u64>,
 }
 
+/// The `Fragment` structure.
 #[derive(Debug, Clone, Serialize)]
 pub struct Fragment {
+    /// The `offset` field of `Fragment`.
     pub offset: u64,
+    /// The `len` field of `Fragment`.
     pub len: u64,
 }
 
@@ -739,11 +827,14 @@ pub struct Fragment {
 /// exit with code 3 (finished but incomplete, see `docs/DECISIONS.md`).
 #[derive(Debug, Clone, Serialize)]
 pub struct Warning {
+    /// The `code` field of `Warning`.
     pub code: String,
+    /// The `message` field of `Warning`.
     pub message: String,
 }
 
 impl Warning {
+    /// The `new` associated function.
     pub fn new(code: &str, message: impl Into<String>) -> Self {
         Self {
             code: code.to_string(),
@@ -783,17 +874,24 @@ impl Warning {
 pub struct VolumeSummary {
     /// 1-based position among the detected volumes.
     pub index: usize,
+    /// The `fs` field of `VolumeSummary`.
     pub fs: String,
+    /// The `offset` field of `VolumeSummary`.
     pub offset: u64,
+    /// The `length` field of `VolumeSummary`.
     pub length: u64,
+    /// The `cluster_size` field of `VolumeSummary`.
     pub cluster_size: u64,
+    /// The `free_bytes` field of `VolumeSummary`.
     pub free_bytes: u64,
+    /// The `partition_index` field of `VolumeSummary`.
     pub partition_index: Option<usize>,
     /// Whether this run reads the volume.
     pub scanned: bool,
 }
 
 impl VolumeSummary {
+    /// The `from_fs` associated function.
     pub fn from_fs(index: usize, fs: &FsInfo, scanned: bool) -> Self {
         Self {
             index,
@@ -808,32 +906,55 @@ impl VolumeSummary {
     }
 }
 
+/// The `CarvedFile` structure.
 #[derive(Debug, Clone, Serialize)]
 pub struct CarvedFile {
+    /// The `seq` field of `CarvedFile`.
     pub seq: u64,
+    /// The `file_type` field of `CarvedFile`.
     #[serde(rename = "type")]
     pub file_type: FileType,
+    /// The `offset` field of `CarvedFile`.
     pub offset: u64,
+    /// The `size` field of `CarvedFile`.
     pub size: u64,
+    /// The `carved_size` field of `CarvedFile`.
     pub carved_size: u64,
+    /// The `sha256` field of `CarvedFile`.
     pub sha256: String,
+    /// The `status` field of `CarvedFile`.
     pub status: Status,
+    /// The `score` field of `CarvedFile`.
     pub score: u8,
+    /// The `width` field of `CarvedFile`.
     pub width: Option<u32>,
+    /// The `height` field of `CarvedFile`.
     pub height: Option<u32>,
+    /// The `repaired` field of `CarvedFile`.
     pub repaired: bool,
+    /// The `path` field of `CarvedFile`.
     pub path: String,
+    /// The `notes` field of `CarvedFile`.
     pub notes: Vec<String>,
+    /// The `validation` field of `CarvedFile`.
     pub validation: Validation,
     /// Authoritative honesty label; legacy `validation`/`status` are preserved.
     pub validity: Validity,
+    /// The `validated_bytes` field of `CarvedFile`.
     pub validated_bytes: u64,
+    /// The `lba` field of `CarvedFile`.
     pub lba: u64,
+    /// The `cluster` field of `CarvedFile`.
     pub cluster: Option<u64>,
+    /// The `partition_index` field of `CarvedFile`.
     pub partition_index: Option<usize>,
+    /// The `extent_id` field of `CarvedFile`.
     pub extent_id: usize,
+    /// The `allocated` field of `CarvedFile`.
     pub allocated: Option<bool>,
+    /// The `source` field of `CarvedFile`.
     pub source: String,
+    /// The `fragments` field of `CarvedFile`.
     pub fragments: Vec<Fragment>,
     /// Structured checks that were actually performed for this file.
     #[serde(rename = "checks")]
@@ -856,48 +977,81 @@ pub struct CarvedFile {
     pub sha256_original: Option<String>,
 }
 
+/// The `ScanStats` structure.
 #[derive(Debug, Default, Clone, Serialize)]
 pub struct ScanStats {
+    /// The `candidates` field of `ScanStats`.
     pub candidates: usize,
+    /// The `carved` field of `ScanStats`.
     pub carved: usize,
     /// Number of candidate or join panics contained during this scan.
     pub internal_errors: usize,
+    /// The `rejected` field of `ScanStats`.
     pub rejected: usize,
+    /// The `below_min_size` field of `ScanStats`.
     pub below_min_size: usize,
+    /// The `below_min_score` field of `ScanStats`.
     pub below_min_score: usize,
+    /// The `skipped_complete_only` field of `ScanStats`.
     pub skipped_complete_only: usize,
+    /// The `too_large_truncated` field of `ScanStats`.
     pub too_large_truncated: usize,
+    /// The `duplicate_hashes` field of `ScanStats`.
     pub duplicate_hashes: usize,
+    /// The `suppressed_nested` field of `ScanStats`.
     pub suppressed_nested: usize,
+    /// The `truncated` field of `ScanStats`.
     pub truncated: usize,
+    /// The `repaired` field of `ScanStats`.
     pub repaired: usize,
+    /// The `bytes_written` field of `ScanStats`.
     pub bytes_written: u64,
+    /// The `extents` field of `ScanStats`.
     pub extents: usize,
+    /// The `bytes_in_extents` field of `ScanStats`.
     pub bytes_in_extents: u64,
 }
 
+/// The `ScanReport` structure.
 #[derive(Debug, Clone, Serialize)]
 pub struct ScanReport {
     /// Report schema version; 2 is the current shape.
     pub schema_version: u8,
+    /// The `tool` field of `ScanReport`.
     pub tool: String,
+    /// The `tool_info` field of `ScanReport`.
     pub tool_info: ToolInfo,
+    /// The `image` field of `ScanReport`.
     pub image: String,
+    /// The `input` field of `ScanReport`.
     pub input: InputInfo,
+    /// The `image_size` field of `ScanReport`.
     pub image_size: u64,
+    /// The `filesystem` field of `ScanReport`.
     pub filesystem: Option<FsInfo>,
+    /// The `mode` field of `ScanReport`.
     pub mode: String,
+    /// The `output_dir` field of `ScanReport`.
     pub output_dir: String,
+    /// The `argv` field of `ScanReport`.
     pub argv: Vec<String>,
+    /// The `options` field of `ScanReport`.
     pub options: ReportOptions,
+    /// The `case_id` field of `ScanReport`.
     pub case_id: Option<String>,
+    /// The `examiner` field of `ScanReport`.
     pub examiner: Option<String>,
     /// ISO-8601 UTC timestamp.
     pub started_at: String,
+    /// The `started_at_unix` field of `ScanReport`.
     pub started_at_unix: u64,
+    /// The `duration_ms` field of `ScanReport`.
     pub duration_ms: u64,
+    /// The `bytes_scanned` field of `ScanReport`.
     pub bytes_scanned: u64,
+    /// The `throughput_mib_s` field of `ScanReport`.
     pub throughput_mib_s: f64,
+    /// The `stats` field of `ScanReport`.
     pub stats: ScanStats,
     /// Every detected volume with a `scanned` flag (A-07).
     pub volumes: Vec<VolumeSummary>,
@@ -905,6 +1059,7 @@ pub struct ScanReport {
     pub regions: Vec<crate::fs::Region>,
     /// Byte ranges that could not be read from the source (H-22).
     pub unreadable_regions: Vec<UnreadableRegion>,
+    /// The `warnings` field of `ScanReport`.
     pub warnings: Vec<Warning>,
     /// Contained panics, with the source offset and file type of the work item
     /// that caused them. Work on other candidates continues.
@@ -914,6 +1069,7 @@ pub struct ScanReport {
     pub nondeterministic_stop: bool,
     /// True when SIGINT/Ctrl-C requested a cooperative stop (H-28).
     pub interrupted: bool,
+    /// The `files` field of `ScanReport`.
     pub files: Vec<CarvedFile>,
 }
 
@@ -1052,29 +1208,7 @@ pub struct ScanInput<'a> {
     pub interrupt: Option<Interrupt>,
 }
 
-/// Scan an image and write carved files plus a report.
-///
-/// `input.volumes` are the selected filesystem volumes to scan (empty when the
-/// scan is not filesystem-aware); `input.extra_extents` are additional raw
-/// ranges (gaps / unsupported partitions added by `--include-gaps`).
-pub fn run_scan(
-    input: &ScanInput<'_>,
-    opts: &ScanOptions,
-    ctx: &ScanContext,
-) -> Result<ScanReport> {
-    let interrupt = input.interrupt.clone();
-    let ScanInput {
-        source,
-        image,
-        image_identity,
-        image_len,
-        volumes,
-        extra_extents,
-        out_dir,
-        unreadable_regions,
-        skip_unreadable,
-        interrupt: _,
-    } = *input;
+fn validate_scan_options(opts: &ScanOptions) -> Result<()> {
     if opts.types.is_empty() {
         bail!("no file types selected");
     }
@@ -1101,48 +1235,77 @@ pub fn run_scan(
             bail!("--frag-time-limit must be at least 1 millisecond");
         }
     }
-    let started = unix_timestamp();
-    let t0 = Instant::now();
-    let stop = Stop::new(t0, opts.time_budget, interrupt);
-    let mut warnings = Vec::new();
-    let mut internal_errors = Vec::new();
+    Ok(())
+}
+
+fn apply_test_panic_offset() {
     if let Ok(value) = std::env::var("CARVEX_TEST_PANIC_AT_OFFSET") {
         if let Ok(offset) = value.parse::<u64>() {
             set_test_panic_at_offset(offset);
         }
     }
+}
 
-    prepare_output_dir(out_dir, opts.force)?;
+struct ScanPlan {
+    mode: ScanMode,
+    extents: Vec<Extent>,
+    bytes_in_extents: u64,
+    tasks: Vec<Task>,
+    total_to_scan: u64,
+}
 
+fn prepare_scan_plan(
+    opts: &ScanOptions,
+    volumes: &[FsInfo],
+    extra_extents: &[Extent],
+    image_len: u64,
+) -> Result<ScanPlan> {
     let (mode, extents) = plan_extents(opts.mode, volumes, extra_extents, image_len)?;
-    let bytes_in_extents: u64 = extents.iter().map(|e| e.len).sum();
+    let bytes_in_extents = extents.iter().map(|e| e.len).sum();
     let tasks = build_tasks(&extents, opts.chunk_size);
-    let total_to_scan: u64 = tasks.iter().map(|t| t.scan_len).sum();
+    let total_to_scan = tasks.iter().map(|t| t.scan_len).sum();
+    Ok(ScanPlan {
+        mode,
+        extents,
+        bytes_in_extents,
+        tasks,
+        total_to_scan,
+    })
+}
 
-    let scan_progress = Arc::new(Progress::new(total_to_scan));
-    let scan_thread = start_progress(scan_progress.clone(), opts.quiet, "Scanning");
-
-    let thread_count = if opts.threads == 0 {
-        std::thread::available_parallelism()
-            .map(|n| n.get())
-            .unwrap_or(4)
+fn worker_pool(threads: usize) -> Result<(usize, rayon::ThreadPool)> {
+    let thread_count = if threads == 0 {
+        std::thread::available_parallelism().map_or(4, std::num::NonZero::get)
     } else {
-        opts.threads
+        threads
     };
     let pool = rayon::ThreadPoolBuilder::new()
         .num_threads(thread_count.max(1))
         .build()
         .context("cannot build worker pool")?;
+    Ok((thread_count, pool))
+}
 
+fn find_scan_candidates(
+    source: &dyn ImageSource,
+    tasks: &[Task],
+    opts: &ScanOptions,
+    volumes: &[FsInfo],
+    pool: &rayon::ThreadPool,
+    stop: &Stop,
+    warnings: &mut Vec<Warning>,
+) -> Result<(Vec<Candidate>, Arc<Progress>)> {
+    let scan_progress = Arc::new(Progress::new(tasks.iter().map(|t| t.scan_len).sum()));
+    let scan_thread = start_progress(scan_progress.clone(), opts.quiet, "Scanning");
     let (mut candidates, candidate_limit_hit) = find_candidates(
         source,
-        &tasks,
+        tasks,
         &opts.types,
         opts,
         volumes,
         &scan_progress,
-        &pool,
-        &stop,
+        pool,
+        stop,
     )?;
     candidates.sort_by_key(|c| (c.offset, c.kind as u8));
     candidates.dedup_by(|a, b| a.offset == b.offset && a.kind == b.kind);
@@ -1155,20 +1318,22 @@ pub fn run_scan(
             ),
         ));
     }
-
     if let Some(h) = scan_thread {
         scan_progress.stop.store(true, Ordering::Relaxed);
         let _ = h.join();
         eprint!("\r{:100}\r", "");
     }
+    Ok((candidates, scan_progress))
+}
 
-    let mut stats = ScanStats {
-        candidates: candidates.len(),
-        extents: extents.len(),
-        bytes_in_extents,
-        ..Default::default()
-    };
-
+fn carve_candidates(
+    source: &dyn ImageSource,
+    candidates: &[Candidate],
+    opts: &ScanOptions,
+    thread_count: usize,
+    pool: &rayon::ThreadPool,
+    stop: &Stop,
+) -> Result<(Vec<CarveOutcome>, Arc<MemoryBudget>)> {
     let carve_progress = Arc::new(Progress::new(candidates.len() as u64));
     let carve_thread = start_progress(carve_progress.clone(), opts.quiet, "Carving");
     let budget = Arc::new(MemoryBudget::new(opts.max_memory));
@@ -1181,8 +1346,7 @@ pub fn run_scan(
         if stop.check() {
             break;
         }
-        let mut batch_out =
-            carve_batch(source, batch, opts, &budget, &pool, &carve_progress, &stop)?;
+        let mut batch_out = carve_batch(source, batch, opts, &budget, pool, &carve_progress, stop)?;
         outcomes.append(&mut batch_out);
     }
     if let Some(h) = carve_thread {
@@ -1190,111 +1354,101 @@ pub fn run_scan(
         let _ = h.join();
         eprint!("\r{:100}\r", "");
     }
+    Ok((outcomes, budget))
+}
 
-    // Postfilter works on descriptors only; no carved bytes are retained.
-    let mut kept = postfilter(
-        outcomes,
-        opts,
-        &mut stats,
-        &mut warnings,
-        &mut internal_errors,
-    );
-    let mut fragment_nondeterministic = false;
-    if opts.fragment_recovery {
-        let fragments = recover_fragments(
-            source,
-            &candidates,
-            kept,
-            &extents,
-            volumes,
-            opts,
-            &budget,
-            &mut warnings,
-            &stop,
-            &mut internal_errors,
-        )?;
-        kept = fragments.files;
-        fragment_nondeterministic = fragments.nondeterministic_stop;
-    }
-    let unreadable_snapshot = match unreadable_regions.lock() {
+fn snapshot_unreadable_regions(regions: &RegionLog) -> Vec<UnreadableRegion> {
+    match regions.lock() {
         Ok(regions) => regions.clone(),
         Err(_) => Vec::new(),
-    };
+    }
+}
+
+fn apply_unreadable_regions(
+    kept: &mut Vec<CarvedData>,
+    unreadable_snapshot: &[UnreadableRegion],
+    skip_unreadable: bool,
+    stats: &mut ScanStats,
+    warnings: &mut Vec<Warning>,
+) {
     // H-22: zero-filled bytes are not evidence.  Mark (or, under `skip`, drop)
     // every output that intersects a region the source could not read.
-    if !unreadable_snapshot.is_empty() {
-        let mut skipped = Vec::new();
-        for (idx, data) in kept.iter_mut().enumerate() {
-            let ranges = data.payload.ranges();
-            let overlapping = unreadable_snapshot.iter().find(|region| {
-                ranges.iter().any(|&(start, len)| {
-                    let end = start.saturating_add(len);
-                    start < region.offset.saturating_add(region.len) && region.offset < end
-                })
-            });
-            if let Some(region) = overlapping {
-                if skip_unreadable {
-                    skipped.push(idx);
-                } else {
-                    let note = format!(
-                        "output overlaps unreadable region at byte {} ({} bytes): not verified",
-                        region.offset, region.len
-                    );
-                    data.validation = Validation::Partial;
-                    data.validity =
-                        Validity::from_legacy(data.validation, data.analysis.status(data.repaired));
-                    data.validated_bytes = 0;
-                    data.validation_checks.push(ValidationCheck::new(
-                        "overlaps_unreadable_region",
-                        Some(false),
-                        note.clone(),
-                    ));
-                    data.validation_notes.push(note);
-                }
-            }
-        }
-        if skip_unreadable && !skipped.is_empty() {
-            let count = skipped.len();
-            for idx in skipped.into_iter().rev() {
-                let removed = kept.remove(idx);
-                stats.rejected = stats.rejected.saturating_add(1);
-                warnings.push(Warning::new(
-                    "CANDIDATE_SKIPPED_UNREADABLE",
-                    format!(
-                        "candidate at byte {} was skipped because it overlaps an unreadable region",
-                        removed.candidate.offset
-                    ),
+    if unreadable_snapshot.is_empty() {
+        return;
+    }
+    let mut skipped = Vec::new();
+    for (idx, data) in kept.iter_mut().enumerate() {
+        let ranges = data.payload.ranges();
+        let overlapping = unreadable_snapshot.iter().find(|region| {
+            ranges.iter().any(|&(start, len)| {
+                let end = start.saturating_add(len);
+                start < region.offset.saturating_add(region.len) && region.offset < end
+            })
+        });
+        if let Some(region) = overlapping {
+            if skip_unreadable {
+                skipped.push(idx);
+            } else {
+                let note = format!(
+                    "output overlaps unreadable region at byte {} ({} bytes): not verified",
+                    region.offset, region.len
+                );
+                data.validation = Validation::Partial;
+                data.validity =
+                    Validity::from_legacy(data.validation, data.analysis.status(data.repaired));
+                data.validated_bytes = 0;
+                data.validation_checks.push(ValidationCheck::new(
+                    "overlaps_unreadable_region",
+                    Some(false),
+                    note.clone(),
                 ));
-            }
-            if count > 0 {
-                // Keep the warning list deterministic: one warning per skipped
-                // candidate is useful in verbose runs but noisy otherwise.
-                warnings.dedup_by(|a, b| a.code == b.code && a.message == b.message);
+                data.validation_notes.push(note);
             }
         }
     }
-
-    if opts.verbose {
-        for (idx, file) in kept.iter().enumerate() {
-            eprintln!(
-                "[+] {:<4} offset={:>12} size={:>9} score={:>3} {} {:05}_{}_{:016x}.{}",
-                file.candidate.kind.label(),
-                file.candidate.offset,
-                file.output_len,
-                file.analysis.score,
-                file.validity.display_label(),
-                idx + 1,
-                file.candidate.kind.ext(),
-                file.candidate.offset,
-                file.candidate.kind.ext()
-            );
-        }
+    if !skip_unreadable || skipped.is_empty() {
+        return;
     }
+    let count = skipped.len();
+    for idx in skipped.into_iter().rev() {
+        let removed = kept.remove(idx);
+        stats.rejected = stats.rejected.saturating_add(1);
+        warnings.push(Warning::new(
+            "CANDIDATE_SKIPPED_UNREADABLE",
+            format!(
+                "candidate at byte {} was skipped because it overlaps an unreadable region",
+                removed.candidate.offset
+            ),
+        ));
+    }
+    if count > 0 {
+        // Keep the warning list deterministic: one warning per skipped
+        // candidate is useful in verbose runs but noisy otherwise.
+        warnings.dedup_by(|a, b| a.code == b.code && a.message == b.message);
+    }
+}
 
-    let (files, write_warnings) = write_outputs(
-        source, out_dir, &kept, volumes, mode, &mut stats, opts, &budget, &stop,
-    )?;
-    warnings.extend(write_warnings);
+fn print_verbose_candidates(kept: &[CarvedData], opts: &ScanOptions) {
+    if !opts.verbose {
+        return;
+    }
+    for (idx, file) in kept.iter().enumerate() {
+        eprintln!(
+            "[+] {:<4} offset={:>12} size={:>9} score={:>3} {} {:05}_{}_{:016x}.{}",
+            file.candidate.kind.label(),
+            file.candidate.offset,
+            file.output_len,
+            file.analysis.score,
+            file.validity.display_label(),
+            idx + 1,
+            file.candidate.kind.ext(),
+            file.candidate.offset,
+            file.candidate.kind.ext()
+        );
+    }
+}
+
+fn update_output_stats(stats: &mut ScanStats, files: &[CarvedFile]) {
     stats.carved = files.len();
     stats.truncated = files
         .iter()
@@ -1302,9 +1456,15 @@ pub fn run_scan(
         .count();
     stats.repaired = files.iter().filter(|f| f.repaired).count();
     stats.bytes_written = files.iter().map(|f| f.size).sum();
-    if opts.manifest {
-        write_manifest(out_dir, &files)?;
-    }
+}
+
+fn finish_scan_warnings(
+    stop: &Stop,
+    fragment_nondeterministic: bool,
+    internal_errors: &[InternalError],
+    stats: &mut ScanStats,
+    warnings: &mut Vec<Warning>,
+) -> (bool, bool) {
     if stop.expired() && !warnings.iter().any(|w| w.code == "TIME_LIMIT") {
         warnings.push(Warning::new(
             "TIME_LIMIT",
@@ -1330,7 +1490,15 @@ pub fn run_scan(
             ),
         ));
     }
+    (interrupted, nondeterministic_stop)
+}
 
+fn scan_throughput(
+    t0: Instant,
+    interrupted: bool,
+    scan_progress: &Progress,
+    total_to_scan: u64,
+) -> (Duration, u64, f64) {
     let elapsed = t0.elapsed();
     // For an interrupted run, report only finished scan tasks; an in-flight
     // chunk is a lower bound rather than claiming the whole image was read.
@@ -1347,16 +1515,33 @@ pub fn run_scan(
     } else {
         0.0
     };
+    (elapsed, bytes_scanned, throughput)
+}
 
-    let input = build_input_info(image, image_len, image_identity, ctx);
-    if input.unchanged == Some(false) {
-        warnings.push(Warning::new(
-            "IMAGE_MODIFIED",
-            "source image size or mtime changed during the scan",
-        ));
-    }
-
-    Ok(ScanReport {
+// H-34: report assembly preserves the original field order and warning provenance.
+#[allow(clippy::too_many_arguments)]
+fn assemble_scan_report(
+    started: u64,
+    elapsed: Duration,
+    bytes_scanned: u64,
+    throughput: f64,
+    image: &str,
+    image_len: u64,
+    input: InputInfo,
+    mode: ScanMode,
+    out_dir: &Path,
+    ctx: &ScanContext,
+    opts: &ScanOptions,
+    volumes: &[FsInfo],
+    unreadable_snapshot: Vec<UnreadableRegion>,
+    warnings: Vec<Warning>,
+    internal_errors: Vec<InternalError>,
+    nondeterministic_stop: bool,
+    interrupted: bool,
+    files: Vec<CarvedFile>,
+    stats: ScanStats,
+) -> ScanReport {
+    ScanReport {
         schema_version: SCHEMA_VERSION,
         tool: format!("CarveX {}", env!("CARGO_PKG_VERSION")),
         tool_info: ToolInfo {
@@ -1392,7 +1577,138 @@ pub fn run_scan(
         nondeterministic_stop,
         interrupted,
         files,
-    })
+    }
+}
+
+/// Scan an image and write carved files plus a report.
+///
+/// `input.volumes` are the selected filesystem volumes to scan (empty when the
+/// scan is not filesystem-aware); `input.extra_extents` are additional raw
+/// ranges (gaps / unsupported partitions added by `--include-gaps`).
+pub fn run_scan(
+    input: &ScanInput<'_>,
+    opts: &ScanOptions,
+    ctx: &ScanContext,
+) -> Result<ScanReport> {
+    validate_scan_options(opts)?;
+    let interrupt = input.interrupt.clone();
+    let ScanInput {
+        source,
+        image,
+        image_identity,
+        image_len,
+        volumes,
+        extra_extents,
+        out_dir,
+        unreadable_regions,
+        skip_unreadable,
+        interrupt: _,
+    } = *input;
+    let started = unix_timestamp();
+    let t0 = Instant::now();
+    let stop = Stop::new(t0, opts.time_budget, interrupt);
+    let mut warnings = Vec::new();
+    let mut internal_errors = Vec::new();
+    apply_test_panic_offset();
+    prepare_output_dir(out_dir, opts.force)?;
+    let plan = prepare_scan_plan(opts, volumes, extra_extents, image_len)?;
+    let (thread_count, pool) = worker_pool(opts.threads)?;
+    let (candidates, scan_progress) = find_scan_candidates(
+        source,
+        &plan.tasks,
+        opts,
+        volumes,
+        &pool,
+        &stop,
+        &mut warnings,
+    )?;
+    let mut stats = ScanStats {
+        candidates: candidates.len(),
+        extents: plan.extents.len(),
+        bytes_in_extents: plan.bytes_in_extents,
+        ..Default::default()
+    };
+    let (outcomes, budget) =
+        carve_candidates(source, &candidates, opts, thread_count, &pool, &stop)?;
+    // Postfilter works on descriptors only; no carved bytes are retained.
+    let mut kept = postfilter(
+        outcomes,
+        opts,
+        &mut stats,
+        &mut warnings,
+        &mut internal_errors,
+    );
+    let mut fragment_nondeterministic = false;
+    if opts.fragment_recovery {
+        let fragments = recover_fragments(
+            source,
+            &candidates,
+            kept,
+            &plan.extents,
+            volumes,
+            opts,
+            &budget,
+            &mut warnings,
+            &stop,
+            &mut internal_errors,
+        )?;
+        kept = fragments.files;
+        fragment_nondeterministic = fragments.nondeterministic_stop;
+    }
+    let unreadable_snapshot = snapshot_unreadable_regions(unreadable_regions);
+    apply_unreadable_regions(
+        &mut kept,
+        &unreadable_snapshot,
+        skip_unreadable,
+        &mut stats,
+        &mut warnings,
+    );
+    print_verbose_candidates(&kept, opts);
+    let (files, write_warnings) = write_outputs(
+        source, out_dir, &kept, volumes, plan.mode, &mut stats, opts, &budget, &stop,
+    )?;
+    warnings.extend(write_warnings);
+    update_output_stats(&mut stats, &files);
+    if opts.manifest {
+        write_manifest(out_dir, &files)?;
+    }
+    let (interrupted, nondeterministic_stop) = finish_scan_warnings(
+        &stop,
+        fragment_nondeterministic,
+        &internal_errors,
+        &mut stats,
+        &mut warnings,
+    );
+    let (elapsed, bytes_scanned, throughput) =
+        scan_throughput(t0, interrupted, &scan_progress, plan.total_to_scan);
+    let input_info = build_input_info(image, image_len, image_identity, ctx);
+    if input_info.unchanged == Some(false) {
+        warnings.push(Warning::new(
+            "IMAGE_MODIFIED",
+            "source image size or mtime changed during the scan",
+        ));
+    }
+    Ok(assemble_scan_report(
+        started,
+        elapsed,
+        bytes_scanned,
+        throughput,
+        image,
+        image_len,
+        input_info,
+        plan.mode,
+        out_dir,
+        ctx,
+        opts,
+        volumes,
+        unreadable_snapshot,
+        warnings,
+        internal_errors,
+        nondeterministic_stop,
+        interrupted,
+        files,
+        stats,
+    ))
 }
 
 /// Build the schema-valid report left behind when a read-error `abort` stops
@@ -1410,10 +1726,7 @@ pub fn partial_report(
         Err(_) => Vec::new(),
     };
     let mut warnings = warnings;
-    let interrupted = input
-        .interrupt
-        .as_ref()
-        .is_some_and(|state| state.requested());
+    let interrupted = input.interrupt.as_ref().is_some_and(Interrupt::requested);
     if interrupted && !warnings.iter().any(|w| w.code == "INTERRUPTED") {
         warnings.push(Warning::new(
             "INTERRUPTED",
@@ -1502,7 +1815,7 @@ pub fn plan_extents(
             } else {
                 let mut all = Vec::new();
                 for fs in volumes {
-                    all.extend(fs.free_extents.iter().cloned());
+                    all.extend(fs.free_extents.iter().copied());
                 }
                 all.extend_from_slice(extra);
                 (ScanMode::Unallocated, all)
@@ -1517,7 +1830,7 @@ pub fn plan_extents(
             }
             let mut all = Vec::new();
             for fs in volumes {
-                all.extend(fs.free_extents.iter().cloned());
+                all.extend(fs.free_extents.iter().copied());
             }
             all.extend_from_slice(extra);
             (ScanMode::Unallocated, all)
@@ -1570,6 +1883,7 @@ fn build_tasks(extents: &[Extent], chunk_size: u64) -> Vec<Task> {
     tasks
 }
 
+// H-34: candidate discovery keeps its original worker signature so source-read and warning order remain auditable.
 #[allow(clippy::too_many_arguments)]
 fn find_candidates(
     source: &dyn ImageSource,
@@ -1628,6 +1942,7 @@ fn find_candidates(
     Ok((out, hit))
 }
 
+// H-34: the counting worker keeps its original signature so chunk accounting stays identical.
 #[allow(clippy::too_many_arguments)]
 fn count_task(
     source: &dyn ImageSource,
@@ -1661,6 +1976,7 @@ fn count_task(
     Ok(count)
 }
 
+// H-34: the scanning worker keeps its original signature so chunk order and panic containment stay identical.
 #[allow(clippy::too_many_arguments)]
 fn scan_task(
     source: &dyn ImageSource,
@@ -1778,6 +2094,324 @@ fn carve_batch(
     })
 }
 
+fn work_limit_outcome(cand: &Candidate, examined: u64, limit: u64) -> CarveOutcome {
+    CarveOutcome::WorkLimit {
+        offset: cand.offset,
+        kind: cand.kind,
+        examined,
+        limit,
+    }
+}
+
+fn prepare_analysis(
+    prefix: &[u8],
+    analysis: &mut Analysis,
+    opts: &ScanOptions,
+) -> Result<(), CarveOutcome> {
+    if analysis.end == 0 || analysis.end > prefix.len() {
+        return Err(CarveOutcome::Rejected("invalid carved length".into()));
+    }
+    if !analysis.complete {
+        let trimmed = trim_zero_tail(&prefix[..analysis.end]);
+        if trimmed < analysis.end {
+            analysis.notes.push(format!(
+                "trimmed {} trailing zero byte(s)",
+                analysis.end - trimmed
+            ));
+            analysis.end = trimmed;
+        }
+    }
+    let end = analysis.end;
+    if !analysis.complete && (end as u64) > opts.max_truncated_size {
+        return Err(CarveOutcome::TooLargeTruncated(end as u64));
+    }
+    if analysis.score < opts.min_score {
+        return Err(CarveOutcome::LowScore(analysis.score));
+    }
+    if opts.complete_only && !analysis.complete {
+        return Err(CarveOutcome::NotComplete);
+    }
+    Ok(())
+}
+
+struct RepairState {
+    attempted: bool,
+    suffix: Vec<u8>,
+    repaired: bool,
+    sha256_original: Option<String>,
+    detail: Option<ValidationDetail>,
+    note: Option<String>,
+    reason: Option<String>,
+}
+
+impl RepairState {
+    fn new(attempted: bool) -> Self {
+        Self {
+            attempted,
+            suffix: Vec::new(),
+            repaired: false,
+            sha256_original: None,
+            detail: None,
+            note: None,
+            reason: None,
+        }
+    }
+}
+
+// H-34: pure field assembly keeps the original assembly order; a wrapper struct would add indirection without removing state.
+#[allow(clippy::too_many_arguments)]
+fn attempt_repair(
+    cand: &Candidate,
+    analysis: &mut Analysis,
+    prefix: &[u8],
+    end: usize,
+    opts: &ScanOptions,
+    limits: ValidationLimits,
+    budget: &MemoryBudget,
+    work: &mut WorkCounter,
+    work_limit: u64,
+    attempted: bool,
+) -> Result<RepairState, CarveOutcome> {
+    let mut state = RepairState::new(attempted);
+    if !attempted {
+        return Ok(state);
+    }
+    // H-21: rebuild and revalidate before claiming `repaired`.
+    match build_suffix(cand.kind, &prefix[..end], limits) {
+        Ok(suffix) => {
+            let rebuilt_len = (end as u64).saturating_add(suffix.len() as u64);
+            match usize::try_from(rebuilt_len) {
+                Ok(rebuilt_len) => {
+                    match BudgetGuard::reserve(
+                        budget,
+                        rebuilt_len as u64,
+                        "validating a repaired file",
+                    ) {
+                        Ok(mut guard) => {
+                            let mut rebuilt = Vec::new();
+                            if rebuilt.try_reserve_exact(rebuilt_len).is_err() {
+                                state.reason =
+                                    Some("cannot reserve repair validation memory".into());
+                            } else {
+                                rebuilt.extend_from_slice(&prefix[..end]);
+                                rebuilt.extend_from_slice(&suffix);
+                                if !work.add(rebuilt_len as u64) {
+                                    return Err(work_limit_outcome(
+                                        cand,
+                                        work.used().saturating_add(rebuilt_len as u64),
+                                        work_limit,
+                                    ));
+                                }
+                                test_panic_probe(cand.offset, "validate");
+                                match validate_repair(
+                                    cand.kind,
+                                    &rebuilt,
+                                    limits,
+                                    opts.validate,
+                                    opts.pdf_eof,
+                                ) {
+                                    Ok(ValidatedRepair {
+                                        analysis: rebuilt_analysis,
+                                        detail,
+                                        note,
+                                    }) => {
+                                        state.repaired = true;
+                                        state.suffix = suffix;
+                                        state.detail = Some(detail);
+                                        state.note = Some(note.clone());
+                                        state.sha256_original = Some(sha256_hex(&prefix[..end]));
+                                        // Keep the original score, length and
+                                        // provenance notes; only the footer status
+                                        // becomes complete after revalidation.
+                                        analysis.complete = true;
+                                        analysis.notes.extend(rebuilt_analysis.notes);
+                                        analysis.notes.push(note);
+                                    }
+                                    Err(reason) => state.reason = Some(reason),
+                                }
+                            }
+                            guard.release();
+                        }
+                        Err(e) => state.reason = Some(e.to_string()),
+                    }
+                }
+                Err(_) => {
+                    state.reason = Some("repaired length is not addressable".into());
+                }
+            }
+        }
+        Err(reason) => state.reason = Some(reason),
+    }
+    if !state.repaired {
+        analysis
+            .notes
+            .push("repair attempted, not validated".into());
+        if let Some(reason) = state.reason.as_ref() {
+            analysis.notes.push(format!("repair reason: {reason}"));
+        }
+    }
+    Ok(state)
+}
+
+fn validation_detail_for(
+    cand: &Candidate,
+    repair: &mut RepairState,
+    analysis: &Analysis,
+    prefix: &[u8],
+    end: usize,
+    opts: &ScanOptions,
+    limits: ValidationLimits,
+) -> ValidationDetail {
+    if let Some(detail) = repair.detail.take() {
+        return detail;
+    }
+    if opts.validate == ValidationMode::Decode {
+        if analysis.complete {
+            validate_deep_detail(cand.kind, &prefix[..end], analysis, limits)
+        } else {
+            ValidationDetail::new(
+                Validation::Partial,
+                vec!["file is truncated; decode validation skipped".into()],
+            )
+        }
+    } else if analysis.complete {
+        // The PNG structural parser already recomputes every chunk CRC. A
+        // failure is an integrity failure even in the default mode, while no
+        // decoded byte count is claimed.
+        let notes = analysis
+            .integrity_checks
+            .iter()
+            .map(|check| check.note.clone())
+            .collect();
+        ValidationDetail {
+            validation: if analysis.integrity_failed() {
+                Validation::Partial
+            } else {
+                Validation::Structure
+            },
+            notes,
+            checks: analysis.integrity_checks.clone(),
+            validated_bytes: 0,
+        }
+    } else {
+        ValidationDetail::new(Validation::Partial, vec!["file is truncated".into()])
+    }
+}
+
+// H-34: pure field assembly keeps the original assembly order; a wrapper struct would add indirection without removing state.
+#[allow(clippy::too_many_arguments)]
+fn finalize_carved(
+    cand: &Candidate,
+    mut analysis: Analysis,
+    detail: ValidationDetail,
+    repair: RepairState,
+    prefix: &[u8],
+    end: usize,
+    output_len: u64,
+    opts: &ScanOptions,
+) -> Result<CarvedData, CarveOutcome> {
+    let ValidationDetail {
+        validation,
+        notes: mut validation_notes,
+        checks: detail_checks,
+        validated_bytes,
+    } = detail;
+    // `carved_size` describes bytes read; never claim more checked bytes than
+    // were read just because a suffix was appended.
+    let validated_bytes = validated_bytes.min(end as u64);
+    let status = analysis.status(repair.repaired);
+    let validity = Validity::from_legacy(validation, status);
+    let mut validation_checks =
+        base_validity_checks(cand.kind, validation, status, &validation_notes);
+    validation_checks.extend(detail_checks);
+    if repair.attempted {
+        let (ok, note) = if repair.repaired {
+            (
+                Some(true),
+                repair
+                    .note
+                    .unwrap_or_else(|| "repair revalidated".to_string()),
+            )
+        } else {
+            (
+                Some(false),
+                repair
+                    .reason
+                    .unwrap_or_else(|| "repair attempted, not validated".to_string()),
+            )
+        };
+        validation_checks.push(ValidationCheck::new("repair", ok, note));
+    }
+    if analysis.complete && validation == Validation::Partial {
+        if opts.validate == ValidationMode::Decode {
+            analysis.score = analysis.score.saturating_sub(20);
+        }
+        analysis.notes.append(&mut validation_notes);
+        if analysis.score < opts.min_score {
+            return Err(CarveOutcome::LowScore(analysis.score));
+        }
+    }
+    let sha256 = sha256_hex_with_suffix(&prefix[..end], &repair.suffix);
+    Ok(CarvedData {
+        candidate: cand.clone(),
+        payload: PayloadSpec::Range {
+            offset: cand.offset,
+            len: end as u64,
+        },
+        output_len,
+        analysis,
+        sha256,
+        sha256_original: repair.sha256_original,
+        repaired: repair.repaired,
+        repair_suffix: repair.suffix,
+        validation,
+        validity,
+        validation_notes,
+        validated_bytes,
+        validation_checks,
+        fragments: Vec::new(),
+        checks: None,
+        confidence: None,
+        alternatives: None,
+    })
+}
+
+fn grow_carve_buffer<'a>(
+    buf: &mut Vec<u8>,
+    guard: &mut BudgetGuard<'a>,
+    buf_len: &mut u64,
+    hard_limit: u64,
+    budget: &'a MemoryBudget,
+    cand: &Candidate,
+) -> Result<Option<CarveOutcome>> {
+    if *buf_len >= hard_limit {
+        return Ok(Some(CarveOutcome::Rejected(
+            "parser requested more data at the carve limit".into(),
+        )));
+    }
+    let next = buf_len.saturating_mul(2).min(hard_limit);
+    if next <= *buf_len {
+        return Ok(Some(CarveOutcome::Rejected(
+            "carve buffer cannot grow".into(),
+        )));
+    }
+    if next > budget.limit() {
+        return Ok(Some(CarveOutcome::SkippedBudget {
+            offset: cand.offset,
+            kind: cand.kind,
+            needed: next,
+        }));
+    }
+    *buf = Vec::new();
+    guard.release();
+    // A reserve failure here is an authoritative --max-memory error and is
+    // propagated to the caller exactly as before the refactor.
+    *guard = BudgetGuard::reserve(budget, next, "growing a carve buffer")?;
+    *buf = vec![0u8; next as usize];
+    *buf_len = next;
+    Ok(None)
+}
+
 fn carve_one(
     source: &dyn ImageSource,
     cand: &Candidate,
@@ -1796,15 +2430,13 @@ fn carve_one(
         ));
     }
     let initial_len = hard_limit.min(64 * 1024);
-    let mut guard = match BudgetGuard::reserve(budget, initial_len, "allocating a carve buffer") {
-        Ok(guard) => guard,
-        Err(_) => {
-            return Ok(CarveOutcome::SkippedBudget {
-                offset: cand.offset,
-                kind: cand.kind,
-                needed: initial_len,
-            })
-        }
+    let Ok(mut guard) = BudgetGuard::reserve(budget, initial_len, "allocating a carve buffer")
+    else {
+        return Ok(CarveOutcome::SkippedBudget {
+            offset: cand.offset,
+            kind: cand.kind,
+            needed: initial_len,
+        });
     };
     let mut buf = vec![0u8; initial_len as usize];
     let mut buf_len = initial_len;
@@ -1824,142 +2456,45 @@ fn carve_one(
         let at_limit = buf_len >= hard_limit;
         let read_len = buf_len as usize;
         if !work.add(read_len as u64) {
-            return Ok(CarveOutcome::WorkLimit {
-                offset: cand.offset,
-                kind: cand.kind,
-                examined: work.used().saturating_add(read_len as u64),
-                limit: work_limit,
-            });
+            return Ok(work_limit_outcome(
+                cand,
+                work.used().saturating_add(read_len as u64),
+                work_limit,
+            ));
         }
         test_panic_probe(cand.offset, "analyze");
         match analyze(cand.kind, &buf[..read_len], at_limit, opts.pdf_eof) {
             Need::Analyzed(mut analysis) => {
-                if analysis.end == 0 || analysis.end > read_len {
-                    return Ok(CarveOutcome::Rejected("invalid carved length".into()));
-                }
-                if !analysis.complete {
-                    let trimmed = trim_zero_tail(&buf[..analysis.end]);
-                    if trimmed < analysis.end {
-                        analysis.notes.push(format!(
-                            "trimmed {} trailing zero byte(s)",
-                            analysis.end - trimmed
-                        ));
-                        analysis.end = trimmed;
-                    }
+                if let Err(outcome) = prepare_analysis(&buf[..read_len], &mut analysis, opts) {
+                    return Ok(outcome);
                 }
                 let end = analysis.end;
-                if !analysis.complete && (end as u64) > opts.max_truncated_size {
-                    return Ok(CarveOutcome::TooLargeTruncated(end as u64));
-                }
-                if analysis.score < opts.min_score {
-                    return Ok(CarveOutcome::LowScore(analysis.score));
-                }
-                if opts.complete_only && !analysis.complete {
-                    return Ok(CarveOutcome::NotComplete);
-                }
-                let repair_attempted = opts.repair && !analysis.complete;
                 // Validator scratch is bounded by its own flag and, for this
                 // scan, can never raise the shared working-memory ceiling.
                 let limits = ValidationLimits::new(opts.max_validator_memory.min(budget.limit()));
-                let mut repair_suffix: Vec<u8> = Vec::new();
-                let mut repaired = false;
-                let mut sha256_original: Option<String> = None;
-                let mut repair_detail: Option<ValidationDetail> = None;
-                let mut repair_note: Option<String> = None;
-                let mut repair_reason: Option<String> = None;
+                let repair_attempted = opts.repair && !analysis.complete;
+                let mut repair = match attempt_repair(
+                    cand,
+                    &mut analysis,
+                    &buf[..read_len],
+                    end,
+                    opts,
+                    limits,
+                    budget,
+                    &mut work,
+                    work_limit,
+                    repair_attempted,
+                ) {
+                    Ok(state) => state,
+                    Err(outcome) => return Ok(outcome),
+                };
 
-                // H-21: rebuild and revalidate before claiming `repaired`.
-                if repair_attempted {
-                    match build_suffix(cand.kind, &buf[..end], limits) {
-                        Ok(suffix) => {
-                            let rebuilt_len = (end as u64).saturating_add(suffix.len() as u64);
-                            match usize::try_from(rebuilt_len) {
-                                Ok(rebuilt_len) => {
-                                    match BudgetGuard::reserve(
-                                        budget,
-                                        rebuilt_len as u64,
-                                        "validating a repaired file",
-                                    ) {
-                                        Ok(mut guard) => {
-                                            let mut rebuilt = Vec::new();
-                                            if rebuilt.try_reserve_exact(rebuilt_len).is_err() {
-                                                repair_reason = Some(
-                                                    "cannot reserve repair validation memory"
-                                                        .into(),
-                                                );
-                                            } else {
-                                                rebuilt.extend_from_slice(&buf[..end]);
-                                                rebuilt.extend_from_slice(&suffix);
-                                                if !work.add(rebuilt_len as u64) {
-                                                    return Ok(CarveOutcome::WorkLimit {
-                                                        offset: cand.offset,
-                                                        kind: cand.kind,
-                                                        examined: work
-                                                            .used()
-                                                            .saturating_add(rebuilt_len as u64),
-                                                        limit: work_limit,
-                                                    });
-                                                }
-                                                test_panic_probe(cand.offset, "validate");
-                                                match validate_repair(
-                                                    cand.kind,
-                                                    &rebuilt,
-                                                    limits,
-                                                    opts.validate,
-                                                    opts.pdf_eof,
-                                                ) {
-                                                    Ok(ValidatedRepair {
-                                                        analysis: rebuilt_analysis,
-                                                        detail,
-                                                        note,
-                                                    }) => {
-                                                        repaired = true;
-                                                        repair_suffix = suffix;
-                                                        repair_detail = Some(detail);
-                                                        repair_note = Some(note.clone());
-                                                        sha256_original =
-                                                            Some(sha256_hex(&buf[..end]));
-                                                        // Keep the original score, length and
-                                                        // provenance notes; only the footer status
-                                                        // becomes complete after revalidation.
-                                                        analysis.complete = true;
-                                                        analysis
-                                                            .notes
-                                                            .extend(rebuilt_analysis.notes);
-                                                        analysis.notes.push(note);
-                                                    }
-                                                    Err(reason) => repair_reason = Some(reason),
-                                                }
-                                            }
-                                            guard.release();
-                                        }
-                                        Err(e) => repair_reason = Some(e.to_string()),
-                                    }
-                                }
-                                Err(_) => {
-                                    repair_reason =
-                                        Some("repaired length is not addressable".into());
-                                }
-                            }
-                        }
-                        Err(reason) => repair_reason = Some(reason),
-                    }
-                    if !repaired {
-                        analysis
-                            .notes
-                            .push("repair attempted, not validated".into());
-                        if let Some(reason) = repair_reason.as_ref() {
-                            analysis.notes.push(format!("repair reason: {reason}"));
-                        }
-                    }
-                }
-
-                let output_len = (end as u64).saturating_add(repair_suffix.len() as u64);
+                let output_len = (end as u64).saturating_add(repair.suffix.len() as u64);
                 if output_len < opts.min_size {
                     return Ok(CarveOutcome::TooSmall(output_len));
                 }
 
-                let validate_bytes = if repair_detail.is_none()
+                let validate_bytes = if repair.detail.is_none()
                     && opts.validate == ValidationMode::Decode
                     && analysis.complete
                 {
@@ -1969,130 +2504,41 @@ fn carve_one(
                 };
                 test_panic_probe(cand.offset, "validate");
                 if validate_bytes > 0 && !work.add(validate_bytes) {
-                    return Ok(CarveOutcome::WorkLimit {
-                        offset: cand.offset,
-                        kind: cand.kind,
-                        examined: work.used().saturating_add(validate_bytes),
-                        limit: work_limit,
-                    });
-                }
-                let detail = if let Some(detail) = repair_detail {
-                    detail
-                } else if opts.validate == ValidationMode::Decode {
-                    if analysis.complete {
-                        validate_deep_detail(cand.kind, &buf[..end], &analysis, limits)
-                    } else {
-                        ValidationDetail::new(
-                            Validation::Partial,
-                            vec!["file is truncated; decode validation skipped".into()],
-                        )
-                    }
-                } else if analysis.complete {
-                    // The PNG structural parser already recomputes every chunk
-                    // CRC. A failure is an integrity failure even in the
-                    // default mode, while no decoded byte count is claimed.
-                    let notes = analysis
-                        .integrity_checks
-                        .iter()
-                        .map(|check| check.note.clone())
-                        .collect();
-                    ValidationDetail {
-                        validation: if analysis.integrity_failed() {
-                            Validation::Partial
-                        } else {
-                            Validation::Structure
-                        },
-                        notes,
-                        checks: analysis.integrity_checks.clone(),
-                        validated_bytes: 0,
-                    }
-                } else {
-                    ValidationDetail::new(Validation::Partial, vec!["file is truncated".into()])
-                };
-                let ValidationDetail {
-                    validation,
-                    notes: mut validation_notes,
-                    checks: detail_checks,
-                    validated_bytes,
-                } = detail;
-                // `carved_size` describes bytes read; never claim more checked
-                // bytes than were read just because a suffix was appended.
-                let validated_bytes = validated_bytes.min(end as u64);
-                let status = analysis.status(repaired);
-                let validity = Validity::from_legacy(validation, status);
-                let mut validation_checks =
-                    base_validity_checks(cand.kind, validation, status, &validation_notes);
-                validation_checks.extend(detail_checks);
-                if repair_attempted {
-                    let (ok, note) = if repaired {
-                        (
-                            Some(true),
-                            repair_note.unwrap_or_else(|| "repair revalidated".to_string()),
-                        )
-                    } else {
-                        (
-                            Some(false),
-                            repair_reason
-                                .unwrap_or_else(|| "repair attempted, not validated".to_string()),
-                        )
-                    };
-                    validation_checks.push(ValidationCheck::new("repair", ok, note));
-                }
-                if analysis.complete && validation == Validation::Partial {
-                    if opts.validate == ValidationMode::Decode {
-                        analysis.score = analysis.score.saturating_sub(20);
-                    }
-                    analysis.notes.append(&mut validation_notes);
-                    if analysis.score < opts.min_score {
-                        return Ok(CarveOutcome::LowScore(analysis.score));
-                    }
-                }
-                let sha256 = sha256_hex_with_suffix(&buf[..end], &repair_suffix);
-                return Ok(CarveOutcome::Carved(Box::new(CarvedData {
-                    candidate: cand.clone(),
-                    payload: PayloadSpec::Range {
-                        offset: cand.offset,
-                        len: end as u64,
-                    },
-                    output_len,
-                    analysis,
-                    sha256,
-                    sha256_original,
-                    repaired,
-                    repair_suffix,
-                    validation,
-                    validity,
-                    validation_notes,
-                    validated_bytes,
-                    validation_checks,
-                    fragments: Vec::new(),
-                    checks: None,
-                    confidence: None,
-                    alternatives: None,
-                })));
-            }
-            Need::More => {
-                if at_limit {
-                    return Ok(CarveOutcome::Rejected(
-                        "parser requested more data at the carve limit".into(),
+                    return Ok(work_limit_outcome(
+                        cand,
+                        work.used().saturating_add(validate_bytes),
+                        work_limit,
                     ));
                 }
-                let next = buf_len.saturating_mul(2).min(hard_limit);
-                if next <= buf_len {
-                    return Ok(CarveOutcome::Rejected("carve buffer cannot grow".into()));
+                let detail = validation_detail_for(
+                    cand,
+                    &mut repair,
+                    &analysis,
+                    &buf[..read_len],
+                    end,
+                    opts,
+                    limits,
+                );
+                return match finalize_carved(
+                    cand,
+                    analysis,
+                    detail,
+                    repair,
+                    &buf[..read_len],
+                    end,
+                    output_len,
+                    opts,
+                ) {
+                    Ok(data) => Ok(CarveOutcome::Carved(Box::new(data))),
+                    Err(outcome) => Ok(outcome),
+                };
+            }
+            Need::More => {
+                if let Some(outcome) =
+                    grow_carve_buffer(&mut buf, &mut guard, &mut buf_len, hard_limit, budget, cand)?
+                {
+                    return Ok(outcome);
                 }
-                if next > budget.limit() {
-                    return Ok(CarveOutcome::SkippedBudget {
-                        offset: cand.offset,
-                        kind: cand.kind,
-                        needed: next,
-                    });
-                }
-                drop(buf);
-                guard.release();
-                guard = BudgetGuard::reserve(budget, next, "growing a carve buffer")?;
-                buf = vec![0u8; next as usize];
-                buf_len = next;
             }
             Need::Reject(reason) => return Ok(CarveOutcome::Rejected(reason)),
         }
@@ -2143,7 +2589,7 @@ struct JoinAttempt {
     data: Option<CarvedData>,
     deep_checked: bool,
     skipped_budget: Option<(u64, u64)>,
-    work_limit: Option<(u64, FileType, u64, u64)>,
+    work_limit: Option<WorkLimit>,
 }
 
 fn footer_needle(kind: FileType) -> &'static [u8] {
@@ -2582,7 +3028,44 @@ fn has_plausible_footer(
 struct HeadProbe {
     deep_valid: bool,
     skipped_budget: Option<(u64, u64)>,
-    work_limit: Option<(u64, FileType, u64, u64)>,
+    work_limit: Option<WorkLimit>,
+}
+
+fn head_probe_miss() -> HeadProbe {
+    HeadProbe {
+        deep_valid: false,
+        skipped_budget: None,
+        work_limit: None,
+    }
+}
+
+fn head_probe_skipped_budget(offset: u64, needed: u64) -> HeadProbe {
+    HeadProbe {
+        deep_valid: false,
+        skipped_budget: Some((offset, needed)),
+        work_limit: None,
+    }
+}
+
+fn head_probe_work_limit(cand: &Candidate, examined: u64, limit: u64) -> HeadProbe {
+    HeadProbe {
+        deep_valid: false,
+        skipped_budget: None,
+        work_limit: Some((cand.offset, cand.kind, examined, limit)),
+    }
+}
+
+fn head_quality_ok(analysis: &Analysis, bytes_len: usize, opts: &ScanOptions) -> bool {
+    analysis.end != 0
+        && analysis.end <= bytes_len
+        && analysis.complete
+        && analysis.score >= opts.min_score
+        && (analysis.end as u64) >= opts.min_size
+}
+
+fn head_deep_valid(detail: &ValidationDetail, analysis: &Analysis) -> bool {
+    detail.validation == Validation::Decoded
+        && Validity::from_legacy(detail.validation, analysis.status(false)) == Validity::Verified
 }
 
 fn deep_validate_head(
@@ -2594,54 +3077,37 @@ fn deep_validate_head(
     validated_heads: &mut HashMap<String, bool>,
     known_hash: Option<&str>,
 ) -> Result<HeadProbe> {
-    let miss = || HeadProbe {
-        deep_valid: false,
-        skipped_budget: None,
-        work_limit: None,
-    };
     let available = cand.extent_end.saturating_sub(cand.offset);
     let hard_limit = available.min(opts.max_size);
     if hard_limit < 16 {
-        return Ok(miss());
+        return Ok(head_probe_miss());
     }
     let work_limit = effective_max_work(opts);
     let mut work = WorkCounter::new(work_limit);
     let mut buf_len = hard_limit.min(64 * 1024);
-    let mut guard = match BudgetGuard::reserve(budget, buf_len, "deep-validating a B-06 head") {
-        Ok(guard) => guard,
-        Err(_) => {
-            return Ok(HeadProbe {
-                deep_valid: false,
-                skipped_budget: Some((cand.offset, buf_len)),
-                work_limit: None,
-            })
-        }
+    let Ok(mut guard) = BudgetGuard::reserve(budget, buf_len, "deep-validating a B-06 head") else {
+        return Ok(head_probe_skipped_budget(cand.offset, buf_len));
     };
     let mut bytes = Vec::new();
     let len = usize::try_from(buf_len).unwrap_or(usize::MAX);
     if bytes.try_reserve_exact(len).is_err() {
-        return Ok(miss());
+        return Ok(head_probe_miss());
     }
     bytes.resize(len, 0u8);
 
     loop {
         if stop.check() {
-            return Ok(miss());
+            return Ok(head_probe_miss());
         }
         read_exact_at(source, &mut bytes[..buf_len as usize], cand.offset)
             .with_context(|| format!("cannot read B-06 head at {}", cand.offset))?;
         let read_len = buf_len;
         if !work.add(read_len) {
-            return Ok(HeadProbe {
-                deep_valid: false,
-                skipped_budget: None,
-                work_limit: Some((
-                    cand.offset,
-                    cand.kind,
-                    work.used().saturating_add(read_len),
-                    work_limit,
-                )),
-            });
+            return Ok(head_probe_work_limit(
+                cand,
+                work.used().saturating_add(read_len),
+                work_limit,
+            ));
         }
         let at_limit = buf_len >= hard_limit;
         test_panic_probe(cand.offset, "bgc_head_analyze");
@@ -2651,21 +3117,17 @@ fn deep_validate_head(
             at_limit,
             opts.pdf_eof,
         ) {
-            Need::Reject(_) => return Ok(miss()),
+            Need::Reject(_) => return Ok(head_probe_miss()),
             Need::More => {
                 if at_limit {
-                    return Ok(miss());
+                    return Ok(head_probe_miss());
                 }
                 let next = buf_len.saturating_mul(2).min(hard_limit);
                 if next <= buf_len {
-                    return Ok(miss());
+                    return Ok(head_probe_miss());
                 }
                 if next > budget.limit() {
-                    return Ok(HeadProbe {
-                        deep_valid: false,
-                        skipped_budget: Some((cand.offset, next)),
-                        work_limit: None,
-                    });
+                    return Ok(head_probe_skipped_budget(cand.offset, next));
                 }
                 drop(bytes);
                 guard.release();
@@ -2673,24 +3135,18 @@ fn deep_validate_head(
                 bytes = Vec::new();
                 let next_len = usize::try_from(next).unwrap_or(usize::MAX);
                 if bytes.try_reserve_exact(next_len).is_err() {
-                    return Ok(miss());
+                    return Ok(head_probe_miss());
                 }
                 bytes.resize(next_len, 0u8);
                 buf_len = next;
             }
             Need::Analyzed(analysis) => {
-                if analysis.end == 0
-                    || analysis.end > bytes.len()
-                    || !analysis.complete
-                    || analysis.score < opts.min_score
-                    || (analysis.end as u64) < opts.min_size
-                {
-                    return Ok(miss());
+                if !head_quality_ok(&analysis, bytes.len(), opts) {
+                    return Ok(head_probe_miss());
                 }
                 let validated = analysis.end as u64;
-                let digest = known_hash
-                    .map(str::to_string)
-                    .unwrap_or_else(|| sha256_hex(&bytes[..analysis.end]));
+                let digest =
+                    known_hash.map_or_else(|| sha256_hex(&bytes[..analysis.end]), str::to_string);
                 if let Some(&deep_valid) = validated_heads.get(&digest) {
                     return Ok(HeadProbe {
                         deep_valid,
@@ -2699,24 +3155,17 @@ fn deep_validate_head(
                     });
                 }
                 if !work.add(validated) {
-                    return Ok(HeadProbe {
-                        deep_valid: false,
-                        skipped_budget: None,
-                        work_limit: Some((
-                            cand.offset,
-                            cand.kind,
-                            work.used().saturating_add(validated),
-                            work_limit,
-                        )),
-                    });
+                    return Ok(head_probe_work_limit(
+                        cand,
+                        work.used().saturating_add(validated),
+                        work_limit,
+                    ));
                 }
                 let limits = ValidationLimits::new(opts.max_validator_memory.min(budget.limit()));
                 test_panic_probe(cand.offset, "bgc_head_validate");
                 let detail =
                     validate_deep_detail(cand.kind, &bytes[..analysis.end], &analysis, limits);
-                let validity = Validity::from_legacy(detail.validation, analysis.status(false));
-                let deep_valid =
-                    detail.validation == Validation::Decoded && validity == Validity::Verified;
+                let deep_valid = head_deep_valid(&detail, &analysis);
                 validated_heads.insert(digest, deep_valid);
                 return Ok(HeadProbe {
                     deep_valid,
@@ -2728,6 +3177,115 @@ fn deep_validate_head(
     }
 }
 
+fn join_none() -> JoinAttempt {
+    JoinAttempt {
+        data: None,
+        deep_checked: false,
+        skipped_budget: None,
+        work_limit: None,
+    }
+}
+
+fn join_skipped_budget(offset: u64, total: u64) -> JoinAttempt {
+    JoinAttempt {
+        data: None,
+        deep_checked: false,
+        skipped_budget: Some((offset, total)),
+        work_limit: None,
+    }
+}
+
+fn join_work_limit(cand: &Candidate, examined: u64, limit: u64, deep_checked: bool) -> JoinAttempt {
+    JoinAttempt {
+        data: None,
+        deep_checked,
+        skipped_budget: None,
+        work_limit: Some((cand.offset, cand.kind, examined, limit)),
+    }
+}
+
+fn junction_analysis(
+    analysis: &Analysis,
+    bytes_len: usize,
+    tail_len: u64,
+    min_score: u8,
+    head_len: u64,
+) -> Option<(usize, u64)> {
+    if !analysis.complete || analysis.end == 0 || analysis.end > bytes_len {
+        return None;
+    }
+    if analysis.score < min_score {
+        return None;
+    }
+    match analysis.end.checked_sub(head_len as usize) {
+        Some(v) if v > 0 && v as u64 <= tail_len => Some((analysis.end, v as u64)),
+        _ => None,
+    }
+}
+
+// H-34: pure field assembly keeps the original assembly order; a wrapper struct would add indirection without removing state.
+#[allow(clippy::too_many_arguments)]
+fn joined_carved_data(
+    cand: &Candidate,
+    join: &FragmentJoin,
+    mut analysis: Analysis,
+    bytes: &[u8],
+    detail: ValidationDetail,
+    validation: Validation,
+    status: Status,
+    validity: Validity,
+    head_len: u64,
+    used_tail: u64,
+) -> CarvedData {
+    analysis.notes.push(format!(
+        "B-06 deep-validated 2 fragments with a {} cluster gap",
+        join.gap_clusters
+    ));
+    let confidence = analysis.score;
+    let sha256 = sha256_hex(bytes);
+    let fragments = vec![
+        Fragment {
+            offset: cand.offset,
+            len: head_len,
+        },
+        Fragment {
+            offset: join.tail_start,
+            len: used_tail,
+        },
+    ];
+    let output_len = analysis.end as u64;
+    let ValidationDetail {
+        notes: validation_notes,
+        checks: detail_checks,
+        validated_bytes,
+        ..
+    } = detail;
+    let mut validation_checks =
+        base_validity_checks(cand.kind, validation, status, &validation_notes);
+    validation_checks.extend(detail_checks);
+    CarvedData {
+        candidate: cand.clone(),
+        payload: PayloadSpec::Join {
+            fragments: fragments.clone(),
+        },
+        output_len,
+        analysis,
+        sha256,
+        sha256_original: None,
+        repaired: false,
+        repair_suffix: Vec::new(),
+        validation,
+        validity,
+        validation_notes,
+        validated_bytes,
+        validation_checks,
+        fragments,
+        checks: None,
+        confidence: Some(confidence),
+        alternatives: None,
+    }
+}
+
 fn try_fragment_join(
     source: &dyn ImageSource,
     cand: &Candidate,
@@ -2735,46 +3293,27 @@ fn try_fragment_join(
     opts: &ScanOptions,
     budget: &MemoryBudget,
 ) -> Result<JoinAttempt> {
-    let none = || JoinAttempt {
-        data: None,
-        deep_checked: false,
-        skipped_budget: None,
-        work_limit: None,
-    };
     let head_len = join.cut.saturating_sub(cand.offset);
     let tail_len = join.footer_end.saturating_sub(join.tail_start);
     if head_len == 0 || tail_len == 0 {
-        return Ok(none());
+        return Ok(join_none());
     }
     let total = match head_len.checked_add(tail_len) {
         Some(v) if v <= opts.max_size => v,
-        _ => return Ok(none()),
+        _ => return Ok(join_none()),
     };
-    let _guard = match BudgetGuard::reserve(budget, total, "allocating a B-06 stitch buffer") {
-        Ok(guard) => guard,
-        Err(_) => {
-            return Ok(JoinAttempt {
-                data: None,
-                deep_checked: false,
-                skipped_budget: Some((cand.offset, total)),
-                work_limit: None,
-            })
-        }
+    let Ok(_guard) = BudgetGuard::reserve(budget, total, "allocating a B-06 stitch buffer") else {
+        return Ok(join_skipped_budget(cand.offset, total));
     };
     let work_limit = effective_max_work(opts);
     let mut work = WorkCounter::new(work_limit);
     if !work.add(total) {
-        return Ok(JoinAttempt {
-            data: None,
-            deep_checked: false,
-            skipped_budget: None,
-            work_limit: Some((
-                cand.offset,
-                cand.kind,
-                work.used().saturating_add(total),
-                work_limit,
-            )),
-        });
+        return Ok(join_work_limit(
+            cand,
+            work.used().saturating_add(total),
+            work_limit,
+            false,
+        ));
     }
     let capacity = usize::try_from(total).unwrap_or(usize::MAX);
     let mut bytes = vec![0u8; capacity];
@@ -2787,48 +3326,32 @@ fn try_fragment_join(
     )
     .with_context(|| format!("cannot read B-06 tail at {}", join.tail_start))?;
 
-    let Need::Analyzed(mut analysis) = analyze(cand.kind, &bytes, true, opts.pdf_eof) else {
-        return Ok(none());
+    let Need::Analyzed(analysis) = analyze(cand.kind, &bytes, true, opts.pdf_eof) else {
+        return Ok(join_none());
     };
-    if !analysis.complete || analysis.end == 0 || analysis.end > bytes.len() {
-        return Ok(none());
-    }
-    if analysis.score < opts.min_score {
-        return Ok(none());
-    }
-    bytes.truncate(analysis.end);
-    let used_tail = match analysis.end.checked_sub(head_len as usize) {
-        Some(v) if v > 0 && v as u64 <= tail_len => v as u64,
-        _ => return Ok(none()),
+    let Some((end, used_tail)) =
+        junction_analysis(&analysis, bytes.len(), tail_len, opts.min_score, head_len)
+    else {
+        return Ok(join_none());
     };
-
-    let validated = analysis.end as u64;
+    bytes.truncate(end);
+    let validated = end as u64;
     if !work.add(validated) {
-        return Ok(JoinAttempt {
-            data: None,
-            deep_checked: true,
-            skipped_budget: None,
-            work_limit: Some((
-                cand.offset,
-                cand.kind,
-                work.used().saturating_add(validated),
-                work_limit,
-            )),
-        });
+        return Ok(join_work_limit(
+            cand,
+            work.used().saturating_add(validated),
+            work_limit,
+            true,
+        ));
     }
     let limits = ValidationLimits::new(opts.max_validator_memory.min(budget.limit()));
-    let ValidationDetail {
-        validation,
-        notes: validation_notes,
-        checks: detail_checks,
-        validated_bytes,
-    } = validate_deep_detail(cand.kind, &bytes, &analysis, limits);
+    let detail = validate_deep_detail(cand.kind, &bytes, &analysis, limits);
     // H-29 supersedes the stage-1 PDF exception from E-1 for B-06: a stitch
     // is emitted only when the authoritative honesty label is `verified`.
     let status = analysis.status(false);
+    let validation = detail.validation;
     let validity = Validity::from_legacy(validation, status);
-    let accepted = validity == Validity::Verified;
-    if !accepted {
+    if validity != Validity::Verified {
         return Ok(JoinAttempt {
             data: None,
             deep_checked: true,
@@ -2836,128 +3359,47 @@ fn try_fragment_join(
             work_limit: None,
         });
     }
-
-    analysis.notes.push(format!(
-        "B-06 deep-validated 2 fragments with a {} cluster gap",
-        join.gap_clusters
-    ));
-    let confidence = analysis.score;
-    let sha256 = sha256_hex(&bytes);
-    let fragments = vec![
-        Fragment {
-            offset: cand.offset,
-            len: head_len,
-        },
-        Fragment {
-            offset: join.tail_start,
-            len: used_tail,
-        },
-    ];
-    let output_len = analysis.end as u64;
-    let mut validation_checks =
-        base_validity_checks(cand.kind, validation, status, &validation_notes);
-    validation_checks.extend(detail_checks);
+    let data = joined_carved_data(
+        cand, join, analysis, &bytes, detail, validation, status, validity, head_len, used_tail,
+    );
     Ok(JoinAttempt {
-        data: Some(CarvedData {
-            candidate: cand.clone(),
-            payload: PayloadSpec::Join {
-                fragments: fragments.clone(),
-            },
-            output_len,
-            analysis,
-            sha256,
-            sha256_original: None,
-            repaired: false,
-            repair_suffix: Vec::new(),
-            validation,
-            validity,
-            validation_notes,
-            validated_bytes,
-            validation_checks,
-            fragments,
-            checks: None,
-            confidence: Some(confidence),
-            alternatives: None,
-        }),
+        data: Some(data),
         deep_checked: true,
         skipped_budget: None,
         work_limit: None,
     })
 }
 
-#[allow(clippy::too_many_arguments)]
-fn recover_fragments(
+const MAX_FRAG_ALTERNATIVES: u64 = 16;
+const MAX_JOIN_ATTEMPTS_PER_HEAD: usize = 32;
+
+struct FragmentHeadClassification {
+    required: HashMap<(u64, FileType), bool>,
+    force: HashMap<(u64, FileType), bool>,
+    contiguous_hashes: HashMap<(u64, FileType), String>,
+}
+
+fn classify_fragment_heads(
     source: &dyn ImageSource,
     candidates: &[Candidate],
-    mut kept: Vec<CarvedData>,
-    extents: &[Extent],
+    kept: &[CarvedData],
     volumes: &[FsInfo],
-    opts: &ScanOptions,
-    budget: &Arc<MemoryBudget>,
-    warnings: &mut Vec<Warning>,
-    stop: &Stop,
-    internal_errors: &mut Vec<InternalError>,
-) -> Result<FragmentResult> {
-    let started = Instant::now();
-    if volumes.is_empty() {
-        warnings.push(Warning::new(
-            "FRAGMENT_RECOVERY_SKIPPED",
-            "B-06 needs a detected volume with cluster boundaries; no stitching attempted",
-        ));
-        return Ok(FragmentResult {
-            files: kept,
-            nondeterministic_stop: false,
-        });
-    }
-
-    // A candidate that already panicked in the carve stage is not probed a
-    // second time; the single contained panic is enough evidence for the run.
-    let panicked: HashSet<(u64, FileType)> = internal_errors
-        .iter()
-        .map(|error| (error.offset, error.file_type))
-        .collect();
-    let mut successes = Vec::new();
-    let mut successful_keys: HashSet<(u64, FileType)> = HashSet::new();
-    let mut seen_hashes: HashSet<String> = if opts.dedupe_hashes {
-        kept.iter().map(|f| f.sha256.clone()).collect()
-    } else {
-        HashSet::new()
-    };
-    // H-29: work units are authoritative. One head probe and one join attempt
-    // each consume one unit of `--max-frag-candidates`. Wall-clock time is only
-    // a safety net and is reported as nondeterministic.
-    let work_budget = opts.max_frag_candidates;
-    let mut work_units = 0usize;
-    let mut candidate_limit = false;
-    let mut time_limit = false;
-    let mut work_limits: Vec<(u64, FileType, u64, u64)> = Vec::new();
-    const MAX_ALTERNATIVES: u64 = 16;
-    // Deep validation is the expensive part of B-06. Once the first verified
-    // stitch for a head is found, a small bounded window is enough to count
-    // alternatives without letting one head consume the entire run.
-    const MAX_JOIN_ATTEMPTS_PER_HEAD: usize = 32;
-    let mut validated_heads: HashMap<String, bool> = HashMap::new();
-    // A contiguous, gap-free carve cannot benefit from B-06; deep-validating
-    // every such head is what burned the whole fragment budget on ordinary
-    // images. Candidates with no output, or with filler inside a contiguous
-    // carve, still need a deep probe even when the normal validator reports
-    // structural completeness.
-    let mut head_probe_required: HashMap<(u64, FileType), bool> = candidates
+) -> FragmentHeadClassification {
+    let mut required: HashMap<(u64, FileType), bool> = candidates
         .iter()
         .map(|cand| ((cand.offset, cand.kind), true))
         .collect();
     // A suspicious contiguous carve is still a B-06 head even if the legacy
     // deep validator labels it `verified`: an interleaved splice can contain a
     // valid selected revision and a valid startxref while its bytes are wrong.
-    let mut force_head: HashMap<(u64, FileType), bool> = candidates
+    let mut force: HashMap<(u64, FileType), bool> = candidates
         .iter()
         .map(|cand| ((cand.offset, cand.kind), true))
         .collect();
-    for file in &kept {
+    for file in kept {
         let key = (file.candidate.offset, file.candidate.kind);
-        let cluster_size = volume_at(volumes, file.candidate.offset)
-            .map(|fs| fs.cluster_size)
-            .unwrap_or(0);
+        let cluster_size =
+            volume_at(volumes, file.candidate.offset).map_or(0, |fs| fs.cluster_size);
         let (needs_probe, forced) = if !file.fragments.is_empty() || file.repaired {
             (false, false)
         } else if file.analysis.status(file.repaired) != Status::Complete {
@@ -2977,8 +3419,8 @@ fn recover_fragments(
                 ));
             (suspicious, suspicious)
         };
-        head_probe_required.insert(key, needs_probe);
-        force_head.insert(key, forced);
+        required.insert(key, needs_probe);
+        force.insert(key, forced);
     }
     // Reuse the digest already computed by the carve stage for unchanged
     // contiguous outputs. Duplicate copies then need no second read, hash or
@@ -3002,24 +3444,114 @@ fn recover_fragments(
             )
         })
         .collect();
+    FragmentHeadClassification {
+        required,
+        force,
+        contiguous_hashes,
+    }
+}
 
+struct FragmentScanState {
+    started: Instant,
+    panicked: HashSet<(u64, FileType)>,
+    successes: Vec<CarvedData>,
+    successful_keys: HashSet<(u64, FileType)>,
+    seen_hashes: HashSet<String>,
+    work_units: usize,
+    candidate_limit: bool,
+    time_limit: bool,
+    work_limits: Vec<WorkLimit>,
+    validated_heads: HashMap<String, bool>,
+}
+
+impl FragmentScanState {
+    fn new(
+        started: Instant,
+        kept: &[CarvedData],
+        opts: &ScanOptions,
+        internal_errors: &[InternalError],
+    ) -> Self {
+        // A candidate that already panicked in the carve stage is not probed a
+        // second time; the single contained panic is enough evidence for the run.
+        let panicked = internal_errors
+            .iter()
+            .map(|error| (error.offset, error.file_type))
+            .collect();
+        let seen_hashes = if opts.dedupe_hashes {
+            kept.iter().map(|f| f.sha256.clone()).collect()
+        } else {
+            HashSet::new()
+        };
+        Self {
+            started,
+            panicked,
+            successes: Vec::new(),
+            successful_keys: HashSet::new(),
+            seen_hashes,
+            work_units: 0,
+            candidate_limit: false,
+            time_limit: false,
+            work_limits: Vec::new(),
+            validated_heads: HashMap::new(),
+        }
+    }
+
+    fn work_budget(&self, opts: &ScanOptions) -> usize {
+        // H-29: work units are authoritative. One head probe and one join
+        // attempt each consume one unit of `--max-frag-candidates`. Wall-clock
+        // time is only a safety net and is reported as nondeterministic.
+        opts.max_frag_candidates
+    }
+
+    fn work_exhausted(&mut self, budget: usize) -> bool {
+        if self.work_units >= budget {
+            self.candidate_limit = true;
+            true
+        } else {
+            false
+        }
+    }
+
+    fn time_exhausted(&mut self, opts: &ScanOptions) -> bool {
+        if self.started.elapsed() >= opts.frag_time_limit {
+            self.time_limit = true;
+            true
+        } else {
+            false
+        }
+    }
+}
+
+// H-34: pure field assembly keeps the original assembly order; a wrapper struct would add indirection without removing state.
+#[allow(clippy::too_many_arguments)]
+fn probe_fragment_heads<'a>(
+    source: &dyn ImageSource,
+    candidates: &'a [Candidate],
+    volumes: &'a [FsInfo],
+    opts: &ScanOptions,
+    budget: &Arc<MemoryBudget>,
+    stop: &Stop,
+    classification: &FragmentHeadClassification,
+    state: &mut FragmentScanState,
+    warnings: &mut Vec<Warning>,
+    internal_errors: &mut Vec<InternalError>,
+) -> Result<Vec<(&'a Candidate, &'a FsInfo)>> {
+    let mut heads = Vec::new();
+    let work_budget = state.work_budget(opts);
     // Pass one: classify heads. Footer scanning is deliberately deferred until
     // at least one candidate fails deep validation, so an ordinary image never
     // pays for the fragment footer index.
-    let mut heads: Vec<(&Candidate, &FsInfo)> = Vec::new();
     for cand in candidates {
         if stop.check() {
             break;
         }
-        if work_units >= work_budget {
-            candidate_limit = true;
+        if state.work_exhausted(work_budget) {
             break;
         }
-        if started.elapsed() >= opts.frag_time_limit {
-            time_limit = true;
+        if state.time_exhausted(opts) {
             break;
         }
-        if panicked.contains(&(cand.offset, cand.kind)) {
+        if state.panicked.contains(&(cand.offset, cand.kind)) {
             continue;
         }
         let Some(fs) = volume_at(volumes, cand.offset) else {
@@ -3029,12 +3561,12 @@ fn recover_fragments(
             continue;
         }
         let key = (cand.offset, cand.kind);
-        if !head_probe_required.get(&key).copied().unwrap_or(true) {
+        if !classification.required.get(&key).copied().unwrap_or(true) {
             continue;
         }
-        let known_hash = contiguous_hashes.get(&key);
+        let known_hash = classification.contiguous_hashes.get(&key);
         let cached_probe = known_hash
-            .and_then(|hash| validated_heads.get(hash))
+            .and_then(|hash| state.validated_heads.get(hash))
             .copied()
             .map(|deep_valid| HeadProbe {
                 deep_valid,
@@ -3042,7 +3574,7 @@ fn recover_fragments(
                 work_limit: None,
             });
         if cached_probe.is_none() {
-            work_units += 1;
+            state.work_units += 1;
         }
         let probe = match cached_probe {
             Some(probe) => probe,
@@ -3053,7 +3585,7 @@ fn recover_fragments(
                     opts,
                     budget,
                     stop,
-                    &mut validated_heads,
+                    &mut state.validated_heads,
                     known_hash.map(String::as_str),
                 )
             })) {
@@ -3089,11 +3621,11 @@ fn recover_fragments(
             ));
         }
         if let Some(limit) = probe.work_limit {
-            work_limits.push(limit);
+            state.work_limits.push(limit);
         }
         if probe.skipped_budget.is_some()
             || probe.work_limit.is_some()
-            || (probe.deep_valid && !force_head.get(&key).copied().unwrap_or(false))
+            || (probe.deep_valid && !classification.force.get(&key).copied().unwrap_or(false))
         {
             // A clean contiguous copy that deep-validates is not a fragmented
             // head; a budget-limited probe cannot safely be classified either
@@ -3103,11 +3635,21 @@ fn recover_fragments(
         }
         heads.push((cand, fs));
     }
+    Ok(heads)
+}
 
+fn scan_fragment_footers(
+    source: &dyn ImageSource,
+    extents: &[Extent],
+    heads: &[(&Candidate, &FsInfo)],
+    opts: &ScanOptions,
+    state: &FragmentScanState,
+    warnings: &mut Vec<Warning>,
+) -> (HashMap<FileType, Vec<u64>>, bool) {
     let mut found: HashMap<FileType, Vec<u64>> =
         opts.types.iter().map(|&kind| (kind, Vec::new())).collect();
     let mut footer_failed = false;
-    if !heads.is_empty() && !time_limit {
+    if !heads.is_empty() && !state.time_limit {
         match find_footers(source, extents, &opts.types, opts) {
             Ok(footers) => found = footers,
             Err(e) => {
@@ -3119,120 +3661,122 @@ fn recover_fragments(
             }
         }
     }
+    (found, footer_failed)
+}
 
-    // Pass two: bounded join attempts for heads that actually failed deep
-    // validation. The work-unit budget stays authoritative across both passes.
-    if !footer_failed && !time_limit {
-        for (cand, fs) in heads {
-            if stop.check() {
-                break;
-            }
-            if work_units >= work_budget {
-                candidate_limit = true;
-                break;
-            }
-            if started.elapsed() >= opts.frag_time_limit {
-                time_limit = true;
-                break;
-            }
-            let Some(footer_hits) = found.get(&cand.kind) else {
-                continue;
-            };
-            if !has_plausible_footer(cand, fs, footer_hits, opts) {
-                continue;
-            }
-            let joins = candidate_joins(source, cand, fs, footer_hits, extents, opts);
-            let mut checks = 0u64;
-            let mut alternatives = 0u64;
-            let mut head_attempts = 0usize;
-            let mut first_success: Option<CarvedData> = None;
+// H-34: the join helper preserves the original bounded-attempt call order; grouping inputs would obscure budget and panic-boundary provenance.
+#[allow(clippy::too_many_arguments)]
+fn attempt_head_joins(
+    source: &dyn ImageSource,
+    cand: &Candidate,
+    fs: &FsInfo,
+    found: &HashMap<FileType, Vec<u64>>,
+    extents: &[Extent],
+    opts: &ScanOptions,
+    budget: &Arc<MemoryBudget>,
+    stop: &Stop,
+    state: &mut FragmentScanState,
+    warnings: &mut Vec<Warning>,
+    internal_errors: &mut Vec<InternalError>,
+) -> Result<Option<CarvedData>> {
+    let Some(footer_hits) = found.get(&cand.kind) else {
+        return Ok(None);
+    };
+    if !has_plausible_footer(cand, fs, footer_hits, opts) {
+        return Ok(None);
+    }
+    let joins = candidate_joins(source, cand, fs, footer_hits, extents, opts);
+    let mut checks = 0u64;
+    let mut alternatives = 0u64;
+    let mut head_attempts = 0usize;
+    let mut first_success: Option<CarvedData> = None;
+    let work_budget = state.work_budget(opts);
 
-            for join in joins {
-                if stop.check() {
-                    break;
+    for join in joins {
+        if stop.check() {
+            break;
+        }
+        if state.work_exhausted(work_budget) {
+            break;
+        }
+        if head_attempts >= MAX_JOIN_ATTEMPTS_PER_HEAD {
+            break;
+        }
+        if state.time_exhausted(opts) {
+            break;
+        }
+        state.work_units += 1;
+        head_attempts += 1;
+        let attempt = match catch_unwind(AssertUnwindSafe(|| {
+            try_fragment_join(source, cand, &join, opts, budget)
+        })) {
+            Ok(Ok(v)) => v,
+            Ok(Err(e)) => {
+                if opts.verbose {
+                    eprintln!("[-] B-06 join at {} failed: {e}", cand.offset);
                 }
-                if work_units >= work_budget {
-                    candidate_limit = true;
-                    break;
+                if e.to_string().contains("--max-memory") {
+                    return Err(e);
                 }
-                if head_attempts >= MAX_JOIN_ATTEMPTS_PER_HEAD {
-                    break;
-                }
-                if started.elapsed() >= opts.frag_time_limit {
-                    time_limit = true;
-                    break;
-                }
-                work_units += 1;
-                head_attempts += 1;
-                let attempt = match catch_unwind(AssertUnwindSafe(|| {
-                    try_fragment_join(source, cand, &join, opts, budget)
-                })) {
-                    Ok(Ok(v)) => v,
-                    Ok(Err(e)) => {
-                        if opts.verbose {
-                            eprintln!("[-] B-06 join at {} failed: {e}", cand.offset);
-                        }
-                        if e.to_string().contains("--max-memory") {
-                            return Err(e);
-                        }
-                        continue;
-                    }
-                    Err(payload) => {
-                        internal_errors.push(InternalError {
-                            offset: cand.offset,
-                            file_type: cand.kind,
-                            message: panic_message(payload.as_ref()),
-                        });
-                        continue;
-                    }
-                };
-                if attempt.deep_checked {
-                    checks += 1;
-                }
-                if let Some(limit) = attempt.work_limit {
-                    work_limits.push(limit);
-                }
-                if let Some((offset, needed)) = attempt.skipped_budget {
-                    warnings.push(Warning::new(
-                        "CANDIDATE_SKIPPED_BUDGET",
-                        format!(
-                            "B-06 candidate at byte {} needs {} which exceeds --max-memory {}",
-                            offset,
-                            human_size(needed),
-                            human_size(budget.limit())
-                        ),
-                    ));
-                }
-                let Some(mut data) = attempt.data else {
-                    continue;
-                };
-                alternatives = alternatives.saturating_add(1);
-                if !seen_hashes.insert(data.sha256.clone()) {
-                    continue;
-                }
-                data.checks = Some(checks);
-                data.alternatives = Some(alternatives);
-                if first_success.is_none() {
-                    first_success = Some(data);
-                }
-                if alternatives >= MAX_ALTERNATIVES || head_attempts >= MAX_JOIN_ATTEMPTS_PER_HEAD {
-                    break;
-                }
+                continue;
             }
-            if let Some(mut data) = first_success {
-                data.alternatives = Some(alternatives);
-                successful_keys.insert((cand.offset, cand.kind));
-                successes.push(data);
+            Err(payload) => {
+                internal_errors.push(InternalError {
+                    offset: cand.offset,
+                    file_type: cand.kind,
+                    message: panic_message(payload.as_ref()),
+                });
+                continue;
             }
+        };
+        if attempt.deep_checked {
+            checks += 1;
+        }
+        if let Some(limit) = attempt.work_limit {
+            state.work_limits.push(limit);
+        }
+        if let Some((offset, needed)) = attempt.skipped_budget {
+            warnings.push(Warning::new(
+                "CANDIDATE_SKIPPED_BUDGET",
+                format!(
+                    "B-06 candidate at byte {} needs {} which exceeds --max-memory {}",
+                    offset,
+                    human_size(needed),
+                    human_size(budget.limit())
+                ),
+            ));
+        }
+        let Some(mut data) = attempt.data else {
+            continue;
+        };
+        alternatives = alternatives.saturating_add(1);
+        if !state.seen_hashes.insert(data.sha256.clone()) {
+            continue;
+        }
+        data.checks = Some(checks);
+        data.alternatives = Some(alternatives);
+        if first_success.is_none() {
+            first_success = Some(data);
+        }
+        if alternatives >= MAX_FRAG_ALTERNATIVES || head_attempts >= MAX_JOIN_ATTEMPTS_PER_HEAD {
+            break;
         }
     }
+    if let Some(mut data) = first_success {
+        data.alternatives = Some(alternatives);
+        Ok(Some(data))
+    } else {
+        Ok(None)
+    }
+}
 
-    if let Some(&(offset, kind, examined, limit)) = work_limits.first() {
+fn append_fragment_warnings(state: &FragmentScanState, warnings: &mut Vec<Warning>) {
+    if let Some(&(offset, kind, examined, limit)) = state.work_limits.first() {
         warnings.push(Warning::new(
             "WORK_LIMIT",
             format!(
                 "{} B-06 probe(s)/join(s) exceeded --max-work-per-candidate {} bytes; first at byte {} ({}) examined {} bytes",
-                work_limits.len(),
+                state.work_limits.len(),
                 limit,
                 offset,
                 kind.label(),
@@ -3240,40 +3784,122 @@ fn recover_fragments(
             ),
         ));
     }
-    if candidate_limit {
+    if state.candidate_limit {
         warnings.push(Warning::new(
             "FRAGMENT_CANDIDATE_LIMIT",
             "B-06 stopped after reaching the authoritative --max-frag-candidates work-unit budget",
         ));
     }
-    if time_limit {
+    if state.time_limit {
         warnings.push(Warning::new(
             "FRAGMENT_TIME_LIMIT",
             "B-06 stopped after reaching the wall-clock --frag-time-limit safety net",
         ));
     }
-
-    kept.retain(|f| {
-        let replaced = successful_keys.contains(&(f.candidate.offset, f.candidate.kind));
-        !replaced
-    });
-    kept.extend(successes);
-    kept.sort_by_key(|f| (f.candidate.offset, f.candidate.kind as u8));
-    Ok(FragmentResult {
-        files: kept,
-        nondeterministic_stop: time_limit,
-    })
 }
 
-fn postfilter(
+fn finalize_fragment_files(mut kept: Vec<CarvedData>, state: FragmentScanState) -> FragmentResult {
+    kept.retain(|f| {
+        let replaced = state
+            .successful_keys
+            .contains(&(f.candidate.offset, f.candidate.kind));
+        !replaced
+    });
+    kept.extend(state.successes);
+    kept.sort_by_key(|f| (f.candidate.offset, f.candidate.kind as u8));
+    FragmentResult {
+        files: kept,
+        nondeterministic_stop: state.time_limit,
+    }
+}
+
+// H-34: the fragment pass keeps its original argument order so work-budget and warning provenance stay auditable.
+#[allow(clippy::too_many_arguments)]
+fn recover_fragments(
+    source: &dyn ImageSource,
+    candidates: &[Candidate],
+    kept: Vec<CarvedData>,
+    extents: &[Extent],
+    volumes: &[FsInfo],
+    opts: &ScanOptions,
+    budget: &Arc<MemoryBudget>,
+    warnings: &mut Vec<Warning>,
+    stop: &Stop,
+    internal_errors: &mut Vec<InternalError>,
+) -> Result<FragmentResult> {
+    let started = Instant::now();
+    if volumes.is_empty() {
+        warnings.push(Warning::new(
+            "FRAGMENT_RECOVERY_SKIPPED",
+            "B-06 needs a detected volume with cluster boundaries; no stitching attempted",
+        ));
+        return Ok(FragmentResult {
+            files: kept,
+            nondeterministic_stop: false,
+        });
+    }
+    let classification = classify_fragment_heads(source, candidates, &kept, volumes);
+    let mut state = FragmentScanState::new(started, &kept, opts, internal_errors);
+    let heads = probe_fragment_heads(
+        source,
+        candidates,
+        volumes,
+        opts,
+        budget,
+        stop,
+        &classification,
+        &mut state,
+        warnings,
+        internal_errors,
+    )?;
+    let (found, footer_failed) =
+        scan_fragment_footers(source, extents, &heads, opts, &state, warnings);
+
+    // Pass two: bounded join attempts for heads that actually failed deep
+    // validation. The work-unit budget stays authoritative across both passes.
+    if !footer_failed && !state.time_limit {
+        for (cand, fs) in heads {
+            if stop.check() {
+                break;
+            }
+            if state.work_exhausted(state.work_budget(opts)) {
+                break;
+            }
+            if state.time_exhausted(opts) {
+                break;
+            }
+            if let Some(data) = attempt_head_joins(
+                source,
+                cand,
+                fs,
+                &found,
+                extents,
+                opts,
+                budget,
+                stop,
+                &mut state,
+                warnings,
+                internal_errors,
+            )? {
+                state.successful_keys.insert((cand.offset, cand.kind));
+                state.successes.push(data);
+            }
+        }
+    }
+
+    append_fragment_warnings(&state, warnings);
+    Ok(finalize_fragment_files(kept, state))
+}
+
+fn collect_outcomes(
     outcomes: Vec<CarveOutcome>,
     opts: &ScanOptions,
     stats: &mut ScanStats,
     warnings: &mut Vec<Warning>,
     internal_errors: &mut Vec<InternalError>,
-) -> Vec<CarvedData> {
+) -> (Vec<CarvedData>, Vec<WorkLimit>) {
     let mut candidates: Vec<CarvedData> = Vec::new();
-    let mut work_limited: Vec<(u64, FileType, u64, u64)> = Vec::new();
+    let mut work_limited: Vec<WorkLimit> = Vec::new();
     for outcome in outcomes {
         match outcome {
             CarveOutcome::Carved(data) => candidates.push(*data),
@@ -3343,56 +3969,116 @@ fn postfilter(
             }
         }
     }
+    (candidates, work_limited)
+}
 
-    if opts.suppress_nested && candidates.len() > 1 {
-        let mut keep = vec![true; candidates.len()];
-        let mut order: Vec<usize> = (0..candidates.len()).collect();
-        order.sort_by_key(|&i| {
-            (
-                candidates[i].candidate.offset,
-                std::cmp::Reverse(candidates[i].analysis.end),
-            )
-        });
-        let mut stack: Vec<usize> = Vec::new();
-        for i in order {
-            let child_start = candidates[i].candidate.offset;
-            let child_end = child_start.saturating_add(candidates[i].analysis.end as u64);
-            while let Some(&top) = stack.last() {
-                let parent_end = candidates[top]
-                    .candidate
-                    .offset
-                    .saturating_add(candidates[top].analysis.end as u64);
-                if parent_end <= child_start {
-                    stack.pop();
-                } else {
-                    break;
-                }
+fn suppressed_flags(
+    candidates: &[CarvedData],
+    stats: &mut ScanStats,
+    opts: &ScanOptions,
+) -> Vec<bool> {
+    let mut keep = vec![true; candidates.len()];
+    let mut order: Vec<usize> = (0..candidates.len()).collect();
+    order.sort_by_key(|&i| {
+        (
+            candidates[i].candidate.offset,
+            std::cmp::Reverse(candidates[i].analysis.end),
+        )
+    });
+    let mut stack: Vec<usize> = Vec::new();
+    for i in order {
+        let child_start = candidates[i].candidate.offset;
+        let child_end = child_start.saturating_add(candidates[i].analysis.end as u64);
+        while let Some(&top) = stack.last() {
+            let parent_end = candidates[top]
+                .candidate
+                .offset
+                .saturating_add(candidates[top].analysis.end as u64);
+            if parent_end <= child_start {
+                stack.pop();
+            } else {
+                break;
             }
-            let parent = stack.iter().rev().copied().find(|&j| {
-                let p = &candidates[j];
-                let p_start = p.candidate.offset;
-                let p_end = p_start.saturating_add(p.analysis.end as u64);
-                p.analysis.complete
-                    && p.analysis.end > candidates[i].analysis.end
-                    && p_start <= child_start
-                    && p_end >= child_end
-            });
-            if let Some(j) = parent {
-                keep[i] = false;
-                stats.suppressed_nested += 1;
-                if opts.verbose {
-                    eprintln!(
-                        "[-] nested object {} at offset {} suppressed inside {} at offset {}",
-                        candidates[i].candidate.kind.label(),
-                        child_start,
-                        candidates[j].candidate.kind.label(),
-                        candidates[j].candidate.offset
-                    );
-                }
-                continue;
-            }
-            stack.push(i);
         }
+        let parent = stack.iter().rev().copied().find(|&j| {
+            let p = &candidates[j];
+            let p_start = p.candidate.offset;
+            let p_end = p_start.saturating_add(p.analysis.end as u64);
+            p.analysis.complete
+                && p.analysis.end > candidates[i].analysis.end
+                && p_start <= child_start
+                && p_end >= child_end
+        });
+        if let Some(j) = parent {
+            keep[i] = false;
+            stats.suppressed_nested += 1;
+            if opts.verbose {
+                eprintln!(
+                    "[-] nested object {} at offset {} suppressed inside {} at offset {}",
+                    candidates[i].candidate.kind.label(),
+                    child_start,
+                    candidates[j].candidate.kind.label(),
+                    candidates[j].candidate.offset
+                );
+            }
+            continue;
+        }
+        stack.push(i);
+    }
+    keep
+}
+
+fn dedupe_candidates(
+    candidates: Vec<CarvedData>,
+    stats: &mut ScanStats,
+    opts: &ScanOptions,
+) -> Vec<CarvedData> {
+    let mut seen: HashMap<String, u64> = HashMap::new();
+    let mut kept = Vec::with_capacity(candidates.len());
+    for data in candidates {
+        if let Some(prev) = seen.get(&data.sha256) {
+            stats.duplicate_hashes += 1;
+            if opts.verbose {
+                eprintln!(
+                    "[-] duplicate hash of #{prev:05} at offset {}",
+                    data.candidate.offset
+                );
+            }
+        } else {
+            let seq = kept.len() as u64 + 1;
+            seen.insert(data.sha256.clone(), seq);
+            kept.push(data);
+        }
+    }
+    kept
+}
+
+fn work_limit_warning(first: &WorkLimit, count: usize) -> Warning {
+    let (offset, kind, examined, limit) = *first;
+    Warning::new(
+        "WORK_LIMIT",
+        format!(
+            "{} candidate(s) exceeded --max-work-per-candidate {} bytes;                  first at byte {} ({}) examined {} bytes",
+            count,
+            limit,
+            offset,
+            kind.label(),
+            examined
+        ),
+    )
+}
+
+fn postfilter(
+    outcomes: Vec<CarveOutcome>,
+    opts: &ScanOptions,
+    stats: &mut ScanStats,
+    warnings: &mut Vec<Warning>,
+    internal_errors: &mut Vec<InternalError>,
+) -> Vec<CarvedData> {
+    let (mut candidates, work_limited) =
+        collect_outcomes(outcomes, opts, stats, warnings, internal_errors);
+    if opts.suppress_nested && candidates.len() > 1 {
+        let keep = suppressed_flags(&candidates, stats, opts);
         let mut idx = 0usize;
         candidates.retain(|_c| {
             let keep_this = keep[idx];
@@ -3400,39 +4086,11 @@ fn postfilter(
             keep_this
         });
     }
-
     if opts.dedupe_hashes {
-        let mut seen: HashMap<String, u64> = HashMap::new();
-        let mut kept = Vec::with_capacity(candidates.len());
-        for data in candidates {
-            if let Some(prev) = seen.get(&data.sha256) {
-                stats.duplicate_hashes += 1;
-                if opts.verbose {
-                    eprintln!(
-                        "[-] duplicate hash of #{prev:05} at offset {}",
-                        data.candidate.offset
-                    );
-                }
-            } else {
-                let seq = kept.len() as u64 + 1;
-                seen.insert(data.sha256.clone(), seq);
-                kept.push(data);
-            }
-        }
-        candidates = kept;
+        candidates = dedupe_candidates(candidates, stats, opts);
     }
-    if let Some(&(offset, kind, examined, limit)) = work_limited.first() {
-        warnings.push(Warning::new(
-            "WORK_LIMIT",
-            format!(
-                "{} candidate(s) exceeded --max-work-per-candidate {} bytes;                  first at byte {} ({}) examined {} bytes",
-                work_limited.len(),
-                limit,
-                offset,
-                kind.label(),
-                examined
-            ),
-        ));
+    if let Some(first) = work_limited.first() {
+        warnings.push(work_limit_warning(first, work_limited.len()));
     }
     candidates
 }
@@ -3464,6 +4122,161 @@ fn stream_range(
     Ok(())
 }
 
+struct OutputPaths {
+    seq: u64,
+    rel_path: String,
+    path: PathBuf,
+    tmp: PathBuf,
+}
+
+fn output_paths(
+    idx: usize,
+    data: &CarvedData,
+    volumes: &[FsInfo],
+    multi: bool,
+    out_dir: &Path,
+) -> OutputPaths {
+    let seq = idx as u64 + 1;
+    let filename = format!(
+        "{:05}_{}_{:016x}.{}",
+        seq,
+        data.candidate.kind.ext(),
+        data.candidate.offset,
+        data.candidate.kind.ext()
+    );
+    let rel_path = if multi {
+        let part = volumes
+            .iter()
+            .position(|v| {
+                data.candidate.offset >= v.offset
+                    && data.candidate.offset < v.offset.saturating_add(v.length)
+            })
+            .map_or(1, |i| volumes[i].partition_index.unwrap_or(i + 1));
+        format!("part{part}/{filename}")
+    } else {
+        filename.clone()
+    };
+    let path = out_dir.join(&rel_path);
+    let tmp = path.with_extension(format!(
+        "{}.tmp{}-{}",
+        path.extension().and_then(|e| e.to_str()).unwrap_or("bin"),
+        std::process::id(),
+        seq
+    ));
+    OutputPaths {
+        seq,
+        rel_path,
+        path,
+        tmp,
+    }
+}
+
+fn stream_file_digest(
+    source: &dyn ImageSource,
+    tmp: &Path,
+    data: &CarvedData,
+    scratch: &mut [u8],
+) -> Result<String> {
+    let mut file = File::create(tmp)
+        .with_context(|| format!("cannot create temporary file '{}'", tmp.display()))?;
+    let mut hasher = sha2::Sha256::new();
+    match &data.payload {
+        PayloadSpec::Range { offset, len } => {
+            stream_range(source, &mut file, &mut hasher, *offset, *len, scratch)?;
+        }
+        PayloadSpec::Join { fragments } => {
+            for fragment in fragments {
+                stream_range(
+                    source,
+                    &mut file,
+                    &mut hasher,
+                    fragment.offset,
+                    fragment.len,
+                    scratch,
+                )?;
+            }
+        }
+    }
+    if !data.repair_suffix.is_empty() {
+        file.write_all(&data.repair_suffix)
+            .with_context(|| "cannot append repair suffix")?;
+        hasher.update(&data.repair_suffix);
+    }
+    file.sync_all()
+        .with_context(|| format!("cannot flush temporary file '{}'", tmp.display()))?;
+    drop(file);
+    Ok(hex(&hasher.finalize()))
+}
+
+fn source_changed_warning(data: &CarvedData, rel_path: &str, digest: &str) -> Warning {
+    Warning::new(
+        "SOURCE_CHANGED",
+        format!(
+            "source bytes at offset {} changed before writing {}; expected {}, wrote {}",
+            data.candidate.offset, rel_path, data.sha256, digest
+        ),
+    )
+}
+
+fn build_carved_file(
+    seq: u64,
+    data: &CarvedData,
+    rel_path: String,
+    volumes: &[FsInfo],
+    mode: ScanMode,
+) -> CarvedFile {
+    let mut notes = data.analysis.notes.clone();
+    notes.extend(data.validation_notes.iter().cloned());
+    let (lba, cluster, allocated, partition_index) =
+        allocation_metadata(data.candidate.offset, volumes, mode);
+    CarvedFile {
+        seq,
+        file_type: data.candidate.kind,
+        offset: data.candidate.offset,
+        size: data.output_len,
+        carved_size: data.analysis.end as u64,
+        sha256: data.sha256.clone(),
+        status: data.analysis.status(data.repaired),
+        score: data.analysis.score,
+        width: data.analysis.width,
+        height: data.analysis.height,
+        repaired: data.repaired,
+        path: rel_path,
+        notes,
+        validation: data.validation,
+        validity: data.validity,
+        validated_bytes: data.validated_bytes,
+        lba,
+        cluster,
+        partition_index,
+        extent_id: data.candidate.extent_id,
+        allocated,
+        source: if data.fragments.len() > 1 {
+            "bgc".into()
+        } else {
+            "carve".into()
+        },
+        fragments: data.fragments.clone(),
+        validation_checks: data.validation_checks.clone(),
+        checks: data.checks,
+        confidence: data.confidence,
+        alternatives: data.alternatives,
+        sha256_original: data.sha256_original.clone(),
+    }
+}
+
+fn output_limit_warning(skipped_output: usize, written: u64, output_limit: u64) -> Warning {
+    Warning::new(
+        "OUTPUT_LIMIT",
+        format!(
+            "--max-output {} reached after {} byte(s); {skipped_output} candidate(s) were not written",
+            human_size(output_limit),
+            written
+        ),
+    )
+}
+
+// H-34: pure field assembly keeps the original assembly order; a wrapper struct would add indirection without removing state.
 #[allow(clippy::too_many_arguments)]
 fn write_outputs(
     source: &dyn ImageSource,
@@ -3500,141 +4313,44 @@ fn write_outputs(
             skipped_output = files.len().saturating_sub(idx);
             break;
         }
-        let seq = idx as u64 + 1;
-        let filename = format!(
-            "{:05}_{}_{:016x}.{}",
-            seq,
-            data.candidate.kind.ext(),
-            data.candidate.offset,
-            data.candidate.kind.ext()
-        );
-        let rel_path = if multi {
-            let part = volumes
-                .iter()
-                .position(|v| {
-                    data.candidate.offset >= v.offset
-                        && data.candidate.offset < v.offset.saturating_add(v.length)
-                })
-                .map(|i| volumes[i].partition_index.unwrap_or(i + 1))
-                .unwrap_or(1);
-            format!("part{part}/{filename}")
-        } else {
-            filename.clone()
-        };
-        let path = out_dir.join(&rel_path);
-        if let Some(parent) = path.parent() {
+        let paths = output_paths(idx, data, volumes, multi, out_dir);
+        if let Some(parent) = paths.path.parent() {
             fs::create_dir_all(parent).with_context(|| {
                 format!("cannot create output directory '{}'", parent.display())
             })?;
         }
-        let tmp = path.with_extension(format!(
-            "{}.tmp{}-{}",
-            path.extension().and_then(|e| e.to_str()).unwrap_or("bin"),
-            std::process::id(),
-            seq
-        ));
 
-        let digest = (|| -> Result<String> {
-            let mut file = File::create(&tmp)
-                .with_context(|| format!("cannot create temporary file '{}'", tmp.display()))?;
-            let mut hasher = sha2::Sha256::new();
-            match &data.payload {
-                PayloadSpec::Range { offset, len } => {
-                    stream_range(source, &mut file, &mut hasher, *offset, *len, &mut scratch)?;
-                }
-                PayloadSpec::Join { fragments } => {
-                    for fragment in fragments {
-                        stream_range(
-                            source,
-                            &mut file,
-                            &mut hasher,
-                            fragment.offset,
-                            fragment.len,
-                            &mut scratch,
-                        )?;
-                    }
-                }
-            }
-            if !data.repair_suffix.is_empty() {
-                file.write_all(&data.repair_suffix)
-                    .with_context(|| "cannot append repair suffix")?;
-                hasher.update(&data.repair_suffix);
-            }
-            file.sync_all()
-                .with_context(|| format!("cannot flush temporary file '{}'", tmp.display()))?;
-            drop(file);
-            Ok(hex(&hasher.finalize()))
-        })();
-        let digest = match digest {
+        let digest = match stream_file_digest(source, &paths.tmp, data, &mut scratch) {
             Ok(digest) => digest,
             Err(e) => {
-                let _ = fs::remove_file(&tmp);
+                let _ = fs::remove_file(&paths.tmp);
                 return Err(e);
             }
         };
         if digest != data.sha256 {
-            let _ = fs::remove_file(&tmp);
+            let _ = fs::remove_file(&paths.tmp);
             stats.rejected = stats.rejected.saturating_add(1);
-            warnings.push(Warning::new(
-                "SOURCE_CHANGED",
-                format!(
-                    "source bytes at offset {} changed before writing {}; expected {}, wrote {}",
-                    data.candidate.offset, rel_path, data.sha256, digest
-                ),
-            ));
+            warnings.push(source_changed_warning(data, &paths.rel_path, &digest));
             continue;
         }
-        if path.exists() {
-            fs::remove_file(&path)
-                .with_context(|| format!("cannot replace '{}'", path.display()))?;
+        if paths.path.exists() {
+            fs::remove_file(&paths.path)
+                .with_context(|| format!("cannot replace '{}'", paths.path.display()))?;
         }
-        if let Err(e) = fs::rename(&tmp, &path) {
-            let _ = fs::remove_file(&tmp);
+        if let Err(e) = fs::rename(&paths.tmp, &paths.path) {
+            let _ = fs::remove_file(&paths.tmp);
             return Err(e).with_context(|| {
-                format!("cannot rename '{}' to '{}'", tmp.display(), path.display())
+                format!(
+                    "cannot rename '{}' to '{}'",
+                    paths.tmp.display(),
+                    paths.path.display()
+                )
             });
         }
 
         written = written.saturating_add(data.output_len);
         stats.bytes_written = stats.bytes_written.saturating_add(data.output_len);
-        let mut notes = data.analysis.notes.clone();
-        notes.extend(data.validation_notes.iter().cloned());
-        let (lba, cluster, allocated, partition_index) =
-            allocation_metadata(data.candidate.offset, volumes, mode);
-        let record = CarvedFile {
-            seq,
-            file_type: data.candidate.kind,
-            offset: data.candidate.offset,
-            size: data.output_len,
-            carved_size: data.analysis.end as u64,
-            sha256: data.sha256.clone(),
-            status: data.analysis.status(data.repaired),
-            score: data.analysis.score,
-            width: data.analysis.width,
-            height: data.analysis.height,
-            repaired: data.repaired,
-            path: rel_path,
-            notes,
-            validation: data.validation,
-            validity: data.validity,
-            validated_bytes: data.validated_bytes,
-            lba,
-            cluster,
-            partition_index,
-            extent_id: data.candidate.extent_id,
-            allocated,
-            source: if data.fragments.len() > 1 {
-                "bgc".into()
-            } else {
-                "carve".into()
-            },
-            fragments: data.fragments.clone(),
-            validation_checks: data.validation_checks.clone(),
-            checks: data.checks,
-            confidence: data.confidence,
-            alternatives: data.alternatives,
-            sha256_original: data.sha256_original.clone(),
-        };
+        let record = build_carved_file(paths.seq, data, paths.rel_path, volumes, mode);
         if !opts.quiet && (opts.verbose || idx < 20) {
             eprintln!(
                 "[+] {:<4} offset={:>12} size={:>9} score={:>3} {} {}",
@@ -3649,14 +4365,7 @@ fn write_outputs(
         records.push(record);
     }
     if skipped_output > 0 {
-        warnings.push(Warning::new(
-            "OUTPUT_LIMIT",
-            format!(
-                "--max-output {} reached after {} byte(s); {skipped_output} candidate(s) were not written",
-                human_size(output_limit),
-                written
-            ),
-        ));
+        warnings.push(output_limit_warning(skipped_output, written, output_limit));
     }
     Ok((records, warnings))
 }

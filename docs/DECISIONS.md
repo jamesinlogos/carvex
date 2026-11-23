@@ -1071,3 +1071,37 @@ decision, and the consequences.
   historical Pillow sentence in `docs/REPORT.md` is retained as a published
   figure, with an added honesty note that it records a structural check rather
   than pixel verification; no count, hash or conclusion changed.
+
+## D-58. Apply A-10 quality limits as behavior-preserving stages (H-34)
+
+- **Context:** the reviewer's function lengths were heuristic, so H-34 required
+  a tool check first. With `too-many-lines-threshold = 120`, clippy reported 15
+  non-test functions over the limit (largest `cli::scan` 360 lines) plus one
+  121-line test. Enabling `missing_docs`, `pedantic` and `too_many_lines`
+  together produced 698 warnings. The repository had no public `missing_docs`
+  lint and no staged pedantic configuration.
+- **Decision:** long functions are split only by moving code into named helpers;
+  no branch, read, budget check, warning, score or output-path logic is
+  rewritten. `clippy.toml` fixes the threshold at 120 lines for non-test
+  functions. `src/lib.rs` enables `#![warn(missing_docs)]` and documents the
+  whole public API. Pedantic linting is staged: stage 1 enables
+  `cloned_instead_of_copied`, `doc_markdown`, `field_reassign_with_default`,
+  `manual_let_else`, `map_unwrap_or`, `redundant_closure_for_method_calls`,
+  `stable_sort_primitive` and `uninlined_format_args`. Stage 2 (numeric casts)
+  and stage 3 (API ergonomics such as `must_use` and argument-count redesign)
+  are deferred so no cast needs a blanket `allow` and each stage stays
+  reviewable. Every retained `too_many_arguments` allow has a comment explaining
+  that the argument order preserves provenance; the sole `too_many_lines` allow
+  is test-only and justified at the test.
+- **Evidence:** the verbatim red inventory is in
+  `docs/baseline/h34_static_red.txt` and `docs/baseline/h34_static_red_all.txt`;
+  the clean checks are in `docs/baseline/h34_static_green.txt`. The `WORK_LIMIT`
+  string was byte-compared with `HEAD:src/scan.rs`, and the multiset of string
+  literals in that file is unchanged. `FragmentScanState` takes its start time
+  at `recover_fragments` entry so head-classification reads still consume the
+  `--frag-time-limit` safety net. G7 golden output and the full G0-G9 gate are
+  green after the refactor.
+- **Consequences:** no CLI flag, default, JSON/CSV field, warning code or
+  meaning, score, emission, output name, frozen benchmark, published figure or
+  raw-image path changed. A-10 can be marked resolved only after the separate
+  H-34 commit-hash backfill; D-03 remains PARTIAL because H-04 is still blocked.
