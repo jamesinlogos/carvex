@@ -1,0 +1,3 @@
+# PDF fixtures embed byte offsets (startxref/xref); line-ending conversion
+# makes Windows checkouts fail PDF structure tests. Keep all PDFs byte-exact.
+*.pdf -text
