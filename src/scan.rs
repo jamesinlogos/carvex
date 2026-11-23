@@ -84,7 +84,7 @@ impl Interrupt {
         }
     }
 
-    /// The `requested` method.
+    /// Method.
     pub fn requested(&self) -> bool {
         self.inner.requested.load(Ordering::SeqCst)
     }
@@ -121,12 +121,12 @@ pub fn install_interrupt_handler() -> Result<Interrupt> {
 /// A contained panic in one candidate or fragment-join attempt.
 #[derive(Debug, Clone, Serialize)]
 pub struct InternalError {
-    /// The `offset` field of `InternalError`.
+    /// Byte offset in the source image.
     pub offset: u64,
-    /// The `file_type` field of `InternalError`.
+    /// Detected file type.
     #[serde(rename = "type")]
     pub file_type: FileType,
-    /// The `message` field of `InternalError`.
+    /// Human-readable message.
     pub message: String,
 }
 
@@ -386,7 +386,7 @@ pub enum ScanMode {
 }
 
 impl ScanMode {
-    /// The `as_str` method.
+    /// Method.
     pub fn as_str(self) -> &'static str {
         match self {
             ScanMode::Auto => "auto",
@@ -412,52 +412,52 @@ pub enum AlignMode {
     Sector,
 }
 
-/// The `ScanOptions` structure.
+/// Configuration/data structure.
 #[derive(Clone)]
 pub struct ScanOptions {
-    /// The `types` field of `ScanOptions`.
+    /// File types enabled for this scan.
     pub types: Vec<FileType>,
-    /// The `mode` field of `ScanOptions`.
+    /// Scan mode (raw or filesystem-aware).
     pub mode: ScanMode,
-    /// The `min_size` field of `ScanOptions`.
+    /// Minimum carved file size in bytes.
     pub min_size: u64,
-    /// The `max_size` field of `ScanOptions`.
+    /// Maximum carved file size in bytes.
     pub max_size: u64,
-    /// The `max_truncated_size` field of `ScanOptions`.
+    /// Maximum size for truncated/partial carvings in bytes.
     pub max_truncated_size: u64,
-    /// The `max_memory` field of `ScanOptions`.
+    /// Maximum working memory budget in bytes.
     pub max_memory: u64,
     /// Maximum working memory for one decode validator
     /// (0 = the default validator bound).  The legacy report field
     /// `max_decode_bytes` mirrors this value.
     pub max_validator_memory: u64,
-    /// The `chunk_size` field of `ScanOptions`.
+    /// Scan chunk size in bytes.
     pub chunk_size: u64,
-    /// The `threads` field of `ScanOptions`.
+    /// Number of worker threads (0 = auto).
     pub threads: usize,
-    /// The `min_score` field of `ScanOptions`.
+    /// Minimum heuristic score to emit.
     pub min_score: u8,
-    /// The `repair` field of `ScanOptions`.
+    /// Whether repair attempts are enabled.
     pub repair: bool,
-    /// The `complete_only` field of `ScanOptions`.
+    /// Emit only complete files when true.
     pub complete_only: bool,
-    /// The `pdf_eof` field of `ScanOptions`.
+    /// PDF EOF handling mode.
     pub pdf_eof: PdfEofMode,
-    /// The `dedupe_hashes` field of `ScanOptions`.
+    /// Whether to dedupe by content hash.
     pub dedupe_hashes: bool,
-    /// The `suppress_nested` field of `ScanOptions`.
+    /// Whether to suppress nested carvings.
     pub suppress_nested: bool,
-    /// The `validate` field of `ScanOptions`.
+    /// Validation mode.
     pub validate: ValidationMode,
-    /// The `align` field of `ScanOptions`.
+    /// Alignment requirement in bytes.
     pub align: AlignMode,
-    /// The `force` field of `ScanOptions`.
+    /// Overwrite existing output when true.
     pub force: bool,
-    /// The `quiet` field of `ScanOptions`.
+    /// Suppress non-essential console output.
     pub quiet: bool,
-    /// The `verbose` field of `ScanOptions`.
+    /// Enable verbose console output.
     pub verbose: bool,
-    /// The `manifest` field of `ScanOptions`.
+    /// Manifest output path, if requested.
     pub manifest: bool,
     /// Partition selection in effect (`largest`, `all` or a 1-based number).
     pub partition: String,
@@ -678,15 +678,15 @@ fn build_input_info(
 /// Run-specific metadata that is not a scanning option.
 #[derive(Debug, Clone)]
 pub struct ScanContext {
-    /// The `argv` field of `ScanContext`.
+    /// Command-line arguments used for the run.
     pub argv: Vec<String>,
-    /// The `case_id` field of `ScanContext`.
+    /// Case identifier, if provided.
     pub case_id: Option<String>,
-    /// The `examiner` field of `ScanContext`.
+    /// Examiner name, if provided.
     pub examiner: Option<String>,
-    /// The `image_sha256` field of `ScanContext`.
+    /// SHA-256 of the input image before scan.
     pub image_sha256: Option<String>,
-    /// The `image_mtime` field of `ScanContext`.
+    /// Input image mtime (Unix seconds) before scan.
     pub image_mtime: Option<u64>,
     /// Resolved container format emitted in `input.format`.
     pub input_format: String,
@@ -708,41 +708,41 @@ impl Default for ScanContext {
     }
 }
 
-/// The `ToolInfo` structure.
+/// Configuration/data structure.
 #[derive(Debug, Clone, Serialize)]
 pub struct ToolInfo {
-    /// The `name` field of `ToolInfo`.
+    /// Name.
     pub name: String,
-    /// The `version` field of `ToolInfo`.
+    /// Version string.
     pub version: String,
-    /// The `commit` field of `ToolInfo`.
+    /// Source commit hash, when known.
     pub commit: String,
 }
 
-/// The `InputInfo` structure.
+/// Configuration/data structure.
 #[derive(Debug, Clone, Serialize)]
 pub struct InputInfo {
-    /// The `path` field of `InputInfo`.
+    /// Path on disk.
     pub path: String,
-    /// The `size` field of `InputInfo`.
+    /// Size in bytes.
     pub size: u64,
-    /// The `sha256` field of `InputInfo`.
+    /// SHA-256 digest.
     pub sha256: Option<String>,
-    /// The `modified_unix` field of `InputInfo`.
+    /// Modification time as Unix seconds.
     pub modified_unix: Option<u64>,
-    /// The `size_after` field of `InputInfo`.
+    /// Input size after scan, when rechecked.
     pub size_after: u64,
-    /// The `modified_unix_after` field of `InputInfo`.
+    /// Input mtime after scan, when rechecked.
     pub modified_unix_after: Option<u64>,
     /// Unknown for stdin, which has no stable backing path (H-25).
     pub unchanged: Option<bool>,
     /// Logical image bytes exposed by the container (H-25).
     pub logical_size: u64,
-    /// The `logical_size_after` field of `InputInfo`.
+    /// Logical input size after scan, when rechecked.
     pub logical_size_after: u64,
     /// Sum of the physical bytes in the backing files (H-25).
     pub physical_size: u64,
-    /// The `physical_size_after` field of `InputInfo`.
+    /// Physical input size after scan, when rechecked.
     pub physical_size_after: u64,
     /// Resolved container format, never `auto` (H-25).
     pub format: String,
@@ -750,79 +750,79 @@ pub struct InputInfo {
     pub files: Vec<crate::io::SourceFile>,
 }
 
-/// The `ReportOptions` structure.
+/// Configuration/data structure.
 #[derive(Debug, Clone, Serialize)]
 pub struct ReportOptions {
-    /// The `types` field of `ReportOptions`.
+    /// File types enabled for this scan.
     pub types: Vec<String>,
-    /// The `mode` field of `ReportOptions`.
+    /// Scan mode (raw or filesystem-aware).
     pub mode: String,
-    /// The `min_size` field of `ReportOptions`.
+    /// Minimum carved file size in bytes.
     pub min_size: u64,
-    /// The `max_size` field of `ReportOptions`.
+    /// Maximum carved file size in bytes.
     pub max_size: u64,
-    /// The `max_truncated_size` field of `ReportOptions`.
+    /// Maximum size for truncated/partial carvings in bytes.
     pub max_truncated_size: u64,
-    /// The `max_memory` field of `ReportOptions`.
+    /// Maximum working memory budget in bytes.
     pub max_memory: u64,
-    /// The `max_decode_bytes` field of `ReportOptions`.
+    /// Maximum bytes decoded by validators.
     pub max_decode_bytes: u64,
     /// H-05: authoritative name for the shared decode-validator budget.
     pub max_validator_memory: u64,
-    /// The `chunk_size` field of `ReportOptions`.
+    /// Scan chunk size in bytes.
     pub chunk_size: u64,
-    /// The `threads` field of `ReportOptions`.
+    /// Number of worker threads (0 = auto).
     pub threads: usize,
-    /// The `min_score` field of `ReportOptions`.
+    /// Minimum heuristic score to emit.
     pub min_score: u8,
-    /// The `repair` field of `ReportOptions`.
+    /// Whether repair attempts are enabled.
     pub repair: bool,
-    /// The `complete_only` field of `ReportOptions`.
+    /// Emit only complete files when true.
     pub complete_only: bool,
-    /// The `pdf_eof` field of `ReportOptions`.
+    /// PDF EOF handling mode.
     pub pdf_eof: String,
-    /// The `dedupe_hashes` field of `ReportOptions`.
+    /// Whether to dedupe by content hash.
     pub dedupe_hashes: bool,
-    /// The `suppress_nested` field of `ReportOptions`.
+    /// Whether to suppress nested carvings.
     pub suppress_nested: bool,
-    /// The `validate` field of `ReportOptions`.
+    /// Validation mode.
     pub validate: ValidationMode,
-    /// The `align` field of `ReportOptions`.
+    /// Alignment requirement in bytes.
     pub align: AlignMode,
-    /// The `partition` field of `ReportOptions`.
+    /// Partition selection mode.
     pub partition: String,
-    /// The `include_gaps` field of `ReportOptions`.
+    /// Whether to include gaps between partitions.
     pub include_gaps: bool,
-    /// The `max_candidates` field of `ReportOptions`.
+    /// Maximum number of candidates to process.
     pub max_candidates: u64,
-    /// The `max_work_per_candidate` field of `ReportOptions`.
+    /// Maximum work units per candidate.
     pub max_work_per_candidate: u64,
-    /// The `max_output` field of `ReportOptions`.
+    /// Maximum total output bytes.
     pub max_output: u64,
-    /// The `time_budget_ms` field of `ReportOptions`.
+    /// Wall-clock time budget in milliseconds.
     pub time_budget_ms: u64,
     /// Effective `regions[]` detail cap (0 = unlimited; H-27).
     pub max_regions: u64,
-    /// The `fragment_recovery` field of `ReportOptions`.
+    /// Whether fragment recovery is enabled.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fragment_recovery: Option<bool>,
-    /// The `max_gap` field of `ReportOptions`.
+    /// Maximum fragment gap in bytes/clusters as configured.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_gap: Option<u64>,
-    /// The `max_frag_candidates` field of `ReportOptions`.
+    /// Maximum fragment candidates to consider.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_frag_candidates: Option<u64>,
-    /// The `frag_time_limit_ms` field of `ReportOptions`.
+    /// Fragment recovery time limit in milliseconds.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub frag_time_limit_ms: Option<u64>,
 }
 
-/// The `Fragment` structure.
+/// Configuration/data structure.
 #[derive(Debug, Clone, Serialize)]
 pub struct Fragment {
-    /// The `offset` field of `Fragment`.
+    /// Byte offset in the source image.
     pub offset: u64,
-    /// The `len` field of `Fragment`.
+    /// Length in bytes.
     pub len: u64,
 }
 
@@ -832,9 +832,9 @@ pub struct Fragment {
 /// exit with code 3 (finished but incomplete, see `docs/DECISIONS.md`).
 #[derive(Debug, Clone, Serialize)]
 pub struct Warning {
-    /// The `code` field of `Warning`.
+    /// Warning code.
     pub code: String,
-    /// The `message` field of `Warning`.
+    /// Human-readable message.
     pub message: String,
 }
 
@@ -879,17 +879,17 @@ impl Warning {
 pub struct VolumeSummary {
     /// 1-based position among the detected volumes.
     pub index: usize,
-    /// The `fs` field of `VolumeSummary`.
+    /// Filesystem kind/name.
     pub fs: String,
-    /// The `offset` field of `VolumeSummary`.
+    /// Byte offset in the source image.
     pub offset: u64,
-    /// The `length` field of `VolumeSummary`.
+    /// Length in bytes.
     pub length: u64,
-    /// The `cluster_size` field of `VolumeSummary`.
+    /// Cluster size in bytes.
     pub cluster_size: u64,
-    /// The `free_bytes` field of `VolumeSummary`.
+    /// Free bytes in the volume.
     pub free_bytes: u64,
-    /// The `partition_index` field of `VolumeSummary`.
+    /// Partition index, when applicable.
     pub partition_index: Option<usize>,
     /// Whether this run reads the volume.
     pub scanned: bool,
@@ -911,55 +911,55 @@ impl VolumeSummary {
     }
 }
 
-/// The `CarvedFile` structure.
+/// Configuration/data structure.
 #[derive(Debug, Clone, Serialize)]
 pub struct CarvedFile {
-    /// The `seq` field of `CarvedFile`.
+    /// Sequence number in scan output.
     pub seq: u64,
-    /// The `file_type` field of `CarvedFile`.
+    /// Detected file type.
     #[serde(rename = "type")]
     pub file_type: FileType,
-    /// The `offset` field of `CarvedFile`.
+    /// Byte offset in the source image.
     pub offset: u64,
-    /// The `size` field of `CarvedFile`.
+    /// Size in bytes.
     pub size: u64,
-    /// The `carved_size` field of `CarvedFile`.
+    /// Bytes carved/written for this file.
     pub carved_size: u64,
-    /// The `sha256` field of `CarvedFile`.
+    /// SHA-256 digest.
     pub sha256: String,
-    /// The `status` field of `CarvedFile`.
+    /// Legacy status label.
     pub status: Status,
-    /// The `score` field of `CarvedFile`.
+    /// Heuristic confidence score (0-100).
     pub score: u8,
-    /// The `width` field of `CarvedFile`.
+    /// Width in pixels, when known.
     pub width: Option<u32>,
-    /// The `height` field of `CarvedFile`.
+    /// Height in pixels, when known.
     pub height: Option<u32>,
-    /// The `repaired` field of `CarvedFile`.
+    /// Whether repair was applied.
     pub repaired: bool,
-    /// The `path` field of `CarvedFile`.
+    /// Path on disk.
     pub path: String,
-    /// The `notes` field of `CarvedFile`.
+    /// Human-readable notes.
     pub notes: Vec<String>,
-    /// The `validation` field of `CarvedFile`.
+    /// Legacy validation outcome.
     pub validation: Validation,
     /// Authoritative honesty label; legacy `validation`/`status` are preserved.
     pub validity: Validity,
-    /// The `validated_bytes` field of `CarvedFile`.
+    /// Bytes covered by validation.
     pub validated_bytes: u64,
-    /// The `lba` field of `CarvedFile`.
+    /// Logical block address, when known.
     pub lba: u64,
-    /// The `cluster` field of `CarvedFile`.
+    /// Cluster number, when known.
     pub cluster: Option<u64>,
-    /// The `partition_index` field of `CarvedFile`.
+    /// Partition index, when applicable.
     pub partition_index: Option<usize>,
-    /// The `extent_id` field of `CarvedFile`.
+    /// Extent identifier.
     pub extent_id: usize,
-    /// The `allocated` field of `CarvedFile`.
+    /// Whether the source region was allocated.
     pub allocated: Option<bool>,
-    /// The `source` field of `CarvedFile`.
+    /// Carving source kind.
     pub source: String,
-    /// The `fragments` field of `CarvedFile`.
+    /// Fragment ranges composing the carved file.
     pub fragments: Vec<Fragment>,
     /// Structured checks that were actually performed for this file.
     #[serde(rename = "checks")]
@@ -982,81 +982,81 @@ pub struct CarvedFile {
     pub sha256_original: Option<String>,
 }
 
-/// The `ScanStats` structure.
+/// Configuration/data structure.
 #[derive(Debug, Default, Clone, Serialize)]
 pub struct ScanStats {
-    /// The `candidates` field of `ScanStats`.
+    /// Number of candidates examined.
     pub candidates: usize,
-    /// The `carved` field of `ScanStats`.
+    /// Number of files carved.
     pub carved: usize,
     /// Number of candidate or join panics contained during this scan.
     pub internal_errors: usize,
-    /// The `rejected` field of `ScanStats`.
+    /// Number of candidates rejected.
     pub rejected: usize,
-    /// The `below_min_size` field of `ScanStats`.
+    /// Candidates rejected below minimum size.
     pub below_min_size: usize,
-    /// The `below_min_score` field of `ScanStats`.
+    /// Candidates rejected below minimum score.
     pub below_min_score: usize,
-    /// The `skipped_complete_only` field of `ScanStats`.
+    /// Candidates skipped by complete-only mode.
     pub skipped_complete_only: usize,
-    /// The `too_large_truncated` field of `ScanStats`.
+    /// Candidates rejected as too-large truncated outputs.
     pub too_large_truncated: usize,
-    /// The `duplicate_hashes` field of `ScanStats`.
+    /// Duplicate outputs suppressed by hash.
     pub duplicate_hashes: usize,
-    /// The `suppressed_nested` field of `ScanStats`.
+    /// Nested outputs suppressed.
     pub suppressed_nested: usize,
-    /// The `truncated` field of `ScanStats`.
+    /// Number of truncated outputs.
     pub truncated: usize,
-    /// The `repaired` field of `ScanStats`.
+    /// Whether repair was applied.
     pub repaired: usize,
-    /// The `bytes_written` field of `ScanStats`.
+    /// Total bytes written to output files.
     pub bytes_written: u64,
-    /// The `extents` field of `ScanStats`.
+    /// Number of scanned extents.
     pub extents: usize,
-    /// The `bytes_in_extents` field of `ScanStats`.
+    /// Total bytes in scanned extents.
     pub bytes_in_extents: u64,
 }
 
-/// The `ScanReport` structure.
+/// Configuration/data structure.
 #[derive(Debug, Clone, Serialize)]
 pub struct ScanReport {
     /// Report schema version; 2 is the current shape.
     pub schema_version: u8,
-    /// The `tool` field of `ScanReport`.
+    /// Tool name (legacy field).
     pub tool: String,
-    /// The `tool_info` field of `ScanReport`.
+    /// Tool version/build information.
     pub tool_info: ToolInfo,
-    /// The `image` field of `ScanReport`.
+    /// Input image path (legacy field).
     pub image: String,
-    /// The `input` field of `ScanReport`.
+    /// Input image metadata.
     pub input: InputInfo,
-    /// The `image_size` field of `ScanReport`.
+    /// Input image size in bytes (legacy field).
     pub image_size: u64,
-    /// The `filesystem` field of `ScanReport`.
+    /// Detected filesystem summary (legacy field).
     pub filesystem: Option<FsInfo>,
-    /// The `mode` field of `ScanReport`.
+    /// Scan mode (raw or filesystem-aware).
     pub mode: String,
-    /// The `output_dir` field of `ScanReport`.
+    /// Output directory path.
     pub output_dir: String,
-    /// The `argv` field of `ScanReport`.
+    /// Command-line arguments used for the run.
     pub argv: Vec<String>,
-    /// The `options` field of `ScanReport`.
+    /// Effective scan options.
     pub options: ReportOptions,
-    /// The `case_id` field of `ScanReport`.
+    /// Case identifier, if provided.
     pub case_id: Option<String>,
-    /// The `examiner` field of `ScanReport`.
+    /// Examiner name, if provided.
     pub examiner: Option<String>,
     /// ISO-8601 UTC timestamp.
     pub started_at: String,
-    /// The `started_at_unix` field of `ScanReport`.
+    /// Scan start time as Unix seconds.
     pub started_at_unix: u64,
-    /// The `duration_ms` field of `ScanReport`.
+    /// Scan duration in milliseconds.
     pub duration_ms: u64,
-    /// The `bytes_scanned` field of `ScanReport`.
+    /// Bytes scanned.
     pub bytes_scanned: u64,
-    /// The `throughput_mib_s` field of `ScanReport`.
+    /// Scan throughput in MiB/s.
     pub throughput_mib_s: f64,
-    /// The `stats` field of `ScanReport`.
+    /// Aggregate scan statistics.
     pub stats: ScanStats,
     /// Every detected volume with a `scanned` flag (A-07).
     pub volumes: Vec<VolumeSummary>,
@@ -1064,7 +1064,7 @@ pub struct ScanReport {
     pub regions: Vec<crate::fs::Region>,
     /// Byte ranges that could not be read from the source (H-22).
     pub unreadable_regions: Vec<UnreadableRegion>,
-    /// The `warnings` field of `ScanReport`.
+    /// Warnings emitted during scan.
     pub warnings: Vec<Warning>,
     /// Contained panics, with the source offset and file type of the work item
     /// that caused them. Work on other candidates continues.
@@ -1074,7 +1074,7 @@ pub struct ScanReport {
     pub nondeterministic_stop: bool,
     /// True when SIGINT/Ctrl-C requested a cooperative stop (H-28).
     pub interrupted: bool,
-    /// The `files` field of `ScanReport`.
+    /// Carved file records.
     pub files: Vec<CarvedFile>,
 }
 

@@ -207,7 +207,7 @@ fn ntfs_details(
     details
 }
 
-/// The `parse` function.
+/// Parse an NTFS volume and return filesystem metadata/extents.
 pub fn parse(ctx: &VolumeCtx<'_>, boot: &[u8]) -> Result<FsInfo> {
     let geom = parse_geometry(boot, ctx.offset, ctx.max_len)?;
     let ntfs = NtfsCtx {

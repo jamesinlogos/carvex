@@ -146,7 +146,7 @@ fn scan_entropy(
     }
 }
 
-/// The `analyze` function.
+/// Analyze a JPEG candidate and return structural parse results.
 pub fn analyze(data: &[u8], at_limit: bool) -> Need {
     if data.len() < 4 {
         return if at_limit {

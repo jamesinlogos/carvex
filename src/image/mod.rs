@@ -80,11 +80,11 @@ impl Default for OnReadError {
 /// A byte range that could not be read from the source, with the reason.
 #[derive(Debug, Clone, Serialize)]
 pub struct UnreadableRegion {
-    /// The `offset` field of `UnreadableRegion`.
+    /// Start offset of the unreadable region.
     pub offset: u64,
-    /// The `len` field of `UnreadableRegion`.
+    /// Length of the unreadable region in bytes.
     pub len: u64,
-    /// The `reason` field of `UnreadableRegion`.
+    /// Read failure reason.
     pub reason: String,
 }
 
@@ -225,11 +225,11 @@ impl InputFormat {
 /// One physical file backing an image, as recorded in `input.files[]`.
 #[derive(Debug, Clone, Serialize)]
 pub struct SourceFile {
-    /// The `path` field of `SourceFile`.
+    /// Source file path.
     pub path: PathBuf,
-    /// The `size` field of `SourceFile`.
+    /// Source file size in bytes.
     pub size: u64,
-    /// The `modified_unix` field of `SourceFile`.
+    /// Source modification time as Unix seconds.
     pub modified_unix: Option<u64>,
 }
 
@@ -334,15 +334,15 @@ fn measure_files(paths: &[PathBuf]) -> Result<Vec<SourceFile>> {
 /// only sees the source trait object; dropping it early would unlink the spool
 /// underneath an open file handle on some platforms.
 pub struct OpenedImage {
-    /// The `source` field of `OpenedImage`.
+    /// Opened image source implementation.
     pub source: Box<dyn ImageSource>,
-    /// The `len` field of `OpenedImage`.
+    /// Logical image length in bytes.
     pub len: u64,
-    /// The `display` field of `OpenedImage`.
+    /// Display name/path for reports.
     pub display: String,
-    /// The `identity` field of `OpenedImage`.
+    /// Identity metadata captured at open time.
     pub identity: Option<SourceIdentity>,
-    /// The `format` field of `OpenedImage`.
+    /// Detected container format.
     pub format: InputFormat,
     /// Byte ranges that could not be read (H-22).  Filled by container
     /// readers and copied into the scan report by the CLI.
@@ -362,13 +362,13 @@ pub fn open_image(path: &Path, format: InputFormat) -> Result<OpenedImage> {
 
 /// Options controlling how an image is opened (H-11, H-13, H-22).
 pub struct OpenOptions {
-    /// The `allow_external_extents` field of `OpenOptions`.
+    /// Allow container extents that reference external files.
     pub allow_external_extents: bool,
-    /// The `on_read_error` field of `OpenOptions`.
+    /// Policy for unreadable sectors/chunks.
     pub on_read_error: OnReadError,
     /// Maximum bytes spooled from stdin; 0 means unlimited.
     pub max_stdin_bytes: u64,
-    /// The `spool_dir` field of `OpenOptions`.
+    /// Optional spool directory for container materialization.
     pub spool_dir: Option<PathBuf>,
 }
 

@@ -20,15 +20,15 @@
     clippy::uninlined_format_args
 )]
 
-/// The `cli` module.
+/// Command-line argument parsing and top-level command dispatch.
 pub mod cli;
 pub mod fs;
 pub mod image;
 pub mod io;
-/// The `report` module.
+/// Report serialization, schema validation helpers, and output formatting.
 pub mod report;
-/// The `scan` module.
+/// Scan planning, carving pipeline, post-filtering, and report assembly.
 pub mod scan;
 pub mod signatures;
-/// The `util` module.
+/// Shared utility helpers (sizes, hashes, time, formatting).
 pub mod util;

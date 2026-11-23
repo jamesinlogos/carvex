@@ -238,7 +238,7 @@ fn fat32_details(geom: &Fat32Geometry, bad_clusters: u64) -> BTreeMap<String, St
     details
 }
 
-/// The `parse` function.
+/// Parse a FAT12/16/32 volume and return filesystem metadata/extents.
 pub fn parse(ctx: &VolumeCtx<'_>, boot: &[u8]) -> Result<FsInfo> {
     let geom = parse_geometry(boot, ctx.offset, ctx.max_len)?;
     let fat = ctx

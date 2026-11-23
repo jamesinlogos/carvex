@@ -5,12 +5,12 @@
 //! means adding one [`FormatSpec`] and one validator module.
 
 #![deny(clippy::indexing_slicing, clippy::unwrap_used, clippy::expect_used)]
-/// The `jpeg` module.
+/// JPEG signature analysis and validation.
 pub mod jpeg;
-/// The `pdf` module.
+/// PDF signature analysis and validation.
 pub mod pdf;
 mod pdf_validate;
-/// The `png` module.
+/// PNG signature analysis and validation.
 pub mod png;
 mod repair;
 
@@ -75,22 +75,22 @@ pub enum FileType {
 }
 
 impl FileType {
-    /// The `ext` method.
+    /// Method.
     pub fn ext(self) -> &'static str {
         self.spec().ext
     }
 
-    /// The `label` method.
+    /// Method.
     pub fn label(self) -> &'static str {
         self.spec().label
     }
 
-    /// The `header` method.
+    /// Method.
     pub fn header(self) -> &'static [u8] {
         self.spec().header
     }
 
-    /// The `spec` method.
+    /// Method.
     pub fn spec(self) -> &'static FormatSpec {
         FORMATS
             .iter()
@@ -113,17 +113,17 @@ impl fmt::Display for FileType {
 /// One supported format.  This is intentionally data, not code, so the CLI and
 /// documentation cannot drift away from the parsers.
 pub struct FormatSpec {
-    /// The `file_type` field of `FormatSpec`.
+    /// File type this spec describes.
     pub file_type: FileType,
-    /// The `ext` field of `FormatSpec`.
+    /// Default file extension.
     pub ext: &'static str,
-    /// The `label` field of `FormatSpec`.
+    /// Human-readable format label.
     pub label: &'static str,
-    /// The `header` field of `FormatSpec`.
+    /// Header signature bytes.
     pub header: &'static [u8],
-    /// The `footer` field of `FormatSpec`.
+    /// Footer signature bytes, if any.
     pub footer: &'static str,
-    /// The `validation` field of `FormatSpec`.
+    /// Validation depth supported by this format.
     pub validation: &'static str,
 }
 
@@ -274,11 +274,11 @@ impl Validity {
 /// One structured validation check attached to a carved file.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ValidationCheck {
-    /// The `name` field of `ValidationCheck`.
+    /// Check identifier.
     pub name: String,
     /// `true` = passed, `false` = failed, `null` = not performed/unsupported.
     pub ok: Option<bool>,
-    /// The `note` field of `ValidationCheck`.
+    /// Human-readable check detail.
     pub note: String,
 }
 
@@ -300,13 +300,13 @@ impl ValidationCheck {
 /// tuple API used by older callers.
 #[derive(Debug, Clone)]
 pub struct ValidationDetail {
-    /// The `validation` field of `ValidationDetail`.
+    /// Legacy validation outcome.
     pub validation: Validation,
-    /// The `notes` field of `ValidationDetail`.
+    /// Human-readable validation notes.
     pub notes: Vec<String>,
-    /// The `checks` field of `ValidationDetail`.
+    /// Structured validation checks.
     pub checks: Vec<ValidationCheck>,
-    /// The `validated_bytes` field of `ValidationDetail`.
+    /// Byte prefix covered by validation.
     pub validated_bytes: u64,
 }
 
@@ -393,20 +393,20 @@ pub(crate) fn png_chunk_crc_check(ctype: &[u8], offset: usize) -> ValidationChec
     )
 }
 
-/// The `Analysis` structure.
+/// Structural analysis result returned by format parsers.
 #[derive(Debug, Clone)]
 pub struct Analysis {
     /// Number of input bytes that belong to the file (before any repair suffix).
     pub end: usize,
-    /// The `complete` field of `Analysis`.
+    /// Whether the structure appears complete.
     pub complete: bool,
-    /// The `score` field of `Analysis`.
+    /// Heuristic confidence score (0-100).
     pub score: u8,
-    /// The `width` field of `Analysis`.
+    /// Image width in pixels, when known.
     pub width: Option<u32>,
-    /// The `height` field of `Analysis`.
+    /// Image height in pixels, when known.
     pub height: Option<u32>,
-    /// The `notes` field of `Analysis`.
+    /// Parser notes and warnings.
     pub notes: Vec<String>,
     /// Appended when --repair is enabled and the file is truncated.
     pub repair_suffix: &'static [u8],
@@ -424,7 +424,7 @@ impl Analysis {
             .any(|check| check.ok == Some(false))
     }
 
-    /// The `status` method.
+    /// Method.
     pub fn status(&self, repaired: bool) -> Status {
         if repaired {
             Status::Repaired

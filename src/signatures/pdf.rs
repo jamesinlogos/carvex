@@ -19,7 +19,7 @@ impl EofCandidate {
     }
 }
 
-/// The `analyze` function.
+/// Analyze a PDF candidate and return structural parse results.
 pub fn analyze(data: &[u8], at_limit: bool, mode: PdfEofMode) -> Need {
     if data.len() < 8 {
         return if at_limit {

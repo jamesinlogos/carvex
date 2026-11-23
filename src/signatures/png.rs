@@ -7,7 +7,7 @@ pub(crate) const IEND_SUFFIX: &[u8] = &[
     0x00, 0x00, 0x00, 0x00, b'I', b'E', b'N', b'D', 0xAE, 0x42, 0x60, 0x82,
 ];
 
-/// The `analyze` function.
+/// Analyze a PNG candidate and return structural parse results.
 pub fn analyze(data: &[u8], at_limit: bool) -> Need {
     if data.len() < 8 {
         return if at_limit {

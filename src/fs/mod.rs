@@ -4,9 +4,9 @@
 //! and return the free extents reported by the FAT or NTFS `$Bitmap`.
 
 #![deny(clippy::indexing_slicing, clippy::unwrap_used, clippy::expect_used)]
-/// The `fat32` module.
+/// FAT12/16/32 volume parsing and free-space extent enumeration.
 pub mod fat32;
-/// The `ntfs` module.
+/// NTFS volume parsing and free-space cluster run enumeration.
 pub mod ntfs;
 
 use crate::io::{read_vec_at, ImageSource};
@@ -36,72 +36,72 @@ impl std::fmt::Display for FsKind {
     }
 }
 
-/// The `FsInfo` structure.
+/// Parsed filesystem metadata and free-space extents for one volume.
 #[derive(Debug, Clone, Serialize)]
 pub struct FsInfo {
-    /// The `kind` field of `FsInfo`.
+    /// Filesystem kind (FAT32 or NTFS).
     pub kind: FsKind,
     /// Absolute byte offset of the volume boot sector inside the image.
     pub offset: u64,
     /// Volume length in bytes (clamped to the image).
     pub length: u64,
-    /// The `bytes_per_sector` field of `FsInfo`.
+    /// Bytes per logical sector.
     pub bytes_per_sector: u32,
-    /// The `sectors_per_cluster` field of `FsInfo`.
+    /// Sectors per allocation cluster.
     pub sectors_per_cluster: u32,
-    /// The `cluster_size` field of `FsInfo`.
+    /// Cluster size in bytes.
     pub cluster_size: u64,
     /// Absolute offset of the first addressable cluster: cluster 2 for FAT32,
     /// cluster 0 for NTFS.  Used to report the on-disk cluster number.
     pub data_start: u64,
-    /// The `total_clusters` field of `FsInfo`.
+    /// Total addressable clusters in the volume.
     pub total_clusters: u64,
-    /// The `free_clusters` field of `FsInfo`.
+    /// Free clusters available for carving.
     pub free_clusters: u64,
-    /// The `free_extents` field of `FsInfo`.
+    /// Free-space byte extents, sorted by offset.
     pub free_extents: Vec<Extent>,
-    /// The `partition_index` field of `FsInfo`.
+    /// Source partition index, when known.
     pub partition_index: Option<usize>,
-    /// The `partition_type` field of `FsInfo`.
+    /// Partition type name, when known.
     pub partition_type: Option<String>,
-    /// The `label` field of `FsInfo`.
+    /// Volume label, when present.
     pub label: Option<String>,
-    /// The `details` field of `FsInfo`.
+    /// Format-specific diagnostic details.
     pub details: BTreeMap<String, String>,
 }
 
 impl FsInfo {
-    /// The `free_bytes` method.
+    /// Returns total free bytes (`free_clusters * cluster_size`).
     pub fn free_bytes(&self) -> u64 {
         self.free_clusters.saturating_mul(self.cluster_size)
     }
 
-    /// The `largest_free_extent` method.
+    /// Returns the largest free extent length in bytes.
     pub fn largest_free_extent(&self) -> u64 {
         self.free_extents.iter().map(|e| e.len).max().unwrap_or(0)
     }
 }
 
-/// The `Partition` structure.
+/// A partition table entry with byte/sector geometry.
 #[derive(Debug, Clone)]
 pub struct Partition {
-    /// The `index` field of `Partition`.
+    /// Zero-based partition index in the table.
     pub index: usize,
-    /// The `start_lba` field of `Partition`.
+    /// Starting logical block address (512-byte sectors).
     pub start_lba: u64,
     /// Partition length in 512-byte sectors.
     pub sectors: u64,
-    /// The `type_name` field of `Partition`.
+    /// Human-readable partition type name.
     pub type_name: String,
 }
 
 impl Partition {
-    /// The `byte_offset` method.
+    /// Returns partition start offset in bytes.
     pub fn byte_offset(&self, sector_size: u64) -> u64 {
         self.start_lba.saturating_mul(sector_size)
     }
 
-    /// The `byte_len` method.
+    /// Method.
     pub fn byte_len(&self, sector_size: u64) -> u64 {
         self.sectors.saturating_mul(sector_size)
     }
@@ -184,15 +184,15 @@ impl std::fmt::Display for RegionKind {
 /// extents inside that range.
 #[derive(Debug, Clone, Serialize)]
 pub struct Region {
-    /// The `kind` field of `Region`.
+    /// Region kind (volume, gap, unreadable, etc.).
     pub kind: RegionKind,
-    /// The `offset` field of `Region`.
+    /// Region start offset in bytes.
     pub offset: u64,
-    /// The `len` field of `Region`.
+    /// Region length in bytes.
     pub len: u64,
-    /// The `scanned` field of `Region`.
+    /// Whether this region was scanned.
     pub scanned: bool,
-    /// The `partition_index` field of `Region`.
+    /// Source partition index, when applicable.
     pub partition_index: Option<usize>,
     /// True when raw bytes here mix allocated and unallocated content because
     /// a filesystem parser failed (H-26).
@@ -216,11 +216,11 @@ impl Region {
 /// A filesystem probe that recognised a boot sector but could not parse it.
 #[derive(Debug, Clone)]
 pub struct VolumeParseError {
-    /// The `partition_index` field of `VolumeParseError`.
+    /// Partition index where parsing failed.
     pub partition_index: usize,
-    /// The `offset` field of `VolumeParseError`.
+    /// Byte offset of the volume being parsed.
     pub offset: u64,
-    /// The `reason` field of `VolumeParseError`.
+    /// Human-readable parse failure reason.
     pub reason: String,
 }
 
@@ -558,20 +558,20 @@ fn summarise_regions(regions: Vec<Region>, max_regions: u64) -> Vec<Region> {
 
 /// Everything a filesystem parser needs to read one volume.
 pub struct VolumeCtx<'a> {
-    /// The `source` field of `VolumeCtx`.
+    /// Image source to read from.
     pub source: &'a dyn ImageSource,
-    /// The `offset` field of `VolumeCtx`.
+    /// Volume start offset within the source.
     pub offset: u64,
-    /// The `max_len` field of `VolumeCtx`.
+    /// Maximum readable length from `offset`.
     pub max_len: u64,
-    /// The `partition_index` field of `VolumeCtx`.
+    /// Partition index, when known.
     pub partition_index: Option<usize>,
-    /// The `partition_type` field of `VolumeCtx`.
+    /// Partition type name, when known.
     pub partition_type: Option<String>,
 }
 
 impl VolumeCtx<'_> {
-    /// The `read_vec` method.
+    /// Method.
     pub fn read_vec(&self, offset: u64, len: usize) -> Result<Vec<u8>> {
         let end = offset
             .checked_add(len as u64)
