@@ -215,6 +215,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
       - name: Install musl Rust target
         # rust-toolchain.toml pins 1.100.0, so the action's stable target is not
@@ -251,12 +253,26 @@ jobs:
             --mode raw --no-fs --types jpeg --max-candidates 500 --quiet \
             --json-report target/musl-scan/report.json
           test -f target/musl-scan/report.json
+      - name: Execute committed dist musl binary
+        run: |
+          BIN=dist/carvex-linux-x86_64
+          chmod +x "$BIN"
+          IMG=target/ci-smoke/smoke_fat32.img
+          "$BIN" --version
+          "$BIN" info "$IMG"
+          rm -rf target/musl-dist-scan && mkdir -p target/musl-dist-scan
+          "$BIN" scan "$IMG" -o target/musl-dist-scan \
+            --mode raw --no-fs --types jpeg --max-candidates 500 --quiet \
+            --json-report target/musl-dist-scan/report.json
+          test -f target/musl-dist-scan/report.json
 
   windows-packaged:
     name: Windows packaged binary smoke
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --release --locked
@@ -275,6 +291,19 @@ jobs:
             --json-report target\windows-scan\report.json
           if (-not (Test-Path target\windows-scan\report.json)) {
             throw "no report written by packaged Windows binary"
+          }
+      - name: Execute committed dist Windows exe
+        shell: pwsh
+        run: |
+          .\dist\carvex-windows-x86_64.exe --version
+          .\dist\carvex-windows-x86_64.exe info target\ci-smoke\smoke_fat32.img
+          if (Test-Path target\windows-dist-scan) { Remove-Item -Recurse -Force target\windows-dist-scan }
+          New-Item -ItemType Directory -Path target\windows-dist-scan | Out-Null
+          .\dist\carvex-windows-x86_64.exe scan target\ci-smoke\smoke_fat32.img -o target\windows-dist-scan `
+            --mode raw --no-fs --types jpeg --max-candidates 500 --quiet `
+            --json-report target\windows-dist-scan\report.json
+          if (-not (Test-Path target\windows-dist-scan\report.json)) {
+            throw "no report written by committed Windows dist binary"
           }
       - uses: actions/upload-artifact@v4
         with:
