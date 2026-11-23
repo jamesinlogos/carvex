@@ -182,19 +182,25 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --release --locked
       - name: Generate smoke fixture
-        # The large bench/images/*.img fixtures are git-ignored.  Use the same
+        # The large bench/images/*.img fixtures are git-ignored. Use the same
         # no-root FAT32 fixture as the gate smoke test; R7/R8 still SKIP
         # without an NTFS image, but the FAT32-dependent controls can run.
-        run: python3 scripts/make_smoke_image.py --out target/repro-ci/fixture
+        # Keep the workdir outside target/ so rust-cache cannot restore a
+        # stale X05 fixture from an earlier commit.
+        run: |
+          REPRO_ROOT="$RUNNER_TEMP/carvex-repro"
+          rm -rf "$REPRO_ROOT"
+          mkdir -p "$REPRO_ROOT/work"
+          python3 scripts/make_smoke_image.py --out "$REPRO_ROOT/fixture"
       - name: Run X01-X24 controls
         id: repro
         run: |
-          mkdir -p target/repro-ci
+          REPRO_ROOT="$RUNNER_TEMP/carvex-repro"
           set -o pipefail
           python3 scripts/review_repro.py --carvex target/release/carvex \
-            --corpus bench/corpus --workdir target/repro-ci \
+            --corpus bench/corpus --workdir "$REPRO_ROOT/work" \
             --assert --xfail scripts/repro_xfail.txt \
-            --fat32-image target/repro-ci/fixture/smoke_fat32.img 2>&1 | tee repro.log
+            --fat32-image "$REPRO_ROOT/fixture/smoke_fat32.img" 2>&1 | tee repro.log
       - name: Repro failure detail
         if: failure() && steps.repro.outcome == 'failure'
         run: |
