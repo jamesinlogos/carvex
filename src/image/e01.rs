@@ -6,6 +6,9 @@
 //! compressed and Adler-32 protected uncompressed chunks are supported.  EWF2
 //! (`.Ex01`), encrypted images and Logical Evidence Files (`.L01`) are not.
 
+// H-11: hostile container fields must be handled with checked access.
+#![deny(clippy::indexing_slicing, clippy::unwrap_used, clippy::expect_used)]
+
 use super::{adler32, le_u16, le_u32, le_u64, record_unreadable, OnReadError, RegionLog};
 use crate::io::{read_vec_at, ImageSource, RawFile};
 use anyhow::{bail, Context, Result};
@@ -70,13 +73,15 @@ impl E01Image {
         for (index, p) in paths.iter().enumerate() {
             let file = RawFile::open(p)?;
             let header = read_vec_at(&file, 0, 13)?;
-            if &header[..8] == LVF_MAGIC {
+            if header.starts_with(LVF_MAGIC) {
                 bail!("logical evidence files (.L01) are not supported");
             }
-            if &header[..8] != EWF_MAGIC {
+            if !header.starts_with(EWF_MAGIC) {
                 bail!("'{}' is not an EWF-E01 segment", p.display());
             }
-            if header[8] != 1 || le_u16(&header, 11, "EWF header terminator")? != 0 {
+            if header.get(8).copied() != Some(1)
+                || le_u16(&header, 11, "EWF header terminator")? != 0
+            {
                 bail!("'{}' has an unsupported EWF header", p.display());
             }
             let number = le_u16(&header, 9, "EWF segment number")?;
@@ -94,8 +99,10 @@ impl E01Image {
 
         opened.sort_by_key(|item| item.0);
         for pair in opened.windows(2) {
-            if pair[0].0 == pair[1].0 {
-                bail!("duplicate EWF segment number {}", pair[0].0);
+            if let [first, second] = pair {
+                if first.0 == second.0 {
+                    bail!("duplicate EWF segment number {}", first.0);
+                }
             }
         }
         let positions: HashMap<usize, usize> = opened
@@ -217,7 +224,12 @@ impl E01Image {
     }
 
     fn load_chunk(&self, reference: &ChunkRef) -> Result<Vec<u8>> {
-        let file = &self.files[reference.segment];
+        let file = self.files.get(reference.segment).with_context(|| {
+            format!(
+                "EWF segment {} is missing from the loaded image",
+                reference.segment
+            )
+        })?;
         let available = file.len().saturating_sub(reference.offset);
         let expected = self.chunk_len(reference);
         let chunk_start = reference.index as u64 * self.chunk_size as u64;
@@ -250,7 +262,10 @@ impl E01Image {
             .take(expected as u64);
             let mut filled = 0usize;
             while filled < expected {
-                match decoder.read(&mut out[filled..]) {
+                let target = out.get_mut(filled..).ok_or_else(|| {
+                    io::Error::new(io::ErrorKind::InvalidData, "EWF decode buffer")
+                })?;
+                match decoder.read(target) {
                     Ok(0) => break, // a short final chunk is zero-filled
                     Ok(n) => filled += n,
                     Err(e) => {
@@ -280,12 +295,21 @@ impl E01Image {
                     continue;
                 }
                 let raw = read_vec_at(file, reference.offset, want as usize)?;
-                let stored = adler32(&raw[..stored_len]);
+                let stored_bytes = raw
+                    .get(..stored_len)
+                    .with_context(|| format!("short EWF chunk at byte {}", reference.offset))?;
+                let stored = adler32(stored_bytes);
                 let checksum = le_u32(&raw, stored_len, "EWF chunk checksum")?;
                 if stored == checksum {
                     let mut out = allocate(expected)?;
                     let copy = expected.min(stored_len);
-                    out[..copy].copy_from_slice(&raw[..copy]);
+                    let destination = out.get_mut(..copy).ok_or_else(|| {
+                        io::Error::new(io::ErrorKind::InvalidData, "EWF decode buffer")
+                    })?;
+                    let source = raw.get(..copy).ok_or_else(|| {
+                        io::Error::new(io::ErrorKind::InvalidData, "short EWF chunk")
+                    })?;
+                    destination.copy_from_slice(source);
                     return Ok(out);
                 }
             }
@@ -341,7 +365,19 @@ impl ImageSource for E01Image {
                 .chunk(index)
                 .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
             let n = (chunk.len() - within).min(buf.len() - done);
-            buf[done..done + n].copy_from_slice(&chunk[within..within + n]);
+            let end = done
+                .checked_add(n)
+                .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "EWF read range"))?;
+            let destination = buf.get_mut(done..end).ok_or_else(|| {
+                io::Error::new(io::ErrorKind::InvalidData, "EWF read destination")
+            })?;
+            let chunk_end = within
+                .checked_add(n)
+                .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "EWF chunk range"))?;
+            let source = chunk
+                .get(within..chunk_end)
+                .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "EWF chunk slice"))?;
+            destination.copy_from_slice(source);
             done += n;
         }
         Ok(done)
@@ -361,7 +397,10 @@ impl Read for EwfChunkReader<'_> {
             return Ok(0);
         }
         let want = (self.end - self.offset).min(buf.len() as u64) as usize;
-        let n = self.file.read_at(self.offset, &mut buf[..want])?;
+        let target = buf
+            .get_mut(..want)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "EWF chunk read buffer"))?;
+        let n = self.file.read_at(self.offset, target)?;
         self.offset += n as u64;
         Ok(n)
     }
@@ -379,7 +418,10 @@ fn parse_sections(file: &RawFile, segment: usize) -> Result<(Vec<ChunkRef>, usiz
             break;
         }
         let descriptor = read_vec_at(file, pos, 76)?;
-        let kind = section_name(&descriptor[..16]);
+        let name = descriptor
+            .get(..16)
+            .with_context(|| format!("short EWF section descriptor at byte {pos}"))?;
+        let kind = section_name(name);
         let next = le_u64(&descriptor, 16, "EWF section link")?;
         let size = le_u64(&descriptor, 24, "EWF section size")?;
         let data_offset = descriptor_end;
@@ -476,9 +518,8 @@ fn parse_sections(file: &RawFile, segment: usize) -> Result<(Vec<ChunkRef>, usiz
 
 fn section_name(raw: &[u8]) -> String {
     let end = raw.iter().position(|b| *b == 0).unwrap_or(raw.len());
-    String::from_utf8_lossy(&raw[..end])
-        .trim()
-        .to_ascii_lowercase()
+    let name = raw.get(..end).unwrap_or(raw);
+    String::from_utf8_lossy(name).trim().to_ascii_lowercase()
 }
 
 fn segment_paths(path: &Path) -> Result<Vec<PathBuf>> {
@@ -549,7 +590,11 @@ fn base36_encode(value: u32) -> Result<String> {
     if value > 35 * 36 + 35 {
         bail!("EWF segment number {value} exceeds the two-character extension limit");
     }
-    let high = DIGITS[(value / 36) as usize] as char;
-    let low = DIGITS[(value % 36) as usize] as char;
-    Ok(format!("{high}{low}"))
+    let high = *DIGITS
+        .get((value / 36) as usize)
+        .context("EWF segment number digit out of range")?;
+    let low = *DIGITS
+        .get((value % 36) as usize)
+        .context("EWF segment number digit out of range")?;
+    Ok(format!("{}{}", high as char, low as char))
 }

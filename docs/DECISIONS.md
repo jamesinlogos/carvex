@@ -1257,3 +1257,21 @@ decision, and the consequences.
   E01 and 100,000-segment split declarations; the Rust regression test aborted
   before the fix and passes afterwards. `G7`/`G8` are rechecked by the commit's
   full gate run.
+
+## D-65. Image parser deny-lints (ADR-H11, R2-11)
+
+- **Context:** round-2 R2-11 required `src/image/{mod,e01,split,vhd,vmdk}.rs`
+  to deny `clippy::indexing_slicing`, `clippy::unwrap_used` and
+  `clippy::expect_used`, because hostile container fields must not panic on
+  unchecked indexing/unwrap. The hidden `fuzz_support` fixture module inherits
+  module lints and is not production parsing code.
+- **Decision:** add `#![deny(...)]` to the five image parser modules. Replace
+  production indexing with checked access (`get/get_mut`, `starts_with`,
+  `try_into`, iterator-safe patterns) and return typed I/O or parse errors.
+  Keep `fuzz_support` behind a narrow module-level `#[allow(...)]` with an
+  H-11 justification, and keep test modules under justified `#[allow(...)]`
+  where fixed fixtures intentionally use direct indexing. No parser behavior,
+  default, score, warning code, or accepted output changes on valid inputs.
+- **Evidence:** `cargo clippy --all-targets --all-features --locked -- -D warnings`
+  passes with the denies enabled; `cargo test --all-features --locked` passes.
+  The full gate run for the R2-11 commit records G0-G9.

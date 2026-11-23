@@ -1,5 +1,8 @@
 //! Concatenated raw image segments (`.001`, `.002`, ...).
 
+// H-11: hostile container fields must be handled with checked access.
+#![deny(clippy::indexing_slicing, clippy::unwrap_used, clippy::expect_used)]
+
 use crate::io::{ImageSource, RawFile};
 use anyhow::{bail, Context, Result};
 use std::io;
@@ -65,10 +68,21 @@ impl ImageSource for SplitRaw {
             }
             let idx = match self.starts.binary_search(&pos) {
                 Ok(i) => i,
-                Err(i) => i - 1,
+                Err(i) => i.checked_sub(1).ok_or_else(|| {
+                    io::Error::new(io::ErrorKind::UnexpectedEof, "split index out of range")
+                })?,
             };
-            let within = pos - self.starts[idx];
-            let n = self.files[idx].read_at(within, &mut buf[done..])?;
+            let start = *self.starts.get(idx).ok_or_else(|| {
+                io::Error::new(io::ErrorKind::UnexpectedEof, "split index out of range")
+            })?;
+            let within = pos - start;
+            let file = self.files.get(idx).ok_or_else(|| {
+                io::Error::new(io::ErrorKind::UnexpectedEof, "split segment out of range")
+            })?;
+            let target = buf.get_mut(done..).ok_or_else(|| {
+                io::Error::new(io::ErrorKind::InvalidData, "split read destination")
+            })?;
+            let n = file.read_at(within, target)?;
             if n == 0 {
                 break;
             }

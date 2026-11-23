@@ -6,8 +6,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- H-04: `scripts/check_dist.sh` verifies committed `dist/` checksums, version,
+  `tool_info.commit` ancestry and source diff; CI executes committed Linux musl
+  and Windows dist binaries.
+
 ### Fixed
 
+- H-11: `src/image/{mod,e01,split,vhd,vmdk}.rs` deny `clippy::indexing_slicing`,
+  `clippy::unwrap_used` and `clippy::expect_used`; production hostile-field
+  access uses checked helpers. Test modules and the hidden fixture builder keep
+  justified `#[allow(...)]`.
 - H-12b: scan work is planned lazily from resolved extents in bounded batches.
   A container-declared 512 TiB `ZERO` extent no longer allocates a per-chunk
   task vector before the time budget or interrupt can be checked; totals and

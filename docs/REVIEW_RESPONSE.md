@@ -77,7 +77,7 @@ status row in each reconciliation document.
 | H-08 | CRIT | 2026-11-21 source | CLOSED | e69e68b | tests/memory_budget.rs; scripts/review_repro.py X01 | `--max-memory` bounds working buffers without losing finished runs. |
 | H-09 | HIGH | 2026-11-21 source | CLOSED | 48deab5 | tests/work_budgets.rs; scripts/review_repro.py X05 | Four work limits emit coded warnings, reports and exit 3. |
 | H-10 | HIGH | 2026-11-21 source | CLOSED | 5f794a4 | tests/panic_containment.rs; scripts/review_repro.py X06 | Candidate and join panics are contained with `CANDIDATE_PANIC`. |
-| H-11 | CRIT | 2026-11-21 source | CLOSED | 4b86f2d | tests/regress_e01_safety.rs; scripts/review_repro.py X07 | Hostile chunk size is a typed error rather than SIGABRT. |
+| H-11 | CRIT | 2026-11-21 source / 2026-11-23 R2-11 | CLOSED | 4b86f2d, pending | tests/regress_e01_safety.rs; scripts/review_repro.py X07; clippy deny in src/image/{mod,e01,split,vhd,vmdk}.rs | Hostile chunk size is a typed error; R2-11 adds deny-lints for indexing/unwrap/expect in image parsers with checked access. |
 | H-12 | CRIT | 2026-11-23 packaged 0.3.0 + source | CLOSED | pending | tests/regress_vmdk_safety.rs; tests/regress_task_plan.rs; scripts/repro_x08b.py; scripts/repro_x26.py | Grain tables stay bounded; declared-size ZERO/VHD/E01/split plans are lazy and budget-aware. X08b 28.0 MiB peak RSS, exit 3 with report. |
 | H-13 | HIGH | 2026-11-21 source | CLOSED | 080b76a | tests/regress_vmdk_safety.rs; scripts/review_repro.py X09 | VMDK descriptors are confined to the image. |
 | H-14 | HIGH | 2026-11-22 source | CLOSED | e2d3f1d | fuzz/fuzz_targets/fuzz_e01.rs; fuzz/fuzz_targets/fuzz_vmdk.rs; scripts/fuzz.sh | Six parser fuzz targets added; 13 targets ran clean locally. |

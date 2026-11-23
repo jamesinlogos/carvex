@@ -4,6 +4,9 @@
 //! parent chain and are rejected with an explicit error rather than silently
 //! returning zeros where a parent would have supplied data.
 
+// H-11: hostile container fields must be handled with checked access.
+#![deny(clippy::indexing_slicing, clippy::unwrap_used, clippy::expect_used)]
+
 use super::{be_u32, be_u64, ones_complement};
 use crate::io::{read_vec_at, ImageSource, RawFile};
 use anyhow::{bail, Context, Result};
@@ -40,7 +43,7 @@ impl VhdImage {
             bail!("VHD image '{}' is too small", path.display());
         }
         let footer = read_vec_at(&file, file_len - SECTOR, SECTOR as usize)?;
-        if &footer[..8] != b"conectix" {
+        if !footer.starts_with(b"conectix") {
             bail!("'{}' is not a VHD image", path.display());
         }
         verify_checksum(&footer, 64, "VHD footer")?;
@@ -84,7 +87,7 @@ impl VhdImage {
             bail!("VHD dynamic header lies past the end of the file");
         }
         let header = read_vec_at(&file, header_start, 1024)?;
-        if &header[..8] != b"cxsparse" {
+        if !header.starts_with(b"cxsparse") {
             bail!("VHD dynamic header cookie is missing");
         }
         verify_checksum(&header, 36, "VHD dynamic header")?;
@@ -158,7 +161,14 @@ impl VhdImage {
                 let zeros = (block_size - within)
                     .min((buf.len() - done) as u64)
                     .min(self.len - pos) as usize;
-                buf[done..done + zeros].fill(0);
+                let end = done
+                    .checked_add(zeros)
+                    .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "VHD zero range"))?;
+                buf.get_mut(done..end)
+                    .ok_or_else(|| {
+                        io::Error::new(io::ErrorKind::InvalidData, "VHD read destination")
+                    })?
+                    .fill(0);
                 done += zeros;
                 continue;
             }
@@ -169,9 +179,13 @@ impl VhdImage {
                     io::Error::new(io::ErrorKind::InvalidData, "VHD block offset overflow")
                 })?;
             let want = (block_size - within).min((buf.len() - done) as u64) as usize;
-            let n = self
-                .file
-                .read_at(file_offset, &mut buf[done..done + want])?;
+            let end = done
+                .checked_add(want)
+                .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "VHD read range"))?;
+            let target = buf.get_mut(done..end).ok_or_else(|| {
+                io::Error::new(io::ErrorKind::InvalidData, "VHD read destination")
+            })?;
+            let n = self.file.read_at(file_offset, target)?;
             if n == 0 {
                 break;
             }
@@ -209,7 +223,12 @@ fn bitmap_size(block_size: u64) -> u64 {
 fn verify_checksum(buf: &[u8], checksum_offset: usize, what: &str) -> Result<()> {
     let expected = be_u32(buf, checksum_offset, what)?;
     let mut copy = buf.to_vec();
-    copy[checksum_offset..checksum_offset + 4].fill(0);
+    let end = checksum_offset
+        .checked_add(4)
+        .ok_or_else(|| anyhow::anyhow!("{what} checksum offset overflow"))?;
+    copy.get_mut(checksum_offset..end)
+        .ok_or_else(|| anyhow::anyhow!("{what} checksum field out of range"))?
+        .fill(0);
     let actual = ones_complement(&copy);
     if expected != actual {
         bail!("{what} checksum mismatch (expected {expected:08x}, found {actual:08x})");

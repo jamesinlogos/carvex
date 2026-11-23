@@ -5,6 +5,9 @@
 //! ESX-managed extent types and compressed streamOptimized grains are
 //! rejected explicitly instead of returning partially correct data.
 
+// H-11: hostile container fields must be handled with checked access.
+#![deny(clippy::indexing_slicing, clippy::unwrap_used, clippy::expect_used)]
+
 use super::{le_u16, le_u32, le_u64};
 use crate::io::{read_vec_at, ImageSource, RawFile};
 use anyhow::{bail, Context, Result};
@@ -28,6 +31,18 @@ const MAX_GD_ENTRIES: usize = 1_048_576;
 const MAX_TABLE_CACHE_BYTES: u64 = 64 * 1024 * 1024;
 /// Number of distinct grain tables kept in the LRU cache.
 const TABLE_CACHE_SLOTS: usize = 16;
+
+// H-11: checked destination for zero-filled extents; a malformed range is a
+// typed error rather than a panic.
+fn fill_zeros(buf: &mut [u8], done: usize, count: usize) -> io::Result<()> {
+    let end = done
+        .checked_add(count)
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "VMDK zero range"))?;
+    buf.get_mut(done..end)
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "VMDK read destination"))?
+        .fill(0);
+    Ok(())
+}
 
 enum ExtentKind {
     Flat { file: RawFile, base: u64 },
@@ -160,14 +175,26 @@ impl ImageSource for VmdkImage {
             let want = (extent.len - within).min((buf.len() - done) as u64) as usize;
             let n = match &extent.kind {
                 ExtentKind::Zero => {
-                    buf[done..done + want].fill(0);
+                    fill_zeros(buf, done, want)?;
                     want
                 }
                 ExtentKind::Flat { file, base } => {
-                    file.read_at(base + within, &mut buf[done..done + want])?
+                    let end = done.checked_add(want).ok_or_else(|| {
+                        io::Error::new(io::ErrorKind::InvalidData, "VMDK flat range")
+                    })?;
+                    let target = buf.get_mut(done..end).ok_or_else(|| {
+                        io::Error::new(io::ErrorKind::InvalidData, "VMDK flat destination")
+                    })?;
+                    file.read_at(base + within, target)?
                 }
                 ExtentKind::Sparse(sparse) => {
-                    sparse.read_at(within, &mut buf[done..done + want])?
+                    let end = done.checked_add(want).ok_or_else(|| {
+                        io::Error::new(io::ErrorKind::InvalidData, "VMDK sparse range")
+                    })?;
+                    let target = buf.get_mut(done..end).ok_or_else(|| {
+                        io::Error::new(io::ErrorKind::InvalidData, "VMDK sparse destination")
+                    })?;
+                    sparse.read_at(within, target)?
                 }
             };
             if n == 0 {
@@ -191,7 +218,7 @@ fn read_descriptor(path: &Path) -> Result<String> {
     let file = RawFile::open(path)?;
     let file_len = file.len();
     let head = read_vec_at(&file, 0, file_len.min(512) as usize)?;
-    if head.len() >= 4 && &head[..4] == b"KDMV" {
+    if head.starts_with(b"KDMV") {
         let sector = le_u64(&head, 28, "VMDK descriptor sector")?;
         let sectors = le_u64(&head, 36, "VMDK descriptor size")?;
         if sector == 0 || sectors == 0 {
@@ -241,10 +268,16 @@ fn parse_descriptor(text: &str) -> Result<Vec<ExtentLine>> {
         if tokens.len() < 3 {
             bail!("malformed VMDK extent line: {line}");
         }
-        let sectors: u64 = tokens[1]
+        let size_token = tokens
+            .get(1)
+            .with_context(|| format!("malformed VMDK extent line: {line}"))?;
+        let sectors: u64 = size_token
             .parse()
             .with_context(|| format!("invalid VMDK extent size in '{line}'"))?;
-        let kind = tokens[2].to_ascii_uppercase();
+        let kind = tokens
+            .get(2)
+            .with_context(|| format!("malformed VMDK extent line: {line}"))?
+            .to_ascii_uppercase();
         if kind == "ZERO" {
             lines.push(ExtentLine {
                 sectors,
@@ -265,8 +298,11 @@ fn parse_descriptor(text: &str) -> Result<Vec<ExtentLine>> {
         };
         lines.push(ExtentLine {
             sectors,
+            filename: tokens
+                .get(3)
+                .with_context(|| format!("VMDK {kind} extent needs a filename: {line}"))?
+                .clone(),
             kind,
-            filename: tokens[3].clone(),
             offset,
         });
     }
@@ -352,7 +388,7 @@ impl VmdkSparse {
         let file = RawFile::open(path)?;
         let file_len = file.len();
         let header = read_vec_at(&file, 0, 512)?;
-        if &header[..4] != b"KDMV" {
+        if !header.starts_with(b"KDMV") {
             bail!("'{}' is not a VMDK sparse extent", path.display());
         }
         let version = le_u32(&header, 4, "VMDK version")?;
@@ -385,7 +421,7 @@ impl VmdkSparse {
                 bail!("VMDK stream-optimized extent is truncated");
             }
             let tail = read_vec_at(&file, file_len - 1024, 512)?;
-            if &tail[..4] != b"KDMV" {
+            if !tail.starts_with(b"KDMV") {
                 bail!("VMDK secondary extent header is missing");
             }
             gd_offset = le_u64(&tail, 56, "VMDK grain directory offset")?;
@@ -477,7 +513,10 @@ impl VmdkSparse {
         let raw = read_vec_at(&self.file, (sector as u64) * SECTOR, self.table_bytes).ok()?;
         let mut table = Vec::with_capacity(self.num_gte);
         for chunk in raw.chunks_exact(4) {
-            table.push(u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]));
+            // `table()` is a cache lookup returning Option; a malformed entry
+            // is treated the same as any other missing grain table (H-23).
+            let bytes: [u8; 4] = chunk.try_into().ok()?;
+            table.push(u32::from_le_bytes(bytes));
         }
         table.resize(self.num_gte, 0);
         let table = Arc::new(table);
@@ -520,7 +559,7 @@ impl VmdkSparse {
                     let zeros = (self.grain_bytes - within)
                         .min((buf.len() - done) as u64)
                         .min(self.len - pos) as usize;
-                    buf[done..done + zeros].fill(0);
+                    fill_zeros(buf, done, zeros)?;
                     done += zeros;
                     continue;
                 }
@@ -529,7 +568,7 @@ impl VmdkSparse {
                 let zeros = (self.grain_bytes - within)
                     .min((buf.len() - done) as u64)
                     .min(self.len - pos) as usize;
-                buf[done..done + zeros].fill(0);
+                fill_zeros(buf, done, zeros)?;
                 done += zeros;
                 continue;
             }
@@ -540,7 +579,7 @@ impl VmdkSparse {
                 let zeros = (self.grain_bytes - within)
                     .min((buf.len() - done) as u64)
                     .min(self.len - pos) as usize;
-                buf[done..done + zeros].fill(0);
+                fill_zeros(buf, done, zeros)?;
                 done += zeros;
                 continue;
             };
@@ -548,7 +587,7 @@ impl VmdkSparse {
                 let zeros = (self.grain_bytes - within)
                     .min((buf.len() - done) as u64)
                     .min(self.len - pos) as usize;
-                buf[done..done + zeros].fill(0);
+                fill_zeros(buf, done, zeros)?;
                 done += zeros;
                 continue;
             }
@@ -558,9 +597,13 @@ impl VmdkSparse {
                     io::Error::new(io::ErrorKind::InvalidData, "VMDK grain offset overflow")
                 })?;
             let want = (self.grain_bytes - within).min((buf.len() - done) as u64) as usize;
-            let n = self
-                .file
-                .read_at(file_offset, &mut buf[done..done + want])?;
+            let end = done
+                .checked_add(want)
+                .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "VMDK grain range"))?;
+            let target = buf.get_mut(done..end).ok_or_else(|| {
+                io::Error::new(io::ErrorKind::InvalidData, "VMDK grain destination")
+            })?;
+            let n = self.file.read_at(file_offset, target)?;
             if n == 0 {
                 break;
             }
@@ -571,6 +614,9 @@ impl VmdkSparse {
 }
 
 #[cfg(test)]
+// Test fixtures use fixed slices and expect valid layouts; the production
+// parser above remains subject to the deny list.
+#[allow(clippy::indexing_slicing, clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
 

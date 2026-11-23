@@ -5,13 +5,19 @@
 //! B-04.  Every implementation is an [`ImageSource`], so filesystem detection
 //! and carving never need to know which container was opened.
 
+// H-11: hostile container fields must be handled with checked access.
+#![deny(clippy::indexing_slicing, clippy::unwrap_used, clippy::expect_used)]
+
 mod e01;
 mod split;
 mod vhd;
 mod vmdk;
 
 /// Hidden fixture builders shared by fuzz targets and parser property tests.
+// H-11: fixture-only builders use fixed slices and infallible test data; the
+// production parsers above remain subject to the deny list.
 #[doc(hidden)]
+#[allow(clippy::indexing_slicing, clippy::unwrap_used, clippy::expect_used)]
 pub mod fuzz_support;
 
 use crate::io::{read_exact_at, read_vec_at, ImageSource, RawFile};
@@ -143,11 +149,20 @@ impl PolicySource {
             let lo = cursor.max(sector_start);
             let hi = sector_end;
             let want = (hi - lo) as usize;
-            let tmp = &mut sector[..want];
+            let tmp = sector.get_mut(..want).ok_or_else(|| {
+                io::Error::new(io::ErrorKind::InvalidData, "read-error sector slice")
+            })?;
             let ok = matches!(self.inner.read_at(lo, tmp), Ok(n) if n == want);
             if ok {
                 let from = (lo - offset) as usize;
-                buf[from..from + want].copy_from_slice(tmp);
+                let end = from.checked_add(want).ok_or_else(|| {
+                    io::Error::new(io::ErrorKind::InvalidData, "read-error range")
+                })?;
+                buf.get_mut(from..end)
+                    .ok_or_else(|| {
+                        io::Error::new(io::ErrorKind::InvalidData, "read-error destination")
+                    })?
+                    .copy_from_slice(tmp);
             } else {
                 record_unreadable(&self.regions, lo, want as u64, &reason);
             }
@@ -524,8 +539,8 @@ fn vhd_footer_checksum_valid(footer: &[u8]) -> bool {
         sum = sum.wrapping_add(u32::from(*b));
     }
     let expected = !sum;
-    let actual = u32::from_be_bytes([footer[64], footer[65], footer[66], footer[67]]);
-    expected == actual
+    field::<4>(footer, 64, "VHD footer checksum")
+        .is_ok_and(|bytes| u32::from_be_bytes(bytes) == expected)
 }
 
 fn looks_like_vmdk_descriptor(prefix: &[u8]) -> bool {
@@ -561,14 +576,14 @@ fn detect(path: &Path, probe: &RawFile, len: u64) -> Result<InputFormat> {
         if head == EWF_MAGIC {
             return Ok(InputFormat::E01);
         }
-        if &head[..4] == b"KDMV" {
+        if head.starts_with(b"KDMV") {
             return Ok(InputFormat::Vmdk);
         }
     }
 
     if len >= 512 {
         let footer = read_vec_at(probe, len - 512, 512)?;
-        if &footer[..8] == b"conectix" && vhd_footer_checksum_valid(&footer) {
+        if footer.starts_with(b"conectix") && vhd_footer_checksum_valid(&footer) {
             return Ok(InputFormat::Vhd);
         }
     }
@@ -637,6 +652,9 @@ pub(crate) fn ones_complement(buf: &[u8]) -> u32 {
 }
 
 #[cfg(test)]
+// Test fixtures use fixed slices and expect valid layouts; the production
+// parser above remains subject to the deny list.
+#[allow(clippy::indexing_slicing, clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
 

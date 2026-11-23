@@ -213,7 +213,7 @@ Windows**.
 | H-08 | CRIT | 2026-11-21 source / 2026-11-21 release build | CLOSED | e69e68b | tests/memory_budget.rs; scripts/review_repro.py X01 | Red test: 300 x ~60 KiB JPEGs (18 MiB output) with `--max-memory 16M` failed before the fix. After: all 300 written with bounded RSS; `SOURCE_CHANGED` verified by a changing-source test; G8 s9_4m 0.476s before vs 0.164s after. |
 | H-09 | HIGH | 2026-11-21 source / 2026-11-21 release build | CLOSED | 48deab5 | tests/work_budgets.rs; scripts/review_repro.py X05 | Red X05 (missing flags) before the fix; after: all four limits trip with coded warning, report and exit 3; time case sets `nondeterministic_stop`. D-39 defaults measured on D0/S9/S10. |
 | H-10 | HIGH | 2026-11-21 source / 2026-11-21 release build | CLOSED | 5f794a4 | tests/panic_containment.rs; scripts/review_repro.py X06 | Red test proved an escaping rayon panic before the fix. After: candidate/join panics become `internal_errors[]`, `CANDIDATE_PANIC`, counted in stats, exit 3; other candidates still carved. |
-| H-11 | CRIT | 2026-11-21 source / 2026-11-21 release build | CLOSED | 4b86f2d | tests/regress_e01_safety.rs; scripts/review_repro.py X07 | Before: SIGABRT on a 64 GiB declared chunk (v5). After: typed error `EWF chunk size 68719476736 exceeds the 67108864-byte limit`; `info` 0.005 s / 12 MiB RSS, `scan` 0.005 s / 13 MiB RSS. |
+| H-11 | CRIT | 2026-11-21 source / 2026-11-23 R2-11 | CLOSED | 4b86f2d, pending | tests/regress_e01_safety.rs; scripts/review_repro.py X07; clippy deny in src/image/{mod,e01,split,vhd,vmdk}.rs | Original E01 allocation bounded; R2-11 denies indexing/unwrap/expect in image parsers and replaces production hostile-field access with checked errors. |
 | H-12 | CRIT | 2026-11-23 packaged 0.3.0 + source | CLOSED | pending | tests/regress_vmdk_safety.rs; tests/regress_task_plan.rs; scripts/repro_x08b.py; scripts/repro_x26.py; scripts/review_repro.py X08 | Grain tables stay bounded (X08/X08a) and declared-size scan plans are now lazy. X08b: 512 TiB ZERO → exit 3, 5.01 s, 28.0 MiB RSS with a report; X26 VHD/E01/100k-split → typed errors at ~10 MiB RSS. |
 | H-13 | HIGH | 2026-11-21 source | CLOSED | 080b76a | tests/regress_vmdk_safety.rs; scripts/review_repro.py X09 | VMDK descriptors are confined to the containing image; relative and absolute escapes are rejected with typed errors. |
 | H-14 | HIGH | 2026-11-22 source / nightly fuzz runtime | CLOSED | e2d3f1d | fuzz/fuzz_targets/fuzz_e01.rs; fuzz/fuzz_targets/fuzz_vhd.rs; fuzz/fuzz_targets/fuzz_vmdk.rs; fuzz/fuzz_targets/fuzz_split_names.rs; fuzz/fuzz_targets/fuzz_open_image.rs; fuzz/fuzz_targets/fuzz_fragment_join.rs; scripts/fuzz.sh | Static gap: only 7 targets, none for the new parsers. Added 6 named targets, 22 committed seeds and structured property tests; each target ran 60 s clean (235,272 executions total, no crash/artifact). Real-tool E01/VMDK fixtures SKIPPED (`ewfacquire`/`ewfexport`/`qemu-img` missing). |
@@ -547,6 +547,21 @@ Gate: green (SKIPPED: real E01 tool scenarios without `ewfacquire`).
 Measurement: SIGABRT → typed error, 0.005 s, ≤ 13 MiB RSS.
 Residual risk / next: real libewf fixtures remain unavailable; stdin limit is
   exercised through unit-level code, not a full-pipe integration test.
+
+Task: H-11b (R2-11) — deny indexing/unwrap/expect in image parsers
+Reviews: round-2 R2-11 (harness §R.3); extends H-11.
+Repro: NOT REPRODUCED as a crash; static audit found production indexing and
+  error-unwrap patterns in `src/image/{mod,e01,split,vhd,vmdk}.rs`.
+Change: add `#![deny(clippy::indexing_slicing, clippy::unwrap_used,
+  clippy::expect_used)]` to the five image parser modules; replace production
+  indexing with checked access and typed errors; keep `fuzz_support` and test
+  modules under narrow justified `#[allow(...)]`.
+New tests: none (lint/compile-time enforcement); existing image and regress
+  tests cover behavior.
+Gate: green (full `scripts/gate.sh` on 2026-11-23: fmt/clippy/tests/docs/actionlint/deny/audit/MSRV/release/G8/G5/coverage/fuzz-smoke/review-repro/X08b/X26/G7/G9/check_status; `GATE GREEN`).
+Measurement: `cargo clippy --all-targets --all-features --locked -- -D warnings`
+  passes; `cargo test --all-features --locked` passes.
+Residual risk / next: none for R2-11.
 
 Task: H-22 — E01 partial/damaged chunk handling
 Reviews: v5:F-20 (ONE, real libewf)
