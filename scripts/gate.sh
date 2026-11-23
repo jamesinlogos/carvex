@@ -101,6 +101,10 @@ else
 fi
 python3 scripts/review_repro.py "${REPRO_ARGS[@]}"
 
+echo "== declared-size scan plans (X08b/X26) =="
+python3 scripts/repro_x08b.py --carvex target/release/carvex
+python3 scripts/repro_x26.py --carvex target/release/carvex
+
 echo "== golden (G7) =="
 if [ -f "bench/images/all-deleted_fat32.json" ]; then
     python3 scripts/golden.py --carvex target/release/carvex

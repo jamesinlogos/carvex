@@ -67,7 +67,7 @@ status row in each reconciliation document.
 
 | ID | Pri | Repro (date, build) | Status | Commit | Test(s) | Before → After / evidence |
 |----|----|---------------------|--------|--------|---------|---------------------------|
-| H-01 | HIGH | 2026-11-23 user file | CLOSED | pending | docs/guide.md | The 924-line guide was supplied by the user and committed verbatim with the expected sha256. |
+| H-01 | HIGH | 2026-11-23 user file | CLOSED | 092be33 | docs/guide.md | The 924-line guide was supplied by the user and committed verbatim with the expected sha256. |
 | H-02 | HIGH | 2026-11-21 source | CLOSED | 7129173 | scripts/gate.sh; scripts/check-msrv.sh | Clean-checkout gate made SKIP-safe; local G0-G9 now runs without root. |
 | H-03 | HIGH | 2026-11-21 source | CLOSED | bbef4bd | scripts/review_repro.py; tests/regress_e01_safety.rs | X01-X24 controls and Rust regressions completed; red baseline retained. |
 | H-04 | MED | 2026-11-21 source / 0.3.0 release | PARTIAL | 4d0a6fd; 5480f10 | dist/README.md; dist/SHA256SUMS; scripts/sbom.py | Identity metadata fixed; both binaries rebuilt at local tag `v0.3.0`, executed and checksummed. Windows execution was under Wine only, so release identity is not fully closed. |
@@ -78,7 +78,7 @@ status row in each reconciliation document.
 | H-09 | HIGH | 2026-11-21 source | CLOSED | 48deab5 | tests/work_budgets.rs; scripts/review_repro.py X05 | Four work limits emit coded warnings, reports and exit 3. |
 | H-10 | HIGH | 2026-11-21 source | CLOSED | 5f794a4 | tests/panic_containment.rs; scripts/review_repro.py X06 | Candidate and join panics are contained with `CANDIDATE_PANIC`. |
 | H-11 | CRIT | 2026-11-21 source | CLOSED | 4b86f2d | tests/regress_e01_safety.rs; scripts/review_repro.py X07 | Hostile chunk size is a typed error rather than SIGABRT. |
-| H-12 | CRIT | 2026-11-21 source | CLOSED | 080b76a | tests/regress_vmdk_safety.rs; scripts/review_repro.py X08 | Grain tables are bounded; zero extents read as zeros. |
+| H-12 | CRIT | 2026-11-23 packaged 0.3.0 + source | CLOSED | pending | tests/regress_vmdk_safety.rs; tests/regress_task_plan.rs; scripts/repro_x08b.py; scripts/repro_x26.py | Grain tables stay bounded; declared-size ZERO/VHD/E01/split plans are lazy and budget-aware. X08b 28.0 MiB peak RSS, exit 3 with report. |
 | H-13 | HIGH | 2026-11-21 source | CLOSED | 080b76a | tests/regress_vmdk_safety.rs; scripts/review_repro.py X09 | VMDK descriptors are confined to the image. |
 | H-14 | HIGH | 2026-11-22 source | CLOSED | e2d3f1d | fuzz/fuzz_targets/fuzz_e01.rs; fuzz/fuzz_targets/fuzz_vmdk.rs; scripts/fuzz.sh | Six parser fuzz targets added; 13 targets ran clean locally. |
 | H-15 | MED | 2026-11-22 source / 0.2.0 and 0.3.0 dist | CLOSED (musl/dist-only) | 1c28e2e | scripts/review_repro.py X23; scripts/perf_gate.py | Source build was fast; historical 0.2.0 musl dist was 3.51x slower in parallel; final 0.3.0 musl release had X23 2.80 s vs 1.26 s and R5 5.50 s. No allocator change. |

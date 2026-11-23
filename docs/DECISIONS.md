@@ -1212,9 +1212,10 @@ decision, and the consequences.
   `test (windows-latest)`. Job-log bodies remained unavailable (`403`), but
   run status, step conclusions and annotations were observed directly.
 - **Consequences:** N-35…N-40 are closed as CI-green. The local annotated
-  `v0.3.0` tag remains at `5480f10` and is still unpushed; only `main` was
-  pushed. This is the first observed green public run and the sole basis for
-  a CI-green claim.
+  `v0.3.0` tag remains at `5480f10`; it was later pushed to origin (remote tag
+  `271026578c532cfe4fb7e8600205558caa818c78` points at commit
+  `5480f1084f85cc91f68d94c76c703d1348a65b5e`, confirmed 2026-11-23). This is
+  the first observed green public run and the sole basis for a CI-green claim.
 
 ## D-63. Acceptance guide added verbatim (H-01)
 
@@ -1231,3 +1232,28 @@ decision, and the consequences.
   value; `cmp docs/guide.md /home/kali/guide.md` is silent (byte-for-byte
   identical). No source, CLI, score, warning code, frozen result or binary
   changed.
+
+## D-64. Lazy scan task planning (ADR-H11, H-12b)
+
+- **Context:** round-2 X08b reproduced a CRIT regression in the released
+  0.3.0 code: a 512 TiB VMDK `ZERO` extent made `prepare_scan_plan` push one
+  `Task` per 4 MiB chunk before any budget was consulted. The plan grew by
+  about 10 MiB/TiB, reaching 5.9 GiB and SIGKILL; `--time-budget 20` was
+  ignored during planning. The same path is reached by every container whose
+  logical size is declared in a header.
+- **Decision:** replace the eager `Vec<Task>` with a `TaskPlan`/`TaskIter` view
+  over resolved extents. Candidate counting, quota assignment and scanning
+  proceed in bounded 64-task batches; totals and `bytes_in_extents` come from
+  extent arithmetic, and fragment footer scanning uses the same iterator.
+  The order of tasks and the deterministic global candidate quota are
+  unchanged, so output bytes, scores, warnings and G7 results are unchanged.
+  The existing wall-clock stop is now checked while planning and produces the
+  usual `TIME_LIMIT`/`nondeterministic_stop` partial report instead of an
+  abort. No default, threshold, frozen result or scoring rule changed.
+- **Evidence:** red observations are in `docs/PROGRESS.md` (task H-12b). After
+  the change, `scripts/repro_x08b.py --carvex target/release/carvex` reported
+  `exit=3`, `5.01 s`, `28.0 MiB` peak RSS with a report under `RLIMIT_AS=1 GiB`;
+  `scripts/repro_x26.py` reported typed errors and ~10 MiB RSS for the VHD,
+  E01 and 100,000-segment split declarations; the Rust regression test aborted
+  before the fix and passes afterwards. `G7`/`G8` are rechecked by the commit's
+  full gate run.

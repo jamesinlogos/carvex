@@ -150,6 +150,11 @@ pub const DEFAULT_TIME_BUDGET_SECS: u64 = 0;
 /// Default cap on detailed `regions[]` rows (0 = unlimited; H-27).
 pub const DEFAULT_MAX_REGIONS: u64 = 4096;
 
+/// H-12b: maximum number of lazy tasks materialised at once. Counting, quota
+/// assignment and scanning stay in task order, so batching cannot change the
+/// deterministic candidate prefix or the global candidate budget.
+const SCAN_TASK_BATCH: usize = 64;
+
 fn effective_max_candidates(opts: &ScanOptions) -> u64 {
     if opts.max_candidates == 0 {
         DEFAULT_MAX_CANDIDATES
@@ -1250,8 +1255,6 @@ struct ScanPlan {
     mode: ScanMode,
     extents: Vec<Extent>,
     bytes_in_extents: u64,
-    tasks: Vec<Task>,
-    total_to_scan: u64,
 }
 
 fn prepare_scan_plan(
@@ -1261,16 +1264,82 @@ fn prepare_scan_plan(
     image_len: u64,
 ) -> Result<ScanPlan> {
     let (mode, extents) = plan_extents(opts.mode, volumes, extra_extents, image_len)?;
-    let bytes_in_extents = extents.iter().map(|e| e.len).sum();
-    let tasks = build_tasks(&extents, opts.chunk_size);
-    let total_to_scan = tasks.iter().map(|t| t.scan_len).sum();
+    // Extents are disjoint and clamped to `image_len`, so this sum cannot
+    // exceed the (u64) image length. It replaces the old per-task sum without
+    // materialising a task for every chunk of a declared-size extent.
+    let bytes_in_extents = extents
+        .iter()
+        .fold(0u64, |sum, e| sum.saturating_add(e.len));
     Ok(ScanPlan {
         mode,
         extents,
         bytes_in_extents,
-        tasks,
-        total_to_scan,
     })
+}
+
+/// H-12b: a lazy view of the work implied by resolved extents. No allocation
+/// is proportional to a container-declared logical size.
+#[derive(Debug, Clone, Copy)]
+struct TaskPlan<'a> {
+    extents: &'a [Extent],
+    chunk_size: u64,
+}
+
+impl<'a> TaskPlan<'a> {
+    fn new(extents: &'a [Extent], chunk_size: u64) -> Self {
+        Self {
+            extents,
+            chunk_size,
+        }
+    }
+
+    fn iter(self) -> TaskIter<'a> {
+        TaskIter {
+            extents: self.extents,
+            extent_id: 0,
+            offset: 0,
+            end: 0,
+            chunk_size: self.chunk_size,
+        }
+    }
+}
+
+/// H-12b: yields one chunk at a time. The caller checks the stop state before
+/// each bounded batch, so planning itself remains bounded and cooperative.
+struct TaskIter<'a> {
+    extents: &'a [Extent],
+    extent_id: usize,
+    offset: u64,
+    end: u64,
+    chunk_size: u64,
+}
+
+impl Iterator for TaskIter<'_> {
+    type Item = Task;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            if self.offset >= self.end {
+                let extent = *self.extents.get(self.extent_id)?;
+                self.extent_id += 1;
+                self.offset = extent.offset;
+                self.end = extent.end();
+                continue;
+            }
+            let remaining = self.end - self.offset;
+            let scan_len = self.chunk_size.min(remaining);
+            let read_len = scan_len.saturating_add(16).min(remaining);
+            let task = Task {
+                start: self.offset,
+                scan_len,
+                read_len,
+                extent_end: self.end,
+                extent_id: self.extent_id - 1,
+            };
+            self.offset = self.offset.saturating_add(scan_len);
+            return Some(task);
+        }
+    }
 }
 
 fn worker_pool(threads: usize) -> Result<(usize, rayon::ThreadPool)> {
@@ -1288,18 +1357,19 @@ fn worker_pool(threads: usize) -> Result<(usize, rayon::ThreadPool)> {
 
 fn find_scan_candidates(
     source: &dyn ImageSource,
-    tasks: &[Task],
+    plan: &ScanPlan,
     opts: &ScanOptions,
     volumes: &[FsInfo],
     pool: &rayon::ThreadPool,
     stop: &Stop,
     warnings: &mut Vec<Warning>,
 ) -> Result<(Vec<Candidate>, Arc<Progress>)> {
-    let scan_progress = Arc::new(Progress::new(tasks.iter().map(|t| t.scan_len).sum()));
+    let task_plan = TaskPlan::new(&plan.extents, opts.chunk_size);
+    let scan_progress = Arc::new(Progress::new(plan.bytes_in_extents));
     let scan_thread = start_progress(scan_progress.clone(), opts.quiet, "Scanning");
     let (mut candidates, candidate_limit_hit) = find_candidates(
         source,
-        tasks,
+        task_plan,
         &opts.types,
         opts,
         volumes,
@@ -1613,15 +1683,8 @@ pub fn run_scan(
     prepare_output_dir(out_dir, opts.force)?;
     let plan = prepare_scan_plan(opts, volumes, extra_extents, image_len)?;
     let (thread_count, pool) = worker_pool(opts.threads)?;
-    let (candidates, scan_progress) = find_scan_candidates(
-        source,
-        &plan.tasks,
-        opts,
-        volumes,
-        &pool,
-        &stop,
-        &mut warnings,
-    )?;
+    let (candidates, scan_progress) =
+        find_scan_candidates(source, &plan, opts, volumes, &pool, &stop, &mut warnings)?;
     let mut stats = ScanStats {
         candidates: candidates.len(),
         extents: plan.extents.len(),
@@ -1680,7 +1743,7 @@ pub fn run_scan(
         &mut warnings,
     );
     let (elapsed, bytes_scanned, throughput) =
-        scan_throughput(t0, interrupted, &scan_progress, plan.total_to_scan);
+        scan_throughput(t0, interrupted, &scan_progress, plan.bytes_in_extents);
     let input_info = build_input_info(image, image_len, image_identity, ctx);
     if input_info.unchanged == Some(false) {
         warnings.push(Warning::new(
@@ -1859,35 +1922,11 @@ pub fn plan_extents(
     Ok((resolved, merge_extents(extents)))
 }
 
-fn build_tasks(extents: &[Extent], chunk_size: u64) -> Vec<Task> {
-    let mut tasks = Vec::new();
-    for (extent_id, e) in extents.iter().enumerate() {
-        let mut off = e.offset;
-        let end = e.end();
-        while off < end {
-            let scan_len = chunk_size.min(end - off);
-            let read_len = scan_len.saturating_add(16).min(end - off);
-            tasks.push(Task {
-                start: off,
-                scan_len,
-                read_len,
-                extent_end: end,
-                extent_id,
-            });
-            off = off.saturating_add(scan_len);
-            if scan_len == 0 {
-                break;
-            }
-        }
-    }
-    tasks
-}
-
 // H-34: candidate discovery keeps its original worker signature so source-read and warning order remain auditable.
 #[allow(clippy::too_many_arguments)]
 fn find_candidates(
     source: &dyn ImageSource,
-    tasks: &[Task],
+    task_plan: TaskPlan<'_>,
     types: &[FileType],
     opts: &ScanOptions,
     volumes: &[FsInfo],
@@ -1898,46 +1937,73 @@ fn find_candidates(
     if stop.check() {
         return Ok((Vec::new(), false));
     }
-    // First pass: count plausible headers per fixed task. This is a cheap
-    // lexical scan; it lets us hand out an exact deterministic global budget
-    // without an atomic reservation whose winner would depend on scheduling.
-    let counts: Vec<usize> = pool.install(|| {
-        tasks
-            .par_iter()
-            .map(|task| count_task(source, task, types, opts, volumes, stop))
-            .collect::<Result<Vec<_>>>()
-    })?;
-    if stop.check() {
-        return Ok((Vec::new(), false));
-    }
-    let total: usize = counts.iter().fold(0usize, |sum, &n| sum.saturating_add(n));
-    let max = usize::try_from(effective_max_candidates(opts)).unwrap_or(usize::MAX);
-    let hit = total > max;
-    let mut remaining = total.min(max);
-    let quotas: Vec<usize> = counts
-        .iter()
-        .map(|&count| {
-            let quota = count.min(remaining);
-            remaining = remaining.saturating_sub(quota);
-            quota
-        })
-        .collect();
+    let max_u64 = effective_max_candidates(opts);
+    let max = usize::try_from(max_u64).unwrap_or(usize::MAX);
+    let mut out = Vec::new();
+    // Only the initial capacity is capped; the vector still grows to the
+    // configured limit if that many candidates really exist.
+    out.try_reserve_exact(max.min(SCAN_TASK_BATCH * 64))
+        .context("cannot reserve candidate result vector")?;
+    let mut total: u64 = 0;
+    let mut hit = false;
+    let mut remaining = max;
+    let mut tasks = task_plan.iter();
 
-    let found: Vec<Vec<Candidate>> = pool.install(|| {
-        tasks
-            .par_iter()
-            .zip(quotas)
-            .map(|(task, quota)| {
-                if stop.check() || quota == 0 {
-                    return Ok(Vec::new());
-                }
-                scan_task(source, task, types, opts, volumes, progress, quota, stop)
+    // H-12b: count, allocate quotas and scan one bounded batch at a time. The
+    // old all-at-once version materialised one Task per chunk (about 10 MiB of
+    // plan per declared TiB) before any budget could be checked. Quotas are
+    // still assigned in task order, so the result is byte-for-byte identical.
+    loop {
+        if stop.check() {
+            break;
+        }
+        let batch: Vec<Task> = tasks.by_ref().take(SCAN_TASK_BATCH).collect();
+        if batch.is_empty() {
+            break;
+        }
+        // First pass: count plausible headers in this batch. This is a cheap
+        // lexical scan; it lets us hand out an exact deterministic global
+        // budget without an atomic reservation whose winner depends on
+        // scheduling.
+        let counts: Vec<usize> = pool.install(|| {
+            batch
+                .par_iter()
+                .map(|task| count_task(source, task, types, opts, volumes, stop))
+                .collect::<Result<Vec<_>>>()
+        })?;
+        if stop.check() {
+            break;
+        }
+        for &count in &counts {
+            total = total.saturating_add(u64::try_from(count).unwrap_or(u64::MAX));
+            if total > max_u64 {
+                hit = true;
+            }
+        }
+        let quotas: Vec<usize> = counts
+            .iter()
+            .map(|&count| {
+                let quota = count.min(remaining);
+                remaining = remaining.saturating_sub(quota);
+                quota
             })
-            .collect::<Result<Vec<_>>>()
-    })?;
-    let mut out = Vec::with_capacity(total.min(max));
-    for candidates in found {
-        out.extend(candidates);
+            .collect();
+
+        let found: Vec<Vec<Candidate>> = pool.install(|| {
+            batch
+                .par_iter()
+                .zip(quotas)
+                .map(|(task, quota)| {
+                    if stop.check() || quota == 0 {
+                        return Ok(Vec::new());
+                    }
+                    scan_task(source, task, types, opts, volumes, progress, quota, stop)
+                })
+                .collect::<Result<Vec<_>>>()
+        })?;
+        for candidates in found {
+            out.extend(candidates);
+        }
     }
     Ok((out, hit))
 }
@@ -2609,8 +2675,8 @@ fn find_footers(
     opts: &ScanOptions,
 ) -> Result<HashMap<FileType, Vec<u64>>> {
     let mut found: HashMap<FileType, Vec<u64>> = kinds.iter().map(|&k| (k, Vec::new())).collect();
-    let tasks = build_tasks(extents, 1024 * 1024);
-    for task in &tasks {
+    // H-12b: fragment footer scanning also avoids a per-chunk task vector.
+    for task in TaskPlan::new(extents, 1024 * 1024).iter() {
         let mut buf = vec![0u8; task.read_len as usize];
         read_exact_at(source, &mut buf, task.start)
             .with_context(|| format!("cannot read fragment scan chunk at {}", task.start))?;

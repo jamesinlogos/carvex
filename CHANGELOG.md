@@ -4,6 +4,16 @@ All notable changes to CarveX are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- H-12b: scan work is planned lazily from resolved extents in bounded batches.
+  A container-declared 512 TiB `ZERO` extent no longer allocates a per-chunk
+  task vector before the time budget or interrupt can be checked; totals and
+  regions are computed arithmetically. Output bytes, order and work-unit
+  budgets are unchanged.
+
 ## [0.3.0] — 2026-11-22
 
 ### Added

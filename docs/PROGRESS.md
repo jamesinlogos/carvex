@@ -203,7 +203,7 @@ Windows**.
 
 | ID | Pri | Repro (date, build) | Status | Commit | Test(s) | Before → After / evidence |
 |----|----|---------------------|--------|--------|---------|---------------------------|
-| H-01 | HIGH | 2026-11-23 user file | CLOSED | pending | docs/guide.md | The 924-line guide was supplied by the user and committed verbatim; `sha256sum docs/guide.md` = `22ee8122209e9eda11d6f32a1e650e8f8e48f5610bd808309d94f436e5e78265`. |
+| H-01 | HIGH | 2026-11-23 user file | CLOSED | 092be33 | docs/guide.md | The 924-line guide was supplied by the user and committed verbatim; `sha256sum docs/guide.md` = `22ee8122209e9eda11d6f32a1e650e8f8e48f5610bd808309d94f436e5e78265`. |
 | H-02 | HIGH | 2026-11-21 source | CLOSED | 7129173 | scripts/gate.sh; scripts/check-msrv.sh | The clean-checkout gate was made SKIP-safe; G7 golden and MSRV checks were added. Local gates now run G0-G9 without root; the H-30 CI run is a separate, failed remote observation. |
 | H-03 | HIGH | 2026-11-21 source | CLOSED | bbef4bd | scripts/review_repro.py; tests/regress_e01_safety.rs | X01-X24 controls plus Rust regression and property tests were completed; red baseline `docs/baseline/repro_v0.1.0.txt` is retained. |
 | H-04 | MED | 2026-11-21 source / 0.3.0 release | PARTIAL | 4d0a6fd; 5480f10 | dist/README.md; dist/SHA256SUMS; scripts/sbom.py | Repository URL, build recipe, version metadata and stale-dist notice were fixed; both binaries were rebuilt at local tag `v0.3.0`, executed, and checksummed. The Windows executable was run under Wine 10.0, not on a Windows runner, so release identity is PARTIAL rather than fully closed. |
@@ -214,7 +214,7 @@ Windows**.
 | H-09 | HIGH | 2026-11-21 source / 2026-11-21 release build | CLOSED | 48deab5 | tests/work_budgets.rs; scripts/review_repro.py X05 | Red X05 (missing flags) before the fix; after: all four limits trip with coded warning, report and exit 3; time case sets `nondeterministic_stop`. D-39 defaults measured on D0/S9/S10. |
 | H-10 | HIGH | 2026-11-21 source / 2026-11-21 release build | CLOSED | 5f794a4 | tests/panic_containment.rs; scripts/review_repro.py X06 | Red test proved an escaping rayon panic before the fix. After: candidate/join panics become `internal_errors[]`, `CANDIDATE_PANIC`, counted in stats, exit 3; other candidates still carved. |
 | H-11 | CRIT | 2026-11-21 source / 2026-11-21 release build | CLOSED | 4b86f2d | tests/regress_e01_safety.rs; scripts/review_repro.py X07 | Before: SIGABRT on a 64 GiB declared chunk (v5). After: typed error `EWF chunk size 68719476736 exceeds the 67108864-byte limit`; `info` 0.005 s / 12 MiB RSS, `scan` 0.005 s / 13 MiB RSS. |
-| H-12 | CRIT | 2026-11-21 source / 2026-11-21 release build | CLOSED | 080b76a | tests/regress_vmdk_safety.rs; scripts/review_repro.py X08 | Hostile grain-table multiplication was bounded; zero extents read as zeros. X08 completed quickly; no allocation explosion or out-of-range panic. |
+| H-12 | CRIT | 2026-11-23 packaged 0.3.0 + source | CLOSED | pending | tests/regress_vmdk_safety.rs; tests/regress_task_plan.rs; scripts/repro_x08b.py; scripts/repro_x26.py; scripts/review_repro.py X08 | Grain tables stay bounded (X08/X08a) and declared-size scan plans are now lazy. X08b: 512 TiB ZERO → exit 3, 5.01 s, 28.0 MiB RSS with a report; X26 VHD/E01/100k-split → typed errors at ~10 MiB RSS. |
 | H-13 | HIGH | 2026-11-21 source | CLOSED | 080b76a | tests/regress_vmdk_safety.rs; scripts/review_repro.py X09 | VMDK descriptors are confined to the containing image; relative and absolute escapes are rejected with typed errors. |
 | H-14 | HIGH | 2026-11-22 source / nightly fuzz runtime | CLOSED | e2d3f1d | fuzz/fuzz_targets/fuzz_e01.rs; fuzz/fuzz_targets/fuzz_vhd.rs; fuzz/fuzz_targets/fuzz_vmdk.rs; fuzz/fuzz_targets/fuzz_split_names.rs; fuzz/fuzz_targets/fuzz_open_image.rs; fuzz/fuzz_targets/fuzz_fragment_join.rs; scripts/fuzz.sh | Static gap: only 7 targets, none for the new parsers. Added 6 named targets, 22 committed seeds and structured property tests; each target ran 60 s clean (235,272 executions total, no crash/artifact). Real-tool E01/VMDK fixtures SKIPPED (`ewfacquire`/`ewfexport`/`qemu-img` missing). |
 | H-15 | MED | 2026-11-22 source / 0.2.0 and 0.3.0 `dist/` | CLOSED (measured; musl/dist-only) | 1c28e2e | scripts/review_repro.py X23; scripts/perf_gate.py | Current glibc source: 1 thread 0.489 s vs default 0.156 s (0.32x). Historical 0.2.0 musl dist: 0.694 s vs 2.436 s (3.51x). Final 0.3.0 musl release: 1 thread 1.26 s vs default 2.80 s (2.22x) and R5 5.50 s vs <= 1.0 s. No allocator change; recorded as release-binary behaviour. |
@@ -776,8 +776,9 @@ Residual risk / next: GitHub run `45035152791` on `d9dcac3` completed **failure*
   endpoint returned `403 Must have admin rights to Repository.`, so no remote
   failure cause is claimed. The 0.3.0 packaged binaries were rebuilt from local
   tag `v0.3.0`; the Windows binary was executed under Wine only. No green CI at
-  final HEAD, lockbox regeneration or full-benchmark rerun is claimed; the tag
-  was created locally and was not pushed.
+  final HEAD, lockbox regeneration or full-benchmark rerun is claimed; the
+  `v0.3.0` tag was later pushed to origin (confirmed 2026-11-23), while `v0.3.1`
+  remains pending R2-10 release.
 
 Task: H-31 — Status labels overstated or inconsistent
 Reviews: v1:R-15, v2:N-04 and v5:F-12.
@@ -880,6 +881,35 @@ Residual risk / next: the historical `/home/kali` paths remain as provenance by
   decision D-57; regenerating them would change frozen hashes, so no edit was
   made. No CLI, JSON/CSV, score, warning code, default, warning meaning,
   emission, output name or frozen benchmark value changed.
+
+### Task: H-12b — lazy scan task planning (round 2)
+
+Reviews: round-2 verification of H-12 (`harness.md` §R.3 R2-01).
+Repro: REPRODUCED on the packaged `dist/carvex-linux-x86_64` and on the
+  source-built library. `python3 /tmp/opencode/x08b_red.py dist/carvex-linux-x86_64`
+  (512 TiB `ZERO` extent, `RLIMIT_AS=1 GiB`, `--time-budget 5`) exited `-6`
+  after 0.47 s with `memory allocation of 1342177280 bytes failed` and no report
+  (`/tmp/opencode/x08b_red.txt`). The red Rust test
+  `tests/regress_task_plan.rs::declared_size_plan_is_lazy_and_honours_the_time_budget`
+  aborted with the same allocation message when run under a 1 GiB address-space
+  limit (`/tmp/opencode/r2_01_red_rust.txt`). Cause confirmed at
+  `prepare_scan_plan`/`build_tasks`: one `Task` per 4 MiB chunk is pushed into a
+  `Vec` before any budget or interrupt can be checked (~10 MiB per TiB).
+Change: `src/scan.rs` now plans from `TaskPlan`/`TaskIter` over resolved extents,
+  counts/quota-scans 64 tasks per batch, computes totals arithmetically, checks
+  the stop state during planning, and reuses the iterator for fragment footer
+  scanning. Added `scripts/repro_x08b.py`, `scripts/repro_x26.py` and wired both
+  into `scripts/gate.sh`; added D-64 and an Unreleased CHANGELOG entry.
+New tests: `tests/regress_task_plan.rs::declared_size_plan_is_lazy_and_honours_the_time_budget`
+  aborted before the fix and passes after; X08b and X26 are red/green as
+  recorded above and in `docs/DECISIONS.md` D-64.
+Gate: green (full `scripts/gate.sh` on 2026-11-23: fmt/clippy/tests/docs/actionlint/deny/audit/MSRV/release/G8/G5/coverage/fuzz-smoke/review-repro/X08b/X26/G7/G9/check_status; `GATE GREEN`).
+Measurement: before 512 TiB → SIGABRT at 641.6 MiB RSS in 0.47 s with no report;
+  after → exit 3, 5.01 s, 28.0 MiB peak RSS with a valid report under
+  `RLIMIT_AS=1 GiB`. X26 → typed errors at ~10 MiB RSS for VHD, E01 and the
+  100,000-segment split set.
+Residual risk / next: none for H-12b. Wired X08b/X26 into the gate so a return
+  to eager planning fails automatically; `dist/` remains 0.3.0 until R2-10.
 
 ### Task: H-01 — 924-line acceptance guide committed
 
