@@ -1134,3 +1134,34 @@ decision, and the consequences.
   not green remotely; no fuzz, coverage, lockbox, full-benchmark or Windows
   result is inferred from the failed remote jobs. No binary, source flag,
   score, warning code, frozen benchmark or published figure was tuned.
+
+## D-60. CI-only fixes after the 0.3.0 publish push
+
+- **Context:** pushing `a1eaf41` produced public Actions run `45102520898`,
+  which failed with the same five job classes as the previous final-head run.
+  Job logs remained unavailable (`403 Must have admin rights to Repository.`).
+  Three causes were reproduced locally: the pinned `1.100.0` toolchain rejects
+  cargo-fuzz's `-Z` flags unless `+nightly` is explicit; the GitHub Ubuntu image
+  does not list `musl-tools`; and `bench/images/*.img` is git-ignored, so the
+  packaged smokes and repro job passed paths to files that a clean checkout
+  never contains.
+- **Decision:** change only `.github/workflows/ci.yml` and add the no-root
+  fixture generator `scripts/make_smoke_image.py`. Fuzz jobs use
+  `cargo +nightly fuzz run`; the musl job installs `musl-tools`; the musl and
+  Windows packaged smokes and the repro job generate the committed-corpus FAT32
+  smoke fixture instead of depending on ignored images. The Windows `Tests`,
+  `release gate` and `review repro` steps tee their logs and emit failure-tail
+  annotations so the next public run can expose details through the API. No
+  source, CLI default, output name, JSON/CSV field, score, warning code, frozen
+  benchmark, published figure or binary is changed, and the local-only `v0.3.0`
+  tag stays at `5480f10`.
+- **Evidence:** local red `cargo fuzz run` log and green
+  `cargo +nightly fuzz run` control; public runner-image package list;
+  `git check-ignore` on `bench/images/mixed_fat32.img`; generated-fixture `info`
+  and `scan` runs on both the Linux release binary and the Windows binary under
+  Wine 10.0; and a green clean-checkout `scripts/gate.sh` (`GATE GREEN`, 34
+  scenarios/0 failures/5 SKIPs). Run `45102520898` and the step conclusions are
+  recorded in `docs/VALIDATION.md §3`.
+- **Consequences:** these are CI/tooling changes only. The remaining three
+  failure classes are still unresolved and are tracked as N-38/N-39; no green
+  CI claim is made until a new run is observed.

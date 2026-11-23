@@ -49,7 +49,18 @@ jobs:
       - name: Clippy
         run: cargo clippy --all-targets --all-features --locked -- -D warnings
       - name: Tests
-        run: cargo test --all-features --locked
+        id: tests
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo test --all-features --locked 2>&1 | tee tests.log
+      - name: Test failure detail
+        if: failure() && steps.tests.outcome == 'failure'
+        shell: bash
+        run: |
+          tail -n 40 tests.log | cut -c1-200 | while IFS= read -r line; do
+            echo "::error::$line"
+          done
       - name: Documentation
         run: cargo doc --no-deps --locked
         env:
@@ -127,7 +138,9 @@ jobs:
         run: cargo install cargo-fuzz --locked
       - name: Fuzz smoke (60 s on push/PR, 10 min nightly)
         working-directory: fuzz
-        run: cargo fuzz run "${{ matrix.target }}" -- -max_total_time="$FUZZ_SECONDS" -rss_limit_mb=4096
+        # The repository pins 1.100.0 in rust-toolchain.toml.  An explicit
+        # +nightly is required because cargo-fuzz passes -Z flags to rustc.
+        run: cargo +nightly fuzz run "${{ matrix.target }}" -- -max_total_time="$FUZZ_SECONDS" -rss_limit_mb=4096
       - name: Upload crash artifact
         if: failure()
         uses: actions/upload-artifact@v4
@@ -146,7 +159,16 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
       - name: Run scripts/gate.sh
-        run: bash scripts/gate.sh
+        id: gate
+        run: |
+          set -o pipefail
+          bash scripts/gate.sh 2>&1 | tee gate.log
+      - name: Gate failure detail
+        if: failure() && steps.gate.outcome == 'failure'
+        run: |
+          tail -n 80 gate.log | cut -c1-200 | while IFS= read -r line; do
+            echo "::error::$line"
+          done
 
   review-repro:
     name: review repro assertions
@@ -156,14 +178,26 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --release --locked
+      - name: Generate smoke fixture
+        # The large bench/images/*.img fixtures are git-ignored.  Use the same
+        # no-root FAT32 fixture as the gate smoke test; R7/R8 still SKIP
+        # without an NTFS image, but the FAT32-dependent controls can run.
+        run: python3 scripts/make_smoke_image.py --out target/repro-ci/fixture
       - name: Run X01-X24 controls
+        id: repro
         run: |
           mkdir -p target/repro-ci
+          set -o pipefail
           python3 scripts/review_repro.py --carvex target/release/carvex \
             --corpus bench/corpus --workdir target/repro-ci \
             --assert --xfail scripts/repro_xfail.txt \
-            --ntfs-image bench/images/all-deleted_ntfs.img \
-            --fat32-image bench/images/all-deleted_fat32.img
+            --fat32-image target/repro-ci/fixture/smoke_fat32.img 2>&1 | tee repro.log
+      - name: Repro failure detail
+        if: failure() && steps.repro.outcome == 'failure'
+        run: |
+          tail -n 80 repro.log | cut -c1-200 | while IFS= read -r line; do
+            echo "::error::$line"
+          done
 
   musl-smoke:
     name: Linux musl packaged binary smoke
@@ -174,14 +208,22 @@ jobs:
         with:
           targets: x86_64-unknown-linux-musl
       - uses: Swatinem/rust-cache@v2
+      - name: Install musl linker
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
       - run: cargo build --release --locked --target x86_64-unknown-linux-musl
+      - name: Generate smoke fixture
+        # bench/images/*.img are git-ignored and absent on a clean checkout.
+        run: python3 scripts/make_smoke_image.py --out target/ci-smoke
       - name: Execute musl binary
         run: |
           BIN=target/x86_64-unknown-linux-musl/release/carvex
+          IMG=target/ci-smoke/smoke_fat32.img
           "$BIN" --version
-          "$BIN" info bench/images/mixed_fat32.img
+          "$BIN" info "$IMG"
           rm -rf target/musl-scan && mkdir -p target/musl-scan
-          "$BIN" scan bench/images/mixed_fat32.img -o target/musl-scan \
+          "$BIN" scan "$IMG" -o target/musl-scan \
             --mode raw --no-fs --types jpeg --max-candidates 500 --quiet \
             --json-report target/musl-scan/report.json
           test -f target/musl-scan/report.json
@@ -194,14 +236,17 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --release --locked
+      - name: Generate smoke fixture
+        # bench/images/*.img are git-ignored and absent on a clean checkout.
+        run: python scripts/make_smoke_image.py --out target\ci-smoke
       - name: Execute the release exe
         shell: pwsh
         run: |
           .\target\release\carvex.exe --version
-          .\target\release\carvex.exe info bench\images\mixed_fat32.img
+          .\target\release\carvex.exe info target\ci-smoke\smoke_fat32.img
           if (Test-Path target\windows-scan) { Remove-Item -Recurse -Force target\windows-scan }
           New-Item -ItemType Directory -Path target\windows-scan | Out-Null
-          .\target\release\carvex.exe scan bench\images\mixed_fat32.img -o target\windows-scan `
+          .\target\release\carvex.exe scan target\ci-smoke\smoke_fat32.img -o target\windows-scan `
             --mode raw --no-fs --types jpeg --max-candidates 500 --quiet `
             --json-report target\windows-scan\report.json
           if (-not (Test-Path target\windows-scan\report.json)) {

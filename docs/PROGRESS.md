@@ -1007,7 +1007,13 @@ Residual risk / next: pedantic stage 2 (numeric casts) and stage 3 (API
 
 ## New findings outside this harness (N-xx + evidence + proposed priority)
 
-(none)
+| ID | Pri | Evidence | Status | Proposed fix |
+|---|---|---|---|---|
+| N-35 | HIGH | Run `45102520898`: all 13 fuzz jobs fail at `Fuzz smoke`. Local `cargo fuzz run jpeg` on the pinned `1.100.0` toolchain exits 1 with `error: the option 'Z' is only accepted on the nightly compiler`; `cargo +nightly fuzz run jpeg -- -max_total_time=2 -rss_limit_mb=4096` exits 0. | FIXED_PENDING_CI | `cargo +nightly fuzz run` in CI, matching `scripts/fuzz.sh` (D-60). |
+| N-36 | HIGH | musl smoke fails at the release build on CI. Public `actions/runner-images` Ubuntu 24.04 package list contains `gcc`/`binutils` but not `musl-tools`; the local musl build only succeeds because `musl-gcc` is installed here. | FIXED_PENDING_CI | Install `musl-tools` in the CI job (D-60). |
+| N-37 | HIGH | `.gitignore:6` ignores `bench/images/*.img`. A clean checkout has no `mixed_fat32.img`; `carvex info` on that path exits 1. Both packaged smokes and the repro job reference those ignored files. | FIXED_PENDING_CI | Generate the no-root FAT32 smoke fixture from the committed corpus via `scripts/make_smoke_image.py` (D-60). |
+| N-38 | MED | `release gate (G0-G9)` and `review repro assertions` fail remotely in runs `45035152791`, `45095456201` and `45102520898`. Clean-checkout and main-worktree gates are green; the generated-fixture command reports `34 scenario(s), 0 failure(s), 4 SKIP(s)`. Job logs are `403` through the public API. | NOT-REPRODUCED | Re-observe after D-60; failure-tail annotations were added to both CI steps. |
+| N-39 | MED | `test (windows-latest)` fails remotely at `Tests`. All Windows GNU test binaries built with `RUSTFLAGS='-D warnings'` pass under Wine 10.0 locally; no real Windows runner is available. | NOT-REPRODUCED | Re-observe after D-60; failure-tail annotations were added to the `Tests` step. |
 
 ## Decisions → docs/DECISIONS.md
 
@@ -1015,4 +1021,4 @@ Residual risk / next: pedantic stage 2 (numeric casts) and stage 3 (API
 
 ## Decisions
 
-See `docs/DECISIONS.md` (D-01…D-53).
+See `docs/DECISIONS.md` (D-01…D-60).

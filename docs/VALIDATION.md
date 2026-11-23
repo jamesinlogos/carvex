@@ -311,6 +311,45 @@ The job-log endpoint again returned `403 Must have admin rights to Repository.`,
 so the remote failure cause is not observed here. No green CI run at HEAD is
 claimed; the local G0-G9 gate in §2 remains the executed evidence.
 
+The 0.3.0 publish head `a1eaf4120251d0bb9ea4194e84a83a7629c064fc` was pushed
+after the release commits and produced the next public run:
+
+- Run ID: `45102520898`
+- URL: <https://github.com/jamesinlogos/carvex/actions/runs/45102520898>
+- Status: `completed`, conclusion: **failure**
+- Jobs: 9 succeeded; 18 failed with the same five classes as before (13 fuzz
+  targets, `review repro assertions`, `release gate (G0-G9)`, Linux musl
+  packaged smoke, Windows packaged smoke, `test (windows-latest)`).
+
+Job logs were again unavailable through the public API (`403 Must have admin
+rights to Repository.`), but three causes were reproduced locally without
+guessing:
+
+- `cargo fuzz run jpeg` under the repository's pinned `1.100.0` toolchain exits
+  1 with `error: the option 'Z' is only accepted on the nightly compiler`;
+  `cargo +nightly fuzz run jpeg -- -max_total_time=2 -rss_limit_mb=4096`
+  exits 0. The CI fuzz step is therefore changed to `cargo +nightly fuzz run`.
+- The public `actions/runner-images` Ubuntu 24.04 package list has `gcc`,
+  `binutils` and `g++` but not `musl-tools`. The local musl release build
+  succeeds only because `musl-gcc` is installed here. The CI musl job now
+  installs `musl-tools` before building.
+- `bench/images/*.img` is git-ignored, so a clean checkout has no
+  `mixed_fat32.img` or `all-deleted_ntfs.img`; `carvex info` on a missing image
+  exits 1. The CI smokes and repro job now generate the same no-root FAT32
+  fixture used by `bench/run_benchmark.py --smoke` via
+  `scripts/make_smoke_image.py`.
+
+The remaining `release gate`, `review repro assertions` and Windows `Tests`
+failures were not reproduced locally: full `scripts/gate.sh` runs on both the
+clean checkout of `a1eaf41` and the main worktree are green (34 scenarios/0
+failures, 5 SKIPs and 2 SKIPs respectively; all 13 fuzz targets ran in the
+latter), all Windows test binaries built with `RUSTFLAGS='-D warnings'` pass under Wine
+10.0, and the generated-fixture command reports `34 scenario(s), 0 failure(s),
+4 SKIP(s), 0 XPASS`. They are tracked as N-38/N-39 in `docs/PROGRESS.md`. Those
+three CI steps now tee their logs and annotate failure tails so the next public
+run can expose the real error text. No CI-green claim is made for the fixed
+workflow until a new remote run is observed.
+
 ## 4. Fuzz runtime
 
 ### Historical seven-target run (before H-14)
