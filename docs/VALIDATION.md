@@ -294,6 +294,23 @@ at HEAD is claimed**. The public API responses for both runs are retained as
 `bench/results/ci_jobs_45035152791.json` in the evidence bundle. Remote failure
 causes remain unobserved: no job log was available to this account.
 
+After H-34, the final pushed HEAD `360f154cbe730cc2daefe56a3889809dd5c397e8`
+was observed through the same public API:
+
+- Run ID: `45095456201`
+- URL: <https://github.com/jamesinlogos/carvex/actions/runs/45095456201>
+- Run number: `14`, event: `push`
+- Status: `completed`, conclusion: **failure**
+- Jobs: 9 succeeded (`actionlint`, `MSRV`, `dependencies`, `coverage (≥70%)`,
+  `benchmark smoke`, `SBOM`, `status labels (H-31)`, `test (ubuntu-latest)`,
+  `test (macos-latest)`); 18 failed (the 13 `fuzz` targets,
+  `review repro assertions`, `release gate (G0-G9)`, Linux musl packaged
+  binary smoke, Windows packaged binary smoke, `test (windows-latest)`).
+
+The job-log endpoint again returned `403 Must have admin rights to Repository.`,
+so the remote failure cause is not observed here. No green CI run at HEAD is
+claimed; the local G0-G9 gate in §2 remains the executed evidence.
+
 ## 4. Fuzz runtime
 
 ### Historical seven-target run (before H-14)
