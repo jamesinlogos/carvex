@@ -350,6 +350,42 @@ three CI steps now tee their logs and annotate failure tails so the next public
 run can expose the real error text. No CI-green claim is made for the fixed
 workflow until a new remote run is observed.
 
+### Post-publish CI repair chronology (observed public runs)
+
+Each row below was read from the public Actions API. Job-log bodies still
+returned `403 Must have admin rights to Repository.`; step conclusions and
+check-run annotations were available and are the only remote evidence used.
+
+| Run | Head | Conclusion | Jobs | Observed failures |
+|---|---|---|---|---|
+| `45108088774` | `ef4f825` | `completed` / **failure** | 23 success, 4 failure | `release gate (G0-G9)`, `review repro assertions`, `test (windows-latest)`, Linux musl packaged smoke. All 13 fuzz jobs and the Windows packaged smoke were green. |
+| `45110520472` | `80155cd` | `completed` / **failure** | 23 success, 4 failure | Same four jobs. Annotations exposed `error[E0463]: can't find crate for 'core'` in the musl build, four `pdf_structure_validation` failures on Windows, and generic `PASS` lines in gate/repro annotations. |
+| `45116318679` | `7ba1557` | `completed` / **failure** | 25 success, 2 failure | `release gate (G0-G9)` and `review repro assertions`; both annotated `FAIL  X05  required work budgets are absent [H-09]: time: exit 0, expected 3; stderr=`. Musl and `test (windows-latest)` were green. |
+| `45118790273` | `700221f` | `completed` / **failure** | 26 success, 1 failure | `review repro assertions` only, with the same X05 annotation. The larger X05 fixture had not been used remotely. |
+| `45121233267` | `86ae15f` | `completed` / **success** | 27 success, 0 failure | None. All 27 jobs passed, including the 13-job fuzz matrix, both packaged smokes, musl, Windows `Tests`, `release gate (G0-G9)` and `review repro assertions`. |
+
+The fixes were CI/tooling-only. `ef4f825` made fuzz use `cargo +nightly
+fuzz run`, installed `musl-tools`, generated the missing FAT32 smoke fixture
+and added failure-tail annotations; `80155cd` narrowed those annotations;
+`7c107bb` added the musl target to the active pinned toolchain; `53ca337`
+added `.gitattributes` with `*.pdf -text`; `7ba1557` restricted gate/repro
+annotations to `FAIL`/`XPASS` and the summary; `700221f` grew and streamed the
+X05 flood fixture; and `86ae15f` moved the repro workdir out of `target/`
+because `rust-cache` had restored an older 64 MiB X05 fixture. The X05 root
+cause explains why the 256 MiB fixture in `700221f` was not observed in
+`45118790273`.
+
+The PDF checkout issue was reproduced locally: converting the four NUL-free
+PDF fixtures to CRLF produced exactly the four Windows test failures, and
+`git -c core.autocrlf=true checkout` with `*.pdf -text` restored all eight
+`pdf_structure_validation` tests. `case_x05` was also run locally against a
+fresh 256 MiB fixture and returned no error in 1.672 s. A full
+`RUSTFLAGS='-D warnings' bash scripts/gate.sh` was green before every commit
+in this sequence (`GATE GREEN`, 34 scenarios/0 failures); the final local gate
+is `/tmp/opencode/gate_repro_temp.log`. These local runs support the fixes but
+are not the CI-green claim; that claim rests only on observed run
+`45121233267` at `86ae15f`.
+
 ## 4. Fuzz runtime
 
 ### Historical seven-target run (before H-14)

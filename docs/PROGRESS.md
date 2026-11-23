@@ -1,6 +1,6 @@
 # Implementation progress (CarveX 0.3.0; frozen benchmark figures remain 0.1.0/0.2.0)
 
-> Last updated: 2026-11-22. Every status below is verified by the command
+> Last updated: 2026-11-23. Every status below is verified by the command
 > recorded with it; items that could not be run due to missing tools are marked
 > `SKIPPED`, with no guessed results. IDs follow the consolidated guide §6
 > (A-01…A-15, B-01…B-11, C-01…C-09, D-01…D-03); old findings F-01…F-21 are
@@ -1009,11 +1009,12 @@ Residual risk / next: pedantic stage 2 (numeric casts) and stage 3 (API
 
 | ID | Pri | Evidence | Status | Proposed fix |
 |---|---|---|---|---|
-| N-35 | HIGH | Run `45102520898`: all 13 fuzz jobs fail at `Fuzz smoke`. Local `cargo fuzz run jpeg` on the pinned `1.100.0` toolchain exits 1 with `error: the option 'Z' is only accepted on the nightly compiler`; `cargo +nightly fuzz run jpeg -- -max_total_time=2 -rss_limit_mb=4096` exits 0. | FIXED_PENDING_CI | `cargo +nightly fuzz run` in CI, matching `scripts/fuzz.sh` (D-60). |
-| N-36 | HIGH | musl smoke fails at the release build on CI. Public `actions/runner-images` Ubuntu 24.04 package list contains `gcc`/`binutils` but not `musl-tools`; the local musl build only succeeds because `musl-gcc` is installed here. | FIXED_PENDING_CI | Install `musl-tools` in the CI job (D-60). |
-| N-37 | HIGH | `.gitignore:6` ignores `bench/images/*.img`. A clean checkout has no `mixed_fat32.img`; `carvex info` on that path exits 1. Both packaged smokes and the repro job reference those ignored files. | FIXED_PENDING_CI | Generate the no-root FAT32 smoke fixture from the committed corpus via `scripts/make_smoke_image.py` (D-60). |
-| N-38 | MED | `release gate (G0-G9)` and `review repro assertions` fail remotely in runs `45035152791`, `45095456201` and `45102520898`. Clean-checkout and main-worktree gates are green; the generated-fixture command reports `34 scenario(s), 0 failure(s), 4 SKIP(s)`. Job logs are `403` through the public API. | NOT-REPRODUCED | Re-observe after D-60; failure-tail annotations were added to both CI steps. |
-| N-39 | MED | `test (windows-latest)` fails remotely at `Tests`. All Windows GNU test binaries built with `RUSTFLAGS='-D warnings'` pass under Wine 10.0 locally; no real Windows runner is available. | NOT-REPRODUCED | Re-observe after D-60; failure-tail annotations were added to the `Tests` step. |
+| N-35 | HIGH | Run `45102520898`: all 13 fuzz jobs failed at `Fuzz smoke`. Local `cargo fuzz run jpeg` on the pinned `1.100.0` toolchain exited 1 with `error: the option 'Z' is only accepted on the nightly compiler`; `cargo +nightly fuzz run jpeg -- -max_total_time=2 -rss_limit_mb=4096` exited 0. | CLOSED (CI green) | `cargo +nightly fuzz run` in CI (D-60); all 13 fuzz jobs are green in observed run `45121233267`. |
+| N-36 | HIGH | musl smoke failed at the release build on CI. Public `actions/runner-images` Ubuntu 24.04 package list contains `gcc`/`binutils` but not `musl-tools`; the local musl build succeeded only because `musl-gcc` is installed here. | CLOSED (CI green) | Install `musl-tools` in the CI job (D-60); Linux musl packaged smoke is green in `45121233267`. |
+| N-37 | HIGH | `.gitignore:6` ignores `bench/images/*.img`. A clean checkout has no `mixed_fat32.img`; `carvex info` on that path exits 1. Both packaged smokes and the repro job referenced those ignored files. | CLOSED (CI green) | Generate the no-root FAT32 smoke fixture via `scripts/make_smoke_image.py` (D-60); both packaged smokes and the repro job are green in `45121233267`. |
+| N-38 | MED | `release gate (G0-G9)` and `review repro assertions` failed remotely through `45118790273`. Failure-only annotations exposed `FAIL X05 ... time: exit 0, expected 3`; the 256 MiB fixture in `700221f` was not used remotely because `rust-cache` restored a stale 64 MiB fixture under `target/repro-ci`. | CLOSED (CI green) | Narrow annotations (`80155cd`, `7ba1557`), grow/stream the X05 fixture (`700221f`), and move the repro workdir to `$RUNNER_TEMP` (`86ae15f`, D-62). Both jobs are green in `45121233267`. |
+| N-39 | MED | `test (windows-latest)` failed remotely at `Tests`. Converting the four NUL-free PDF fixtures to CRLF locally reproduced exactly four `pdf_structure_validation` failures; `*.pdf -text` restored all eight. | CLOSED (CI green) | Add `.gitattributes` with `*.pdf -text` (`53ca337`, D-61); Windows `Tests` is green in `45121233267`. |
+| N-40 | MED | Run `45110520472` exposed `error[E0463]: can't find crate for 'core'` in the musl build because `rust-toolchain.toml` pins `1.100.0`, so the stable action target was not the active toolchain. | CLOSED (CI green) | Run `rustup target add x86_64-unknown-linux-musl` for the pinned toolchain (`7c107bb`, D-61); musl smoke is green in `45121233267`. |
 
 ## Decisions → docs/DECISIONS.md
 
@@ -1021,4 +1022,4 @@ Residual risk / next: pedantic stage 2 (numeric casts) and stage 3 (API
 
 ## Decisions
 
-See `docs/DECISIONS.md` (D-01…D-60).
+See `docs/DECISIONS.md` (D-01…D-62).

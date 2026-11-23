@@ -1165,3 +1165,53 @@ decision, and the consequences.
 - **Consequences:** these are CI/tooling changes only. The remaining three
   failure classes are still unresolved and are tracked as N-38/N-39; no green
   CI claim is made until a new run is observed.
+
+## D-61. CI annotations, byte-exact fixtures, and explicit musl target
+
+- **Context:** run `45110520472` at `80155cd` still had four failing jobs.
+  Public annotations exposed `error[E0463]: can't find crate for 'core'` in
+  the musl build, four Windows `pdf_structure_validation` failures, and
+  generic `PASS` lines in the gate/repro annotations that obscured the real
+  failing control.
+- **Decision:** install the musl target explicitly for the pinned `1.100.0`
+  toolchain (`7c107bb`, N-40); mark `*.pdf` as `-text` so PDF byte offsets
+  survive Windows checkout (`53ca337`, N-39); and emit only `FAIL`/`XPASS`
+  lines plus the scenario summary from gate/repro failures (`7ba1557`).
+  The X05 flood fixture was also grown from 64 MiB to 256 MiB and streamed
+  (`700221f`) so the one-second time-budget control could expire on faster
+  hosted runners. These are workflow, checkout-attribute and repro-harness
+  changes only.
+- **Evidence:** local CRLF conversion reproduced exactly the four Windows PDF
+  test failures, and a simulated `core.autocrlf=true` checkout with
+  `*.pdf -text` restored all eight tests. `case_x05` returned no error against
+  a fresh 256 MiB fixture in 1.672 s. A full `RUSTFLAGS='-D warnings'
+  bash scripts/gate.sh` was green before each commit (`GATE GREEN`, 34
+  scenarios/0 failures). Public run `45116318679` then showed 25 successes
+  and two failures, both annotated with the X05 time-budget error, and run
+  `45118790273` showed 26 successes with only the repro job failing.
+- **Consequences:** musl and Windows `Tests` became green remotely. The X05
+  failure remained, so no green CI claim was made at this step.
+
+## D-62. Repro fixture cache isolation and observed green CI
+
+- **Context:** the 256 MiB X05 fixture in `700221f` did not change the remote
+  failure in `45118790273`. The repro workdir was `target/repro-ci`, which
+  `Swatinem/rust-cache@v2` restores; `case_x05` only generates the flood
+  fixture when it is absent, so CI kept reusing an older 64 MiB fixture.
+- **Decision:** move the CI repro workdir to `$RUNNER_TEMP/carvex-repro` and
+  delete/recreate it before the smoke fixture is generated (`86ae15f`, N-38).
+  Backfill the public run IDs, commit hashes, N-35…N-40 and the observed
+  conclusions in `docs/VALIDATION.md`, `docs/PROGRESS.md` and this file. No
+  source, CLI default, output name, JSON/CSV field, score, warning-code
+  meaning, frozen benchmark, published figure or binary is changed.
+- **Evidence:** public run `45121233267` at `86ae15f` is `completed` /
+  `success` with 27 of 27 jobs successful: all 13 fuzz targets, both packaged
+  smokes, `MSRV`, `SBOM`, `actionlint`, `benchmark smoke`, `coverage (≥70%)`,
+  `dependencies`, `release gate (G0-G9)`, `review repro assertions`,
+  `status labels (H-31)`, `test (macos-latest)`, `test (ubuntu-latest)` and
+  `test (windows-latest)`. Job-log bodies remained unavailable (`403`), but
+  run status, step conclusions and annotations were observed directly.
+- **Consequences:** N-35…N-40 are closed as CI-green. The local annotated
+  `v0.3.0` tag remains at `5480f10` and is still unpushed; only `main` was
+  pushed. This is the first observed green public run and the sole basis for
+  a CI-green claim.
