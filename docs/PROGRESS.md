@@ -220,7 +220,7 @@ Windows**.
 | H-15 | MED | 2026-11-22 source / 0.2.0 and 0.3.0 `dist/`; 2026-11-23 R2-02 | CLOSED (R2-02 scratch reuse; shipped 0.3.1 dist measurement at R2-10) | 1c28e2e, pending | scripts/review_repro.py X23,R5; src/scan.rs | R2-02 reuses per-worker scratch buffers in count/scan/carve (ADR-H15/D-66), preserving budget drop-before-reserve. Dev release measurement: X23 default 0.168s vs 1t 0.591s (0.28x), R5 0.280s, rc 0. 0.3.0 musl dist baseline: X23 2.80s vs 1.26s (2.22x), R5 5.50s. Shipped 0.3.1 Linux/musl X23/R5 must be recorded at R2-10. |
 | H-16 | CRIT | 2026-11-22 source | CLOSED | 3f47e51 | tests/validity_model.rs; tests/cli_contract.rs; scripts/review_repro.py X10–X14/X24 | Red test proved `validity` was absent and default `complete/structure/100` rows had no "content not checked" text. Added authoritative `validity` + `checks[]`; scores and emission unchanged. |
 | H-17 | HIGH | 2026-11-22 source | CLOSED | 905c9c0 | tests/png_crc_validity.rs; src/signatures/png.rs; scripts/review_repro.py X10 | Bad PNG CRC is now `validation=partial`/`validity=suspect` in structure and decode modes, with a `chunk_crc` check naming type/offset; decode `validated_bytes` stops at the last good chunk. |
-| H-18 | HIGH | 2026-11-22 source | CLOSED | 01ea6b3 | src/signatures/jpeg.rs; scripts/review_repro.py X12; scripts/jpeg_splice_property.py | Baseline 0.2180 [0.1935,0.2446] at a7a5c08; final 4,000-pair rate 0.0013 [0.0005,0.0029]. Unsupported variants are Unverified; D-45 records the disclosed residual accepted cases. |
+| H-18 | HIGH | 2026-11-22 source; 2026-11-23 R2-03 | PARTIAL (R2-03 check added; eval upper bound above 0.1%) | 01ea6b3, pending | src/signatures/jpeg.rs; src/signatures/mod.rs; scripts/review_repro.py X12 | R2-03 adds conservative baseline content-continuity check (D-67, supersedes D-45 disclosure). Clean control 1000: 0 suspects. Dev splices 0/499 verified. Eval splices 2/3997 verified, Wilson 95% upper 0.182% (>0.1% target). |
 | H-19 | HIGH | 2026-11-22 source | CLOSED | cb591a3 | tests/pdf_structure_validation.rs; tests/fragment_recovery.rs; tests/scan_integration.rs; scripts/review_repro.py X11 | Stage 1 removed the false Decoded label; stage 2 adds bounded classic/xref-stream/ObjStm/trailer/catalog/length checking. Clean PDFs are `decoded`/`verified`; mismatches are `partial`/`suspect`. |
 | H-20 | MED | 2026-11-21 source | CLOSED | cee916a | scripts/review_repro.py X13 | Trim trailing CR/LF/whitespace/NUL before %%EOF check; EOL variants now identical. |
 | H-21 | HIGH | 2026-11-22 source | CLOSED | 3b0c15c | tests/repair_validation.rs; scripts/review_repro.py X14 | Red tests proved the static footer produced an invalid PDF labelled `repaired` with no `sha256_original`. Every repair is now revalidated before `repaired`; `sha256_original` is emitted whenever output bytes change. |
@@ -413,6 +413,27 @@ Measurement: dev release build on this host (not shipped musl): X23 default
   0.168s vs 1-thread 0.591s (0.28x), R5 0.280s, rc 0. Shipped 0.3.1 Linux/musl
   X23/R5 must be measured at R2-10 against harness targets.
 Residual risk / next: shipped musl/dist measurement remains for R2-10.
+
+Task: R2-03 / H-18 — JPEG content-continuity check (ADR-H18)
+Reviews: round-2 R2-03 (harness §R.3); supersedes D-45 disclosure-only closure.
+Repro: D-45 recorded 5/4000 accepted byte-aligned tail swaps (0.13%,
+  Wilson 95% [0.05,0.29]) as self-consistent baseline bitstreams.
+Change: added conservative pixel-domain content-continuity check in
+  `src/signatures/jpeg.rs` and wired it in `src/signatures/mod.rs` for baseline
+  sequential JPEGs that decode and pass strict scan. Failed check returns
+  `validation=partial`, `validity=suspect`, `status` unchanged, score unchanged,
+  and `content_continuity ok=false`. Unsupported/progressive/arithmetic variants
+  report not applicable.
+New tests: existing JPEG/corpus tests pass; clean corpus 0 suspects.
+Gate: green (full `scripts/gate.sh` on 2026-11-23: fmt/clippy/tests/docs/actionlint/deny/audit/MSRV/release/G8/G5/coverage/fuzz-smoke/review-repro/X08b/X26/G7/G9/check_status; `GATE GREEN`).
+Measurement: clean-file control 1000 generated baseline JPEGs: 0 false suspects.
+  Dev splice set (disjoint, 500, 499 carved files): 0 verified. Eval splice set
+  (disjoint, 4000 generated, 3997 carved files): 2 verified, 3987 suspect,
+  8 partial; Wilson 95% upper bound 0.182% (above 0.1% target). R2-03
+  upper-bound acceptance criterion not met; residual is documented in D-67.
+Residual risk / next: conservative threshold avoids clean false positives but
+  misses some low-contrast/flat self-consistent splices; R2-10 release evidence
+  must record this status honestly.
 
 Task: H-14 — No fuzz targets for the new parsers
 Reviews: v1:R-19, v2:N-06, v4:F-14, v5:F-10 (SRC×4)

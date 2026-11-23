@@ -1293,3 +1293,29 @@ decision, and the consequences.
   measurement on this host (not a shipped musl binary): X23 default 0.168s vs
   1-thread 0.591s (0.28x), R5 0.280s, rc 0. Shipped Linux/musl 0.3.1 binaries
   must be measured at R2-10 before claiming the harness X23/R5 targets.
+
+## D-67. JPEG content-continuity check (ADR-H18, R2-03, supersedes D-45 disclosure)
+
+- **Context:** R2-03 required a deterministic content-continuity check for
+  baseline JPEGs, superseding D-45's disclosure-only closure. D-45 remains
+  historical record. R2-03 target: eval Wilson 95% upper bound <= 0.1% and
+  clean-file control >=1000 with 0 false `suspect`.
+- **Decision:** add a conservative pixel-domain seam check in
+  `src/signatures/jpeg.rs::content_continuity_check`, invoked from
+  `validate_jpeg_detail` only for baseline sequential JPEGs that decode and
+  pass strict scan. It computes 8-row boundary edge scores and 8-row band-mean
+  steps, flags only strong outliers, and returns `content_continuity` checks
+  (`ok true/false/null`). Failed check maps to `validation=partial`,
+  `validity=suspect`, `status` unchanged, score unchanged. Progressive/
+  arithmetic/unsupported variants remain not applicable.
+- **Evidence:** clean-file control 1000 generated baseline JPEGs: 0 suspects.
+  Corpus baseline JPEGs: 0 suspects, progressive JPEGs remain structural. Dev
+  splice set (disjoint, 500 generated, same-dim/quality compatible header
+  tail swaps): 0/499 verified. Eval splice set (disjoint, 4000 generated):
+  2/3997 verified (`suspect` 3987, `partial` 8), Wilson 95% upper bound
+  0.182% (> 0.1% target). The check improves over D-45 disclosure but does
+  not meet the R2-03 upper-bound acceptance criterion on this eval set; the
+  residual accepted splices are low-contrast/flat boundary cases where the
+  conservative threshold avoids clean false positives.
+- **Compatibility:** no score, status, emitted bytes, or benign fixture
+  validity changes observed on corpus/clean control; G7 must remain green.

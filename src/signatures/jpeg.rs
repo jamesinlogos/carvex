@@ -535,6 +535,155 @@ fn skip_jpeg_segment(data: &[u8], pos: usize) -> Option<usize> {
     Some(pos + len)
 }
 
+/// R2-03/H-18: deterministic content-continuity check for decoded baseline
+/// JPEGs. Tail swaps between compatible baseline JPEGs can produce a
+/// structurally self-consistent bitstream; this check looks for an extreme
+/// horizontal seam discontinuity relative to the image's own block-boundary
+/// statistics. It is conservative: only strong outliers become suspect.
+pub(crate) fn content_continuity_check(
+    pixels: &[u8],
+    width: u32,
+    height: u32,
+    components: usize,
+) -> Option<Result<(), String>> {
+    if components == 0 || width < 64 || height < 32 {
+        return None;
+    }
+    let w = width as usize;
+    let h = height as usize;
+    let stride = w.checked_mul(components)?;
+    if pixels.len() < stride.checked_mul(h)? {
+        return None;
+    }
+    let mut scores = Vec::new();
+    let mut band_means = Vec::new();
+    let mut y = 8usize;
+    while y < h {
+        let row = y.checked_mul(stride)?;
+        let prev = (y - 1).checked_mul(stride)?;
+        let mut sum = 0u64;
+        let mut n = 0u64;
+        for x in 0..w {
+            let base = x * components;
+            let Some(a) = row.checked_add(base) else {
+                y += 8;
+                continue;
+            };
+            let Some(b) = prev.checked_add(base) else {
+                y += 8;
+                continue;
+            };
+            for c in 0..components {
+                let Some(pa) = pixels.get(a + c) else {
+                    continue;
+                };
+                let Some(pb) = pixels.get(b + c) else {
+                    continue;
+                };
+                sum += pa.abs_diff(*pb) as u64;
+                n += 1;
+            }
+        }
+        if n > 0 {
+            scores.push(sum as f64 / n as f64);
+        }
+        y += 8;
+    }
+    // 8-row band means for a DC-shift/step signal.
+    let mut by = 0usize;
+    while by < h {
+        let end = (by + 8).min(h);
+        let mut sum = 0u64;
+        let mut n = 0u64;
+        for ry in by..end {
+            let row = ry * stride;
+            for x in 0..w {
+                let base = row + x * components;
+                for c in 0..components {
+                    if let Some(p) = pixels.get(base + c) {
+                        sum += *p as u64;
+                        n += 1;
+                    }
+                }
+            }
+        }
+        if n > 0 {
+            band_means.push(sum as f64 / n as f64);
+        }
+        by += 8;
+    }
+    if scores.len() < 4 {
+        return None;
+    }
+    let mut sorted = scores.clone();
+    sorted.sort_by(f64::total_cmp);
+    let med = median_f64(&sorted);
+    let mut abs_dev: Vec<f64> = sorted.iter().map(|v| (v - med).abs()).collect();
+    abs_dev.sort_by(f64::total_cmp);
+    let mad = median_f64(&abs_dev);
+    let max_score = scores.iter().copied().fold(0.0f64, f64::max);
+    // If most boundaries are near-zero (flat/block-aligned content), the
+    // median/MAD outlier test is ambiguous; be conservative.
+    let mad_scale = mad.max(2.0);
+    let outlier = med >= 1.0
+        && max_score > med + 20.0 * mad_scale
+        && max_score > med * 4.0
+        && max_score >= 24.0;
+    if outlier {
+        let (idx, _) = scores
+            .iter()
+            .enumerate()
+            .max_by(|a, b| a.1.total_cmp(b.1))
+            .unwrap_or((0, &0.0));
+        let boundary_y = (idx + 1) * 8;
+        return Some(Err(format!(
+            "content continuity outlier at row boundary {boundary_y}: score {max_score:.2}, median {med:.2}, MAD {mad:.2}"
+        )));
+    }
+    // Secondary signal: large adjacent band mean step (DC shift). Conservative.
+    if band_means.len() >= 6 {
+        let mut steps = Vec::with_capacity(band_means.len().saturating_sub(1));
+        for i in 1..band_means.len() {
+            if let (Some(a), Some(b)) = (band_means.get(i), band_means.get(i - 1)) {
+                steps.push((a - b).abs());
+            }
+        }
+        let mut ssorted = steps.clone();
+        ssorted.sort_by(f64::total_cmp);
+        let smed = median_f64(&ssorted);
+        let mut sdev: Vec<f64> = ssorted.iter().map(|v| (v - smed).abs()).collect();
+        sdev.sort_by(f64::total_cmp);
+        let smad = median_f64(&sdev).max(0.5);
+        let smax = steps.iter().copied().fold(0.0f64, f64::max);
+        if smax > smed + 40.0 * smad && smax >= 45.0 {
+            let (idx, _) = steps
+                .iter()
+                .enumerate()
+                .max_by(|a, b| a.1.total_cmp(b.1))
+                .unwrap_or((0, &0.0));
+            let boundary_y = (idx + 1) * 8;
+            return Some(Err(format!(
+                "content continuity band-mean step at row boundary {boundary_y}: step {smax:.2}, median {smed:.2}, MAD {smad:.2}"
+            )));
+        }
+    }
+    Some(Ok(()))
+}
+
+fn median_f64(sorted: &[f64]) -> f64 {
+    if sorted.is_empty() {
+        return 0.0;
+    }
+    let mid = sorted.len() / 2;
+    if sorted.len() % 2 == 1 {
+        sorted.get(mid).copied().unwrap_or(0.0)
+    } else {
+        let a = sorted.get(mid.saturating_sub(1)).copied().unwrap_or(0.0);
+        let b = sorted.get(mid).copied().unwrap_or(0.0);
+        (a + b) / 2.0
+    }
+}
+
 pub(crate) fn strict_baseline_scan(data: &[u8]) -> Option<Result<(), String>> {
     if data.get(0..2) != Some(&[0xFF, 0xD8]) {
         return None;

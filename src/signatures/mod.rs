@@ -496,24 +496,26 @@ pub fn validate_deep_detail(
     }
 }
 
-fn validate_jpeg(
+fn validate_jpeg_detail(
     data: &[u8],
     analysis: &Analysis,
     limits: ValidationLimits,
-) -> (Validation, Vec<String>) {
+) -> ValidationDetail {
     if let Some(claim) = jpeg::frame_claim(data) {
         let samples = u64::from(claim.width)
             .checked_mul(u64::from(claim.height))
             .and_then(|v| v.checked_mul(u64::from(claim.components)))
             .unwrap_or(u64::MAX);
         if samples > limits.max_validator_memory {
-            return (
-                Validation::Unverified,
-                vec![format!(
+            return ValidationDetail {
+                validation: Validation::Unverified,
+                notes: vec![format!(
                     "claimed frame size exceeds validator budget: {samples} samples > {} bytes",
                     limits.max_validator_memory
                 )],
-            );
+                checks: Vec::new(),
+                validated_bytes: 0,
+            };
         }
         // A Huffman-coded 8x8 block needs at least two entropy bits (DC symbol
         // plus EOB), so one byte can justify at most 256 samples.  Reject a
@@ -522,13 +524,15 @@ fn validate_jpeg(
         if !claim.arithmetic {
             let plausible = (analysis.end as u64).saturating_mul(512);
             if samples > plausible {
-                return (
-                    Validation::Unverified,
-                    vec![format!(
+                return ValidationDetail {
+                    validation: Validation::Unverified,
+                    notes: vec![format!(
                         "claimed frame size {samples} samples is implausible for {} entropy bytes",
                         analysis.end
                     )],
-                );
+                    checks: Vec::new(),
+                    validated_bytes: 0,
+                };
             }
         }
     }
@@ -539,66 +543,98 @@ fn validate_jpeg(
             let (w, h) = info.map_or((0, 0), |i| (u32::from(i.width), u32::from(i.height)));
             if let (Some(ew), Some(eh)) = (analysis.width, analysis.height) {
                 if w != 0 && h != 0 && (w != ew || h != eh) {
-                    return (
-                        Validation::Partial,
-                        vec![format!(
+                    return ValidationDetail {
+                        validation: Validation::Partial,
+                        notes: vec![format!(
                             "decoded dimensions {w}x{h} do not match SOF {ew}x{eh}"
                         )],
-                    );
+                        checks: Vec::new(),
+                        validated_bytes: 0,
+                    };
                 }
             }
             if pixels.is_empty() {
-                return (
-                    Validation::Partial,
-                    vec!["JPEG decoder returned no pixels".into()],
-                );
+                return ValidationDetail {
+                    validation: Validation::Partial,
+                    notes: vec!["JPEG decoder returned no pixels".into()],
+                    checks: Vec::new(),
+                    validated_bytes: 0,
+                };
             }
             match jpeg::strict_baseline_scan(data) {
                 Some(Err(reason)) => {
-                    return (
-                        Validation::Partial,
-                        vec![format!("baseline scan does not match the frame: {reason}")],
-                    );
+                    return ValidationDetail {
+                        validation: Validation::Partial,
+                        notes: vec![format!("baseline scan does not match the frame: {reason}")],
+                        checks: Vec::new(),
+                        validated_bytes: 0,
+                    };
                 }
                 Some(Ok(())) => {}
                 None => {
-                    return (
-                        Validation::Unverified,
-                        vec![
+                    return ValidationDetail {
+                        validation: Validation::Unverified,
+                        notes: vec![
                             "JPEG strict scan unsupported for this variant; content not checked"
                                 .into(),
                         ],
-                    );
+                        checks: vec![ValidationCheck::new(
+                            "content_continuity",
+                            None,
+                            "not applicable for unsupported JPEG variant",
+                        )],
+                        validated_bytes: 0,
+                    };
                 }
             }
-            (
-                Validation::Decoded,
-                vec![format!("decoded {} bytes of pixel data", pixels.len())],
-            )
+            let components = if w > 0 && h > 0 {
+                pixels.len() / (w as usize * h as usize)
+            } else {
+                0
+            };
+            let mut checks = Vec::new();
+            let mut notes = vec![format!("decoded {} bytes of pixel data", pixels.len())];
+            let mut validation = Validation::Decoded;
+            let mut validated_bytes = analysis.end as u64;
+            match jpeg::content_continuity_check(&pixels, w, h, components) {
+                Some(Ok(())) => {
+                    checks.push(ValidationCheck::new(
+                        "content_continuity",
+                        Some(true),
+                        "no extreme seam discontinuity detected",
+                    ));
+                }
+                Some(Err(reason)) => {
+                    validation = Validation::Partial;
+                    validated_bytes = 0;
+                    notes.push(reason.clone());
+                    checks.push(ValidationCheck::new(
+                        "content_continuity",
+                        Some(false),
+                        reason,
+                    ));
+                }
+                None => {
+                    checks.push(ValidationCheck::new(
+                        "content_continuity",
+                        None,
+                        "not applicable for this JPEG/image size",
+                    ));
+                }
+            }
+            ValidationDetail {
+                validation,
+                notes,
+                checks,
+                validated_bytes,
+            }
         }
-        Err(e) => (
-            Validation::Partial,
-            vec![format!("JPEG decode failed: {e}")],
-        ),
-    }
-}
-
-fn validate_jpeg_detail(
-    data: &[u8],
-    analysis: &Analysis,
-    limits: ValidationLimits,
-) -> ValidationDetail {
-    let (validation, notes) = validate_jpeg(data, analysis, limits);
-    let validated_bytes = if validation == Validation::Decoded {
-        analysis.end as u64
-    } else {
-        0
-    };
-    ValidationDetail {
-        validation,
-        notes,
-        checks: Vec::new(),
-        validated_bytes,
+        Err(e) => ValidationDetail {
+            validation: Validation::Partial,
+            notes: vec![format!("JPEG decode failed: {e}")],
+            checks: Vec::new(),
+            validated_bytes: 0,
+        },
     }
 }
 

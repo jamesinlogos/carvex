@@ -84,7 +84,7 @@ status row in each reconciliation document.
 | H-15 | MED | 2026-11-22 source / 0.2.0 and 0.3.0 dist; 2026-11-23 R2-02 | CLOSED (R2-02 scratch reuse; shipped 0.3.1 dist measurement at R2-10) | 1c28e2e, pending | scripts/review_repro.py X23,R5; src/scan.rs | R2-02 reuses per-worker scratch buffers and preserves budget drop-before-reserve. Dev release: X23 0.168s vs 1t 0.591s, R5 0.280s. Shipped 0.3.1 musl X23/R5 measured at R2-10. |
 | H-16 | CRIT | 2026-11-22 source | CLOSED | 3f47e51 | tests/validity_model.rs; tests/cli_contract.rs | Authoritative `validity` plus `checks[]` added. |
 | H-17 | HIGH | 2026-11-22 source | CLOSED | 905c9c0 | tests/png_crc_validity.rs; src/signatures/png.rs | Bad CRC lowers validity instead of being presented as decoded. |
-| H-18 | HIGH | 2026-11-22 source | CLOSED | 01ea6b3 | src/signatures/jpeg.rs; scripts/jpeg_splice_property.py | Splice acceptance rate reduced; residual accepted cases disclosed. |
+| H-18 | HIGH | 2026-11-22 source; 2026-11-23 R2-03 | PARTIAL (R2-03 check added; eval upper bound above 0.1%) | 01ea6b3, pending | src/signatures/jpeg.rs; src/signatures/mod.rs | R2-03 adds conservative content-continuity check (D-67). Clean control 1000: 0 suspects. Eval splices 2/3997 verified, Wilson 95% upper 0.182% (>0.1% target). |
 | H-19 | HIGH | 2026-11-22 source | CLOSED | cb591a3 | tests/pdf_structure_validation.rs; scripts/review_repro.py X11 | PDF stage-2 structural validation added. |
 | H-20 | MED | 2026-11-21 source | CLOSED | cee916a | scripts/review_repro.py X13 | EOL variants normalised before the `%%EOF` check. |
 | H-21 | HIGH | 2026-11-22 source | CLOSED | 3b0c15c | tests/repair_validation.rs; scripts/review_repro.py X14 | Repairs are revalidated before the `repaired` label. |

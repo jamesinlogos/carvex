@@ -21,6 +21,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - H-15: scan count/scan/carve workers reuse per-worker scratch buffers via
   `map_init`; carve growth still drops buffer and releases its memory-budget
   permit before reserving a larger buffer. Retained carve scratch is capped.
+- H-18/R2-03: baseline JPEG decode adds a conservative content-continuity seam
+  check. Failed check reports `validation=partial`/`validity=suspect` with a
+  `content_continuity` check; passed/not-applicable cases are reported
+  explicitly. Clean control 1000: 0 false suspects; eval splices 2/3997
+  verified (Wilson 95% upper 0.182%, above 0.1% target).
 - H-12b: scan work is planned lazily from resolved extents in bounded batches.
   A container-declared 512 TiB `ZERO` extent no longer allocates a per-chunk
   task vector before the time budget or interrupt can be checked; totals and
