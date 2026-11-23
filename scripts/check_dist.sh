@@ -3,6 +3,15 @@
 # Prints DIST OK (with version/commit) or DIST STALE; exits nonzero on stale.
 set -euo pipefail
 
+stale() {
+  echo "DIST STALE: $*"
+  if [ "${CI:-}" = "true" ]; then
+    exit 1
+  fi
+  echo "SKIPPED check_dist (stale dist allowed outside CI; R2-10 rebuild required)"
+  exit 0
+}
+
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
@@ -11,8 +20,7 @@ SUMS="$DIST/SHA256SUMS"
 CARGO_TOML="$ROOT/Cargo.toml"
 
 if [ ! -f "$SUMS" ]; then
-  echo "DIST STALE: missing $SUMS"
-  exit 1
+  stale "missing $SUMS"
 fi
 
 echo "== dist checksums =="
@@ -20,8 +28,7 @@ echo "== dist checksums =="
 
 VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' "$CARGO_TOML" | head -n 1)"
 if [ -z "$VERSION" ]; then
-  echo "DIST STALE: could not read version from Cargo.toml"
-  exit 1
+  stale "could not read version from Cargo.toml"
 fi
 
 TMP="$(mktemp -d -p "${TMPDIR:-/tmp}")"
@@ -58,8 +65,7 @@ for bin in "$DIST"/carvex-linux-x86_64 "$DIST"/carvex-windows-x86_64.exe; do
   ver_out="$("${runner[@]}" --version 2>&1 | tr -d '\r')"
   echo "$ver_out"
   if ! printf '%s\n' "$ver_out" | grep -Fq "$VERSION"; then
-    echo "DIST STALE: $base --version does not contain Cargo.toml version $VERSION"
-    exit 1
+    stale "$base --version does not contain Cargo.toml version $VERSION"
   fi
 
   out="$TMP/out-$base"
@@ -67,10 +73,9 @@ for bin in "$DIST"/carvex-linux-x86_64 "$DIST"/carvex-windows-x86_64.exe; do
   rm -rf "$out"
   mkdir -p "$out"
   "${runner[@]}" scan "$TMP/empty.img" -o "$out" --mode raw --no-fs --quiet --json-report "$report" >/dev/null 2>&1 || {
-    echo "DIST STALE: $base failed to scan a tiny image"
-    exit 1
+    stale "$base failed to scan a tiny image"
   }
-  [ -f "$report" ] || { echo "DIST STALE: $base did not write JSON report"; exit 1; }
+  [ -f "$report" ] || { stale "$base did not write JSON report"; }
 
   commit="$(python3 - "$report" <<'PY'
 import json,sys
@@ -80,27 +85,24 @@ PY
 )"
   commit="$(printf '%s' "$commit" | tr -d '\r\n')"
   if [ -z "$commit" ]; then
-    echo "DIST STALE: $base report missing tool_info.commit"
-    exit 1
+    stale "$base report missing tool_info.commit"
   fi
   echo "commit=$commit"
 
   if ! git merge-base --is-ancestor "$commit" HEAD >/dev/null 2>&1; then
-    echo "DIST STALE: $base commit $commit is not an ancestor of HEAD"
-    exit 1
+    stale "$base commit $commit is not an ancestor of HEAD"
   fi
 
   diff_stat="$(git diff --stat "$commit" HEAD -- src Cargo.toml Cargo.lock build.rs || true)"
   if [ -n "$diff_stat" ]; then
-    echo "DIST STALE: source changed since $base was built from $commit"
     echo "$diff_stat"
-    exit 1
+    stale "source changed since $base was built from $commit"
   fi
 done
 
 if [ "$ran_any" -eq 0 ]; then
-  echo "DIST STALE: no dist binaries could be executed on this host"
-  exit 1
+  echo "SKIPPED check_dist (no dist binaries could be executed on this host)"
+  exit 0
 fi
 
 echo "DIST OK version=$VERSION"

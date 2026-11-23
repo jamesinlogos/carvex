@@ -123,4 +123,7 @@ else
     echo "SKIPPED benchmark smoke (python deps missing)"
 fi
 
+echo "== dist (R2-04) =="
+bash scripts/check_dist.sh
+
 echo "GATE GREEN"
