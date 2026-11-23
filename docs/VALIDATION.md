@@ -363,6 +363,7 @@ check-run annotations were available and are the only remote evidence used.
 | `45116318679` | `7ba1557` | `completed` / **failure** | 25 success, 2 failure | `release gate (G0-G9)` and `review repro assertions`; both annotated `FAIL  X05  required work budgets are absent [H-09]: time: exit 0, expected 3; stderr=`. Musl and `test (windows-latest)` were green. |
 | `45118790273` | `700221f` | `completed` / **failure** | 26 success, 1 failure | `review repro assertions` only, with the same X05 annotation. The larger X05 fixture had not been used remotely. |
 | `45121233267` | `86ae15f` | `completed` / **success** | 27 success, 0 failure | None. All 27 jobs passed, including the 13-job fuzz matrix, both packaged smokes, musl, Windows `Tests`, `release gate (G0-G9)` and `review repro assertions`. |
+| `45227367124` | `cfefbba` | `queued` / **pending** (archived 2026-11-23T17:34Z) | 27 jobs queued | Current-HEAD run for R2-08/username-ref commits. Run/job JSON archived as `bench/results/ci_run_45227367124.json` and `bench/results/ci_run_45227367124_jobs.json` and added to `bench/results/EVIDENCE.sha256`. Job logs unavailable via public API (403) as before; status/conclusions/annotations only. Recheck required before R2-10. |
 
 The fixes were CI/tooling-only. `ef4f825` made fuzz use `cargo +nightly
 fuzz run`, installed `musl-tools`, generated the missing FAT32 smoke fixture
