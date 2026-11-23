@@ -7,7 +7,7 @@ authors = ["CarveX Project"]
 description = "Header/footer file carver for JPEG, PNG and PDF with FAT32/NTFS awareness"
 license = "MIT"
 readme = "README.md"
-repository = "https://github.com/jamesinlogos/carvex"
+repository = "https://github.com/logosnexus/carvex"
 categories = ["command-line-utilities", "filesystem"]
 keywords = ["forensics", "carving", "fat32", "ntfs", "recovery"]
 

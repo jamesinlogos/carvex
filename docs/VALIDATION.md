@@ -244,7 +244,7 @@ resolves to a non-existent repository (`repository not found`). After replacing
 it with a direct install of actionlint 1.7.12, the CI-fix commit produced:
 
 - Run ID: `44548142275`
-- URL: <https://github.com/jamesinlogos/carvex/actions/runs/44548142275>
+- URL: <https://github.com/logosnexus/carvex/actions/runs/44548142275>
 - Head SHA: `42376a9d0a00adb0c0e812927a1d6871a94996ac`
 - Conclusion: **success**
 
@@ -268,7 +268,7 @@ generation. The first run at the pushed H-30 HEAD was checked through the
 public GitHub API:
 
 - Run ID: `45035152791`
-- URL: <https://github.com/jamesinlogos/carvex/actions/runs/45035152791>
+- URL: <https://github.com/logosnexus/carvex/actions/runs/45035152791>
 - Run number: `13`, event: `push`
 - Head SHA: `d9dcac3083de4181ce3864260e326072c7f120f9`
 - Status: `completed`, conclusion: **failure**
@@ -298,7 +298,7 @@ After H-34, the final pushed HEAD `360f154cbe730cc2daefe56a3889809dd5c397e8`
 was observed through the same public API:
 
 - Run ID: `45095456201`
-- URL: <https://github.com/jamesinlogos/carvex/actions/runs/45095456201>
+- URL: <https://github.com/logosnexus/carvex/actions/runs/45095456201>
 - Run number: `14`, event: `push`
 - Status: `completed`, conclusion: **failure**
 - Jobs: 9 succeeded (`actionlint`, `MSRV`, `dependencies`, `coverage (≥70%)`,
@@ -315,7 +315,7 @@ The 0.3.0 publish head `a1eaf4120251d0bb9ea4194e84a83a7629c064fc` was pushed
 after the release commits and produced the next public run:
 
 - Run ID: `45102520898`
-- URL: <https://github.com/jamesinlogos/carvex/actions/runs/45102520898>
+- URL: <https://github.com/logosnexus/carvex/actions/runs/45102520898>
 - Status: `completed`, conclusion: **failure**
 - Jobs: 9 succeeded; 18 failed with the same five classes as before (13 fuzz
   targets, `review repro assertions`, `release gate (G0-G9)`, Linux musl
