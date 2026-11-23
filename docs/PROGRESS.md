@@ -1,4 +1,4 @@
-# Implementation progress (CarveX 0.2.0)
+# Implementation progress (CarveX 0.3.0; frozen benchmark figures remain 0.1.0/0.2.0)
 
 > Last updated: 2026-11-22. Every status below is verified by the command
 > recorded with it; items that could not be run due to missing tools are marked
@@ -18,7 +18,7 @@
 | Audit tools | `cargo-audit-audit 0.23.0`, `cargo-deny 0.21.0` (installed locally with `cargo install --locked`) |
 | Benchmark tools | foremost, scalpel, photorec, mkfs.vfat, mkfs.exfat, mkntfs, mcopy, ntfs-3g, blkls, fls, istat, tsk_recover, parted, losetup, mount, mtools, 7z |
 | Validation tools | `actionlint 1.7.12`, `cargo-fuzz 0.13.2` with `nightly 1.102.0-nightly`, `cargo-llvm-cov 0.9.1` (all installed locally during this validation pass) |
-| Missing | `qpdf`, `pdftoppm`, `ewfacquire`, `ewfexport`, wine / a real Windows runner |
+| Missing | `qpdf`, `pdftoppm`, `ewfacquire`, `ewfexport`, `qemu-img`, a real Windows runner (Wine 10.0 was available for the packaged `.exe`) |
 
 ### Gate at time of writing — **GATE GREEN (2026-11-20)**
 
@@ -92,9 +92,34 @@ published figures and `docs/BENCHMARK_PROTOCOL.md` were **not** changed.
 Execution evidence for the later items is collected in `docs/VALIDATION.md`.
 GitHub Actions subsequently ran successfully on the CI-fix commit
 (`42376a9`, run `44548142275`: all jobs success; push-event fuzz matrix
-skipped). The distributed Windows binary still has not been executed as
-`dist/carvex-windows-x86_64.exe`; GitHub's `test (windows-latest)` job ran the
-Rust test suite on Windows.
+skipped). The historical 0.2.0 Windows binary was not executed; the 0.3.0
+release binary was executed under Wine (see the release section below), not on
+a Windows runner.
+
+### Dist 0.3.0 release rebuild (2026-11-22)
+
+Both release binaries were built from a detached worktree at the local
+annotated tag `v0.3.0`, commit `5480f1084f85cc91f68d94c76c703d1348a65b5e`,
+with rustc/cargo 1.100.0, the `x86_64-unknown-linux-musl` and
+`x86_64-pc-windows-gnu` rustup targets, and `/usr/bin/x86_64-w64-mingw32-gcc`.
+The musl binary was stripped after copying; the Windows binary was stripped by
+the toolchain.
+
+| File | SHA-256 | Execution |
+|---|---|---|
+| `dist/carvex-linux-x86_64` | `953dab643ce6628157b416b3588b1da59b84d760df627f82b14529a2cc3f975e` | `--version`, `info`, small `scan`; report version 0.3.0, commit `5480f1084f85` |
+| `dist/carvex-windows-x86_64.exe` | `cbcc5343b63881c6c7decc6b218b99742d0d383c3b6415920ad4dd464758f1fa` | same commands under Wine 10.0 on Linux; report version 0.3.0, commit `5480f1084f85` |
+
+`sha256sum -c dist/SHA256SUMS` is OK. Wine execution is **not** a Windows-runner
+execution; no Windows runner was available locally, and the CI packaged-Windows
+job failed with unavailable logs. `scripts/perf_gate.py` returned absolute
+**PERF GREEN** for the musl binary (`s9_4m` median 2.842 s, reported 7.251x
+relative baseline regression) and for the Windows binary through a Wine wrapper
+(`s9_4m` 0.699 s, `rand64m` 4.752 s, both relative regression notices). The
+full repro suite on the musl binary had two failures: X23 (default 2.80 s vs
+1 thread 1.26 s) and R5 (5.50 s against the <= 1.0 s target). These are the
+previously recorded musl/release-binary H-15/R5 behaviour; the glibc source
+gate remains green and no allocator or timing tuning was applied.
 
 ### Dist 0.2.0 (rebuilt after A-07 step 2, 2026-11-19)
 
@@ -124,7 +149,7 @@ Windows**.
 | A-09 | PARTIAL | green | Fixed the NTFS sector off-by-one (`field+1`, D-21, unit test `volume_sector_count_includes_the_backup_boot_sector`); FS errors → `FS_DETECTION_FAILED`. No `$ATTRIBUTE_LIST`/multi-extent `$MFT`/`$MFTMirr`/backup boot/FAT #2 yet. |
 | A-10 | PARTIAL | green | Lib crate + thin `main.rs`; pipeline `plan_extents → build_tasks → scan_task → carve_batch → postfilter → write_outputs`; format registry; `ScanInput<'a>` groups the input parameters for `run_scan`. H-34 split the remaining long functions into behavior-preserving helpers, enabled public `missing_docs` and pedantic stage 1, and documented every remaining `too_many_arguments` allow; the change is recorded in commit f38a2ed. No non-test function exceeds 120 lines. |
 | A-11 | PARTIAL | green | **134 tests** in the current gate (43 unit + 13 cli_contract + 7 evidence_formats + 5 fragment_recovery + 8 fs_detect + 2 jpeg_frame_budget + 4 memory_budget + 3 panic_containment + 2 png_crc_validity + 4 png_decode_budget + 2 png_validator_budget + 8 pdf_structure_validation + 5 properties + 4 regress_e01_safety + 4 regress_vmdk_safety + 3 repair_validation + 6 scan_integration + 1 validity_model + 4 work_budgets + 3 volume_parse_errors + 3 region_coverage); `scripts/review_repro.py --assert/--xfail --carvex` 34 scenarios, 0 failures, 2 SKIPs, 0 XPASS; red baseline `docs/baseline/repro_v0.1.0.txt`. Post-R-01/R-02 `cargo-llvm-cov 0.9.1` measured 4456/6391 lines = **69.72%**; CI/local floor set to 60%, not the earlier aspirational 80%. No new coverage run after H-14/H-16/H-17/H-18/H-19/H-21/H-22/H-25/H-26/H-27/H-29. |
-| A-12 | PARTIAL | green | MSRV 1.85 (`rust-version`, README corrected from "Rust 1.74"); `cargo +1.85 check` in the gate; `.github/workflows/ci.yml` adds actionlint + coverage and uses a pinned direct actionlint install; `rustfmt.toml`/`clippy.toml`/`deny.toml`; dist 0.2.0 + `SHA256SUMS`. Local `cargo deny check`, `cargo audit` and `actionlint 1.7.12` pass. Real GitHub run `44548142275` on commit `42376a9` succeeded (all jobs; push-event fuzz matrix skipped), but it predates B-04, B-06 and R-01/R-02. Distributed Windows binary not executed; no SBOM/signatures yet; removing binaries from `dist/` is STOP-AND-ASK (kept). |
+| A-12 | PARTIAL | green | MSRV 1.85 (`rust-version`, README corrected from "Rust 1.74"); `cargo +1.85 check` in the gate; `.github/workflows/ci.yml` adds actionlint + coverage and uses a pinned direct actionlint install; `rustfmt.toml`/`clippy.toml`/`deny.toml`; 0.3.0 release rebuild + regenerated `SHA256SUMS`. Local `cargo deny check`, `cargo audit` and `actionlint 1.7.12` pass. Earlier GitHub run `44548142275` on `42376a9` succeeded (all jobs; push-event fuzz matrix skipped) but predates B-04/B-06/R-01/R-02; final-head run `45095456201` failed (9 success/18 failure). The 0.3.0 packaged Windows binary was executed under Wine 10.0, not on a Windows runner. SBOM generation is wired in; no signatures; removing binaries from `dist/` is STOP-AND-ASK (kept). |
 | A-13 | PARTIAL | green | Exit 0/1/2/3/4 documented + CLI contract tests; coded warnings; `RAW_SCANS_ALLOCATED` informational (D-20); H-28 writes a partial report with `INTERRUPTED` and exit 4. No `thiserror` types, leveled logger or `ProgressSink`/ETA yet. |
 | A-14 | PARTIAL | green | Report schema v2: `schema_version`, `argv`, `options`, `tool_info`, `input` (before–after SHA-256), ISO-8601, `case_id`, `examiner`, `warnings[]` object, `volumes[]`, `regions[]`, `lba`, real `cluster`, `partition_index`, `extent_id`, `allocated`, `source`, `fragments`. `docs/report.schema.json` + key-matching test; atomic write; `--manifest` generates `SHA256SUMS`; `--report-schema 1`. `unreadable_regions[]` is emitted with A-08/H-22 read-error handling; schema 1 still strips additive fields. |
 | A-15 | PARTIAL | green | Hard budget checks for `--max-memory` before allocation/retention plus caps on `--max-size`/`--max-truncated-size`; atomic write; `--force`. No rejection of output inside the source image yet, no `--overwrite`/free-space check/`--max-output`/symlink ban. |
@@ -150,7 +175,7 @@ Windows**.
 | C-09 | PARTIAL | - | Median time/throughput table present; full 4-image/3-rep 0.2.0 re-run completed in `bench/results/full-0.2.0` with all checksums verified. No 1–16 GiB scale images, no cold cache + IQR ≥10 repetitions. |
 | D-01 | PARTIAL | n/a | Removed absolute paths like `/home/…` (REPORT/CFREDS/README → `$CARVEX`/`$HOME`); fixed "Pillow/ReportLab"; "100%" in the abstract tied to n/CI/conditions; 16 tables numbered `Table 1…16`; SHA-256 of tools (foremost/scalpel/photorec) + explicit note that benchmark binary hashes were not recorded; §6.2 explains the evidenced FP 40/44 and 40/54; README "Rust 1.74" → 1.85; "fairness" conclusion limited; F-16 confound in §6.4; Windows `.exe` noted as untested. |
 | D-02 | DONE | n/a | REPORT §1.4 Related Work (5 branches + comparison table); references [11]–[16] had their DOI/publisher pages opened before insertion. |
-| D-03 | PARTIAL | n/a | `CHANGELOG.md` (0.2.0), `SECURITY.md`, `CONTRIBUTING.md`, `docs/ARCHITECTURE.md`, `docs/DECISIONS.md` (D-01…D-58), `docs/DEPENDENCIES.md`, `docs/REVIEW_RESPONSE.md` (38 IDs), `docs/REPORT.md`, `docs/VALIDATION.md` (execution evidence only). H-34 quality work is implemented in commit f38a2ed; the evidence manifest and documentation drift are closed. |
+| D-03 | PARTIAL | n/a | `CHANGELOG.md` (0.3.0), `SECURITY.md`, `CONTRIBUTING.md`, `docs/ARCHITECTURE.md`, `docs/DECISIONS.md` (D-01…D-59), `docs/DEPENDENCIES.md`, `docs/REVIEW_RESPONSE.md` (38 IDs), `docs/REPORT.md`, `docs/VALIDATION.md` (execution evidence only). H-34 quality work is implemented in commit f38a2ed; the evidence manifest and documentation drift are closed. |
 
 ## Earlier summary rows (not guide IDs)
 
@@ -181,7 +206,7 @@ Windows**.
 | H-01 | HIGH | 2026-11-21 source | BLOCKED | - | docs/guide.md (missing) | The 924-line guide with sha256 `22ee8122209e9eda11d6f32a1e650e8f8e48f5610bd808309d94f436e5e78265` must be supplied by the user; the harness was placed and D-33 recorded instead. |
 | H-02 | HIGH | 2026-11-21 source | CLOSED | 7129173 | scripts/gate.sh; scripts/check-msrv.sh | The clean-checkout gate was made SKIP-safe; G7 golden and MSRV checks were added. Local gates now run G0-G9 without root; the H-30 CI run is a separate, failed remote observation. |
 | H-03 | HIGH | 2026-11-21 source | CLOSED | bbef4bd | scripts/review_repro.py; tests/regress_e01_safety.rs | X01-X24 controls plus Rust regression and property tests were completed; red baseline `docs/baseline/repro_v0.1.0.txt` is retained. |
-| H-04 | MED | 2026-11-21 source | PARTIAL | 4d0a6fd | dist/README.md; scripts/sbom.py | Repository URL, build recipe, version metadata and stale-dist notice were fixed. Final `dist/` rebuild, executed packaged binaries, checksum regeneration and release tag are deliberately deferred to the approved 0.3.0 release step. |
+| H-04 | MED | 2026-11-21 source / 0.3.0 release | PARTIAL | 4d0a6fd; 5480f10 | dist/README.md; dist/SHA256SUMS; scripts/sbom.py | Repository URL, build recipe, version metadata and stale-dist notice were fixed; both binaries were rebuilt at local tag `v0.3.0`, executed, and checksummed. The Windows executable was run under Wine 10.0, not on a Windows runner, so release identity is PARTIAL rather than fully closed. |
 | H-05 | CRIT | 2026-11-21 source / 2026-11-21 release build | CLOSED | 873ea35 | tests/png_validator_budget.rs; scripts/review_repro.py X02 | R-02 already bounded inflation; the missing shared flag was reproduced red. X02a: 0.009 s / 8.8 MiB RSS, `partial`; X02b rejected at IHDR. |
 | H-06 | CRIT | 2026-11-21 source / 2026-11-21 release build | CLOSED | 3534717 | tests/jpeg_frame_budget.rs; scripts/review_repro.py X03 | Red test proved the decoder ran without a budget check. After: 20,000² and 65,535² SOF claims → `unverified`, 0.010 s / 8.9 MiB and 0.009 s / 9.0 MiB RSS. |
 | H-07 | HIGH | 2026-11-21 source | CLOSED | fa18436 | scripts/review_repro.py X04 | 23-26s → <1s after single-pass EOF indexing; A-01/R1-R8 and G7 unchanged. |
@@ -192,7 +217,7 @@ Windows**.
 | H-12 | CRIT | 2026-11-21 source / 2026-11-21 release build | CLOSED | 080b76a | tests/regress_vmdk_safety.rs; scripts/review_repro.py X08 | Hostile grain-table multiplication was bounded; zero extents read as zeros. X08 completed quickly; no allocation explosion or out-of-range panic. |
 | H-13 | HIGH | 2026-11-21 source | CLOSED | 080b76a | tests/regress_vmdk_safety.rs; scripts/review_repro.py X09 | VMDK descriptors are confined to the containing image; relative and absolute escapes are rejected with typed errors. |
 | H-14 | HIGH | 2026-11-22 source / nightly fuzz runtime | CLOSED | e2d3f1d | fuzz/fuzz_targets/fuzz_e01.rs; fuzz/fuzz_targets/fuzz_vhd.rs; fuzz/fuzz_targets/fuzz_vmdk.rs; fuzz/fuzz_targets/fuzz_split_names.rs; fuzz/fuzz_targets/fuzz_open_image.rs; fuzz/fuzz_targets/fuzz_fragment_join.rs; scripts/fuzz.sh | Static gap: only 7 targets, none for the new parsers. Added 6 named targets, 22 committed seeds and structured property tests; each target ran 60 s clean (235,272 executions total, no crash/artifact). Real-tool E01/VMDK fixtures SKIPPED (`ewfacquire`/`ewfexport`/`qemu-img` missing). |
-| H-15 | MED | 2026-11-22 source / 0.2.0 `dist/` | CLOSED (measured; musl/dist-only) | 1c28e2e | scripts/review_repro.py X23; scripts/perf_gate.py | Current glibc source: 1 thread median 0.489 s, default 0.156 s (0.32x). Stale 0.2.0 musl dist: 1 thread median 0.694 s, default 2.436 s (3.51x). Only the stale packaged release is slow; no allocator change without STOP-AND-ASK. |
+| H-15 | MED | 2026-11-22 source / 0.2.0 and 0.3.0 `dist/` | CLOSED (measured; musl/dist-only) | 1c28e2e | scripts/review_repro.py X23; scripts/perf_gate.py | Current glibc source: 1 thread 0.489 s vs default 0.156 s (0.32x). Historical 0.2.0 musl dist: 0.694 s vs 2.436 s (3.51x). Final 0.3.0 musl release: 1 thread 1.26 s vs default 2.80 s (2.22x) and R5 5.50 s vs <= 1.0 s. No allocator change; recorded as release-binary behaviour. |
 | H-16 | CRIT | 2026-11-22 source | CLOSED | 3f47e51 | tests/validity_model.rs; tests/cli_contract.rs; scripts/review_repro.py X10–X14/X24 | Red test proved `validity` was absent and default `complete/structure/100` rows had no "content not checked" text. Added authoritative `validity` + `checks[]`; scores and emission unchanged. |
 | H-17 | HIGH | 2026-11-22 source | CLOSED | 905c9c0 | tests/png_crc_validity.rs; src/signatures/png.rs; scripts/review_repro.py X10 | Bad PNG CRC is now `validation=partial`/`validity=suspect` in structure and decode modes, with a `chunk_crc` check naming type/offset; decode `validated_bytes` stops at the last good chunk. |
 | H-18 | HIGH | 2026-11-22 source | CLOSED | 01ea6b3 | src/signatures/jpeg.rs; scripts/review_repro.py X12; scripts/jpeg_splice_property.py | Baseline 0.2180 [0.1935,0.2446] at a7a5c08; final 4,000-pair rate 0.0013 [0.0005,0.0029]. Unsupported variants are Unverified; D-45 records the disclosed residual accepted cases. |
@@ -366,10 +391,10 @@ Change: none. This is condition (a) of the harness procedure: only the
   packaged musl release is slow, so the finding is closed with measurements.
   An allocator change needs STOP-AND-ASK and was not made; no tuning was done.
 Gate: green (fmt/clippy/tests/doc/actionlint/deny/audit/MSRV/release/repro/golden/smoke).
-Residual risk / next: the stale 0.2.0 dist binary is not a valid 0.3.0
-  performance artifact. The approved end-of-harness release rebuild must be
-  re-timed before any claim about the 0.3.0 musl package; this finding does
-  not claim that the future binary is fast.
+Residual risk / next: the historical 0.2.0 dist binary was not a valid 0.3.0
+  performance artifact. The 0.3.0 musl release was re-timed after rebuild:
+  X23 default 2.80 s vs 1 thread 1.26 s and R5 5.50 s vs <= 1.0 s. No
+  allocator tuning was made; see the release section above.
 
 Task: H-14 — No fuzz targets for the new parsers
 Reviews: v1:R-19, v2:N-06, v4:F-14, v5:F-10 (SRC×4)
@@ -749,9 +774,10 @@ Residual risk / next: GitHub run `45035152791` on `d9dcac3` completed **failure*
   final-head run `45095456201` on `360f154` also completed **failure** (9 jobs
   success, 18 failure), with the same 18 failing job categories. The log
   endpoint returned `403 Must have admin rights to Repository.`, so no remote
-  failure cause is claimed. The packaged Windows binary in `dist/` is still
-  stale until the approved 0.3.0 release. No lockbox, full benchmark or tag
-  was run.
+  failure cause is claimed. The 0.3.0 packaged binaries were rebuilt from local
+  tag `v0.3.0`; the Windows binary was executed under Wine only. No green CI at
+  final HEAD, lockbox regeneration or full-benchmark rerun is claimed; the tag
+  was created locally and was not pushed.
 
 Task: H-31 — Status labels overstated or inconsistent
 Reviews: v1:R-15, v2:N-04 and v5:F-12.
@@ -936,14 +962,13 @@ Residual risk / next: pedantic stage 2 (numeric casts) and stage 3 (API
 
 ## Blockers / open questions
 
-- GitHub Actions has now run successfully on the pre-B-04/B-06 CI-fix commit
-  `42376a9` (`44548142275`); the two earlier failed runs were caused by the
-  invalid actionlint action reference and an older queued pair is superseded.
-  No post-B-04 or post-B-06 GitHub run is claimed. GitHub's fuzz matrix remains
-  conditional and is skipped on push; local fuzz runtime evidence is in
-  `docs/VALIDATION.md §4`.
-- The packaged Windows binary has not been executed; the GitHub Windows job ran
-  the Rust test suite, which is a different artifact.
+- GitHub Actions succeeded on the pre-B-04/B-06 CI-fix commit `42376a9`
+  (`44548142275`), but the final pushed HEAD failed in `45095456201`
+  (9 success/18 failure); logs were unavailable. The fuzz matrix now runs on
+  push/PR; local fuzz runtime evidence is in `docs/VALIDATION.md §4`.
+- The historical 0.2.0 packaged Windows binary was not executed. The 0.3.0
+  packaged Windows binary was executed under Wine 10.0 on Linux, which is not
+  a Windows-runner execution; the CI packaged-Windows job failed.
 - Post-R-01/R-02 coverage is 69.72% (4456/6391), below the earlier aspirational
   80%. The CI/local floor is honestly set to 60%; no claim of 80% coverage is
   made.
@@ -968,8 +993,8 @@ Residual risk / next: pedantic stage 2 (numeric casts) and stage 3 (API
   `scripts/check-msrv.sh`, `scripts/check_commit_ids.sh` added;
   `review_repro.py` now treats SKIP as non-failure unless `--require-all`;
   `rust-toolchain.toml` added; `build.rs` emits `CARVEX_GIT_COMMIT`; Cargo
-  version set to `0.3.0-dev`; repository URL fixed; `dist/README.md` marked
-  stale (binaries not replaced).
+  version set to `0.3.0-dev`; repository URL fixed; `dist/README.md` was
+  marked stale then, and the 0.3.0 release rebuild above supersedes it.
 
 ## Open xfail tests / scenarios
 

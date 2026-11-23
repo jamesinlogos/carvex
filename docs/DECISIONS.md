@@ -1018,8 +1018,8 @@ decision, and the consequences.
   reports `STATUS GREEN` for 38 guide IDs and 34 harness IDs.
 - **Consequences:** no scan behavior, score, default, CLI field, CSV column,
   warning code or frozen result changed. H-01 remains BLOCKED pending the
-  user-supplied guide; H-04 and H-34 remain open until their own findings are
-  implemented.
+  user-supplied guide. H-34 was later closed in `f38a2ed`; H-04 is PARTIAL
+  after the 0.3.0 release only because no Windows runner was available.
 
 ## D-56. Publish an evidence manifest and disclose unbacked figures (H-32)
 
@@ -1103,5 +1103,34 @@ decision, and the consequences.
   green after the refactor.
 - **Consequences:** no CLI flag, default, JSON/CSV field, warning code or
   meaning, score, emission, output name, frozen benchmark, published figure or
-  raw-image path changed. A-10 can be marked resolved only after the separate
-  H-34 commit-hash backfill; D-03 remains PARTIAL because H-04 is still blocked.
+  raw-image path changed. The H-34 commit-hash backfill was committed
+  separately; D-03 remains PARTIAL because H-01 is blocked and H-04 is only
+  PARTIAL for Windows-runner execution.
+
+## D-59. Release 0.3.0 with local tag and disclosed execution limits
+
+- **Context:** harness §7 asks for a Windows-runner execution of the packaged
+  executable and a green CI run at HEAD. The final source commit `360f154`
+  had a green local G0-G9 gate, but public GitHub API run `45095456201` at
+  that HEAD completed `failure` (9 success/18 failure) and the job-log
+  endpoint returned `403 Must have admin rights to Repository.`. A real
+  Windows runner was not available locally; Wine 10.0 was installed and could
+  execute the PE binary on Linux.
+- **Decision:** version `0.3.0` was committed as `5480f10` and tagged
+  `v0.3.0` locally only; the tag was not pushed. Both `dist/` binaries were
+  rebuilt from that tag with `--locked`, executed, stripped as appropriate,
+  and checksummed. The musl binary ran natively and the Windows binary ran
+  under Wine 10.0; no Windows-runner or CI-green claim is made. The release
+  step changes no source after the tag: publish changes are limited to
+  `dist/` and documentation.
+- **Evidence:** `dist/README.md`, `dist/SHA256SUMS` and `docs/VALIDATION.md §8`
+  record the build environment, commands, both binary SHA-256 digests, the
+  `--version`/report commit `5480f1084f85`, the absolute G8 results, and the
+  full repro result on the musl binary (2 failures: X23 and R5). CI run
+  `45095456201` is recorded in `docs/VALIDATION.md §3`.
+- **Consequences:** H-04 remains PARTIAL solely because the packaged Windows
+  binary was not executed on a Windows runner. H-15 remains CLOSED as a
+  measured musl/release-binary behaviour with no allocator change. H-30 is
+  not green remotely; no fuzz, coverage, lockbox, full-benchmark or Windows
+  result is inferred from the failed remote jobs. No binary, source flag,
+  score, warning code, frozen benchmark or published figure was tuned.

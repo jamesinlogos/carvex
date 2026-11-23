@@ -214,10 +214,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Notes
 
-- The frozen benchmark, lockbox results, published figures, protocol text and
-  distribution binaries are not modified or rebuilt by this work. B-06 remains
-  opt-in; the D1-style development profile and X15 control are development
-  evidence, not published benchmark recall claims.
+- The frozen benchmark, lockbox results, published figures and protocol text
+  are not modified or rebuilt by this work. The distribution binaries are
+  rebuilt only in the final 0.3.0 release step from tag `v0.3.0`; see
+  `dist/README.md`. B-06 remains opt-in; the D1-style development profile and
+  X15 control are development evidence, not published benchmark recall claims.
 - E01 segment discovery supports the usual two-digit base-36 suffixes (up to
   `.EZZ`, 1295 segments); sets with longer suffixes are rejected explicitly
   rather than partially discovered.
@@ -227,9 +228,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   installed; the historical seven-target run is not presented as a
   post-change result.
 - H-15 X23 re-timing found no source-build slowdown (1 thread median 0.489 s,
-  default 0.156 s) and a 3.51x parallel slowdown only in the stale 0.2.0 musl
-  dist binary (0.694 s versus 2.436 s). No allocator change or dist rebuild
-  was made for this finding.
+  default 0.156 s); the historical 0.2.0 musl dist binary showed a 3.51x
+  parallel slowdown (0.694 s versus 2.436 s). The final 0.3.0 musl release
+  binary still showed X23 (default 2.80 s versus 1 thread 1.26 s) and R5
+  (5.50 s against the <= 1.0 s target); both were recorded without allocator
+  or timing changes. See `dist/README.md` and `docs/VALIDATION.md`.
+- The 0.3.0 release binaries were rebuilt from local tag `v0.3.0`, executed,
+  and checksummed; the Windows executable was run under Wine 10.0 on Linux,
+  not on a Windows runner. Final-head CI run `45095456201` failed and logs
+  were unavailable, so no CI-green or Windows-runner claim is made.
 
 ## [0.2.0] — 2026-11-19
 

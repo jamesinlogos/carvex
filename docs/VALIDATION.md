@@ -1,4 +1,4 @@
-# Validation execution evidence (CarveX 0.2.0)
+# Validation execution evidence (CarveX 0.3.0; frozen 0.1.0/0.2.0 figures unchanged)
 
 > Last updated: 2026-11-22. This file records commands that were actually run
 > and the resulting artifacts. It is **execution evidence only**, not a second
@@ -25,8 +25,8 @@ reconstruction from this file, not an independently observed raw log.
 | `docs/BENCHMARK_PROTOCOL.md` SHA-256 | `d38607b86850312ec9906acd0dd732f965ca10cd5e78ff567a7076360b8008b6` |
 | `bench/foremost.conf` SHA-256 | `a091c518d256b182ef0efa3320535f38102b14cdc7fc44903fc2966ab3df096d` |
 | `bench/scalpel.conf` SHA-256 | `9c55a406f8911167c912b790c06fcb1c54247b59b32fecc4ef541c466df653e0` |
-| Linux dist SHA-256 | `b9e6c5f4d9cd5dd6ed633acda799e1e1c0880717de5030a5fe61a8ce5f7858af` |
-| Windows dist SHA-256 | `503553ea17cd15522ce694ecb5eee0a8daacc8d6fed9ff434fe48262ad17fc9b` |
+| Linux dist SHA-256 (historical 0.2.0; current release digest in §8) | `b9e6c5f4d9cd5dd6ed633acda799e1e1c0880717de5030a5fe61a8ce5f7858af` |
+| Windows dist SHA-256 (historical 0.2.0; current release digest in §8) | `503553ea17cd15522ce694ecb5eee0a8daacc8d6fed9ff434fe48262ad17fc9b` |
 
 Every digest in this table is reproduced and verified in
 `bench/results/EVIDENCE.md`.
@@ -476,7 +476,45 @@ A row-by-row comparison of all 20 image/tool combinations against the frozen
 `bench/results/cfreds` were not modified. The full-run numbers are validation
 evidence only; published figures remain those of 0.1.0.
 
-## 8. What is still not claimed
+## 8. 0.3.0 release binaries
+
+The local annotated tag `v0.3.0` points at release commit
+`5480f1084f85cc91f68d94c76c703d1348a65b5e`. The full G0-G9 gate was green at
+that source commit before tagging (`/tmp/opencode/gate_release_030.log`). Both
+binaries were built from a detached worktree at that tag with cargo 1.100.0,
+release profile, `--locked`, the `x86_64-unknown-linux-musl` and
+`x86_64-pc-windows-gnu` targets, and `/usr/bin/x86_64-w64-mingw32-gcc`. The
+build recipe and environment are recorded in `dist/README.md`.
+
+| File | SHA-256 | Execution evidence |
+|---|---|---|
+| `dist/carvex-linux-x86_64` | `953dab643ce6628157b416b3588b1da59b84d760df627f82b14529a2cc3f975e` | Static PIE, stripped; `--version`, `info` and a small `scan` succeeded natively; report `version = 0.3.0`, `commit = 5480f1084f85` |
+| `dist/carvex-windows-x86_64.exe` | `cbcc5343b63881c6c7decc6b218b99742d0d383c3b6415920ad4dd464758f1fa` | PE32+, stripped to external PDB; same commands succeeded under Wine 10.0 on Linux (`WINEDEBUG=-all`); report `version = 0.3.0`, `commit = 5480f1084f85` |
+
+`sha256sum -c dist/SHA256SUMS` passed for both files. The Windows execution is
+**not** a Windows-runner execution: no Windows runner was available locally,
+and the final-head CI `Windows packaged binary smoke` job failed with logs
+unavailable through the public API. No cause for the remote failure is claimed.
+
+Release-binary controls actually run:
+
+- `python3 scripts/perf_gate.py --carvex dist/carvex-linux-x86_64` returned
+  absolute **PERF GREEN** (`s9_4m` median 2.842 s, reported 7.251x relative
+  baseline regression; `rand64m` median 0.033 s, 1.100x relative notice).
+- The Windows binary through a Wine wrapper returned absolute **PERF GREEN**
+  (`s9_4m` median 0.699 s, 1.784x relative notice; `rand64m` median 4.752 s,
+  158.396x relative notice). These are Wine timings, not Windows-runner
+  timings.
+- The full repro suite on the musl binary was **not** green: 34 scenarios,
+  2 failures, 2 SKIPs, 0 XPASS. X23 measured default 2.80 s versus 1 thread
+  1.26 s, and R5 measured 5.50 s against the <= 1.0 s target. Both are
+  release-binary/musl behaviour; the glibc source gate remains green and no
+  allocator or timing tuning was applied. The log is
+  `/tmp/opencode/release_x23_repro.log`.
+- The final pushed source HEAD `360f154` failed CI in run `45095456201`
+  (9 success/18 failure). No green CI run at final source HEAD is claimed.
+
+## 9. What is still not claimed
 
 - Figures marked **author-reported** above or in `bench/results/EVIDENCE.md`
   are not treated as artefact-backed, even when they are useful historical
@@ -492,11 +530,15 @@ evidence only; published figures remain those of 0.1.0.
   OPEN.
 - `qpdf` and `pdftoppm` were unavailable, so the protocol's `viewable` PDF
   metric was not computed.
-- The distributed Windows binary was built and format-checked but not executed
-  as `dist/carvex-windows-x86_64.exe`; the successful GitHub
-  `test (windows-latest)` job ran the Rust test suite on Windows, not that
+- The historical 0.2.0 distributed Windows binary was built and format-checked
+  but not executed. The 0.3.0 `dist/carvex-windows-x86_64.exe` was executed
+  under Wine 10.0 on Linux (§8), not on a Windows runner; the successful
+  GitHub `test (windows-latest)` job ran the Rust test suite, not that
   packaged executable.
-- GitHub's scheduled fuzz matrix remains conditional and was skipped on push;
-  the executed local fuzz evidence is in §4.
+- GitHub's fuzz matrix now runs on push/PR, but the final-head run
+  `45095456201` failed; local fuzz evidence is in §4 and no remote cause is
+  claimed.
+- The final 0.3.0 musl release binary still fails X23 and R5 (§8); no
+  allocator, threshold or timing tuning was applied.
 - No lockbox result was used for tuning; if a real bug were found, a fresh seed
   set would be required rather than reusing this lockbox.

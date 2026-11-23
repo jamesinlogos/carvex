@@ -16,6 +16,10 @@ that way in `docs/VALIDATION.md`.
 - Verification: extract the archive into an empty directory, then run
   `sha256sum -c bench/results/EVIDENCE.sha256` from that directory. All 47
   listed files were verified this way before the bundle was committed.
+- The `dist/` rows below describe the historical 0.2.0 binaries captured in
+  this bundle. The in-tree files have since been replaced by the 0.3.0 release
+  rebuild; their current digests are in `dist/SHA256SUMS` and
+  `dist/README.md`, not in this frozen 0.2.0 bundle.
 - The 1.8 GiB lockbox dataset is **not** bundled; its `SHA256SUMS` and
   `lockbox.json` are bundled, along with the one-shot execution results.
 
@@ -69,8 +73,8 @@ reconstruction, not an independent observation.
 | `bench/results/status_red_before_docs.txt` | 2 | `b2516e08c968a28bafd6d6440929af71d8cb07a49358b65d3d4dba06289494da` | bundle (ignored source) | H-31 red control before reconciliation |
 | `bench/results/status_red_wrong_label.txt` | 2 | `791b851727a7c9a6c79b4d70766e39eed8d9f01ed390e6ffda8ce055b22c8396` | bundle (ignored source) | H-31 red control with a deliberately wrong label |
 | `bench/scalpel.conf` | 1 | `9c55a406f8911167c912b790c06fcb1c54247b59b32fecc4ef541c466df653e0` | in-tree + bundle | frozen tool config |
-| `dist/carvex-linux-x86_64` | 1 | `b9e6c5f4d9cd5dd6ed633acda799e1e1c0880717de5030a5fe61a8ce5f7858af` | in-tree + bundle | 0.2.0 Linux binary; superseded by the 0.3.0 release rebuild |
-| `dist/carvex-windows-x86_64.exe` | 1 | `503553ea17cd15522ce694ecb5eee0a8daacc8d6fed9ff434fe48262ad17fc9b` | in-tree + bundle | 0.2.0 Windows binary; packaged execution never claimed |
+| `dist/carvex-linux-x86_64` | 1 | `b9e6c5f4d9cd5dd6ed633acda799e1e1c0880717de5030a5fe61a8ce5f7858af` | bundle (historical) | 0.2.0 Linux binary captured before the 0.3.0 release; in-tree file replaced |
+| `dist/carvex-windows-x86_64.exe` | 1 | `503553ea17cd15522ce694ecb5eee0a8daacc8d6fed9ff434fe48262ad17fc9b` | bundle (historical) | 0.2.0 Windows binary captured before the 0.3.0 release; historical packaged execution never claimed |
 | `docs/BENCHMARK_PROTOCOL.md` | 1 | `d38607b86850312ec9906acd0dd732f965ca10cd5e78ff567a7076360b8008b6` | in-tree + bundle | protocol and freeze |
 | `docs/baseline/harness_repro_v0.2.0.txt` | 2 | `a53690f3b5d6b4e907d3be8e821ebe07da6b6fd741f216095616b5b5738da1c1` | in-tree + bundle | X01-X24 control output |
 | `docs/baseline/jpeg_splice_v0.2.0.txt` | 2 | `3608e3bce101adac187a686d925dd7d5590b4c6d36412c9ee21f98febd99c3b9` | in-tree + bundle | H-18 4,000-pair property output |
