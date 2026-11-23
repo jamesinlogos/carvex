@@ -67,7 +67,7 @@ status row in each reconciliation document.
 
 | ID | Pri | Repro (date, build) | Status | Commit | Test(s) | Before → After / evidence |
 |----|----|---------------------|--------|--------|---------|---------------------------|
-| H-01 | HIGH | 2026-11-21 source | BLOCKED | - | docs/guide.md (missing) | User must supply the 924-line guide with the expected sha256; no resolution is claimed. |
+| H-01 | HIGH | 2026-11-23 user file | CLOSED | pending | docs/guide.md | The 924-line guide was supplied by the user and committed verbatim with the expected sha256. |
 | H-02 | HIGH | 2026-11-21 source | CLOSED | 7129173 | scripts/gate.sh; scripts/check-msrv.sh | Clean-checkout gate made SKIP-safe; local G0-G9 now runs without root. |
 | H-03 | HIGH | 2026-11-21 source | CLOSED | bbef4bd | scripts/review_repro.py; tests/regress_e01_safety.rs | X01-X24 controls and Rust regressions completed; red baseline retained. |
 | H-04 | MED | 2026-11-21 source / 0.3.0 release | PARTIAL | 4d0a6fd; 5480f10 | dist/README.md; dist/SHA256SUMS; scripts/sbom.py | Identity metadata fixed; both binaries rebuilt at local tag `v0.3.0`, executed and checksummed. Windows execution was under Wine only, so release identity is not fully closed. |

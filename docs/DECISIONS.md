@@ -1215,3 +1215,19 @@ decision, and the consequences.
   `v0.3.0` tag remains at `5480f10` and is still unpushed; only `main` was
   pushed. This is the first observed green public run and the sole basis for
   a CI-green claim.
+
+## D-63. Acceptance guide added verbatim (H-01)
+
+- **Context:** R2-05/H-01 required `docs/guide.md` to be added to the repository
+  exactly as supplied by the user: 924 lines, SHA-256
+  `22ee8122209e9eda11d6f32a1e650e8f8e48f5610bd808309d94f436e5e78265`. The
+  pre-fix state was `docs/guide.md` absent (`/tmp/opencode/h01_red.txt`).
+- **Decision:** copy `/home/kali/guide.md` to `docs/guide.md` without editing,
+  reflowing or reconstructing it; verify line count, digest and byte equality;
+  close H-01. D-01 remains the historical record of the truncated pre-harness
+  guide, and D-33 remains the record of the earlier missing-file state; the
+  complete guide is now the acceptance baseline the harness refers to.
+- **Evidence:** `wc -l docs/guide.md` = 924; `sha256sum` matches the expected
+  value; `cmp docs/guide.md /home/kali/guide.md` is silent (byte-for-byte
+  identical). No source, CLI, score, warning code, frozen result or binary
+  changed.

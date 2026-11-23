@@ -203,7 +203,7 @@ Windows**.
 
 | ID | Pri | Repro (date, build) | Status | Commit | Test(s) | Before → After / evidence |
 |----|----|---------------------|--------|--------|---------|---------------------------|
-| H-01 | HIGH | 2026-11-21 source | BLOCKED | - | docs/guide.md (missing) | The 924-line guide with sha256 `22ee8122209e9eda11d6f32a1e650e8f8e48f5610bd808309d94f436e5e78265` must be supplied by the user; the harness was placed and D-33 recorded instead. |
+| H-01 | HIGH | 2026-11-23 user file | CLOSED | pending | docs/guide.md | The 924-line guide was supplied by the user and committed verbatim; `sha256sum docs/guide.md` = `22ee8122209e9eda11d6f32a1e650e8f8e48f5610bd808309d94f436e5e78265`. |
 | H-02 | HIGH | 2026-11-21 source | CLOSED | 7129173 | scripts/gate.sh; scripts/check-msrv.sh | The clean-checkout gate was made SKIP-safe; G7 golden and MSRV checks were added. Local gates now run G0-G9 without root; the H-30 CI run is a separate, failed remote observation. |
 | H-03 | HIGH | 2026-11-21 source | CLOSED | bbef4bd | scripts/review_repro.py; tests/regress_e01_safety.rs | X01-X24 controls plus Rust regression and property tests were completed; red baseline `docs/baseline/repro_v0.1.0.txt` is retained. |
 | H-04 | MED | 2026-11-21 source / 0.3.0 release | PARTIAL | 4d0a6fd; 5480f10 | dist/README.md; dist/SHA256SUMS; scripts/sbom.py | Repository URL, build recipe, version metadata and stale-dist notice were fixed; both binaries were rebuilt at local tag `v0.3.0`, executed, and checksummed. The Windows executable was run under Wine 10.0, not on a Windows runner, so release identity is PARTIAL rather than fully closed. |
@@ -881,6 +881,23 @@ Residual risk / next: the historical `/home/kali` paths remain as provenance by
   made. No CLI, JSON/CSV, score, warning code, default, warning meaning,
   emission, output name or frozen benchmark value changed.
 
+### Task: H-01 — 924-line acceptance guide committed
+
+Reviews: v1:R-12, v2:R-12, v3:R-13, v4:F-10, v5:F-18.
+Repro: `docs/guide.md` was absent; the red check is preserved in
+  `/tmp/opencode/h01_red.txt`. The supplied file had the expected size and
+  digest before any repository change.
+Change: copied `/home/kali/guide.md` verbatim to `docs/guide.md`; added D-63,
+  closed the H-01 rows in both status documents, and removed the two now-stale
+  "guide missing" blocker bullets from this file.
+New tests: `test -f docs/guide.md` failed before and passes after; `wc -l` and
+  `sha256sum` are the acceptance checks, and `cmp` proves byte equality.
+Gate: green (see the full `scripts/gate.sh` output recorded by this commit).
+Measurement: before absent → after 924 lines, SHA-256
+  `22ee8122209e9eda11d6f32a1e650e8f8e48f5610bd808309d94f436e5e78265`.
+Residual risk / next: none for H-01. The guide is a document only; no CLI,
+  JSON/CSV, score, warning code, default, frozen result or binary changed.
+
 ### Task: H-34 — A-10 quality limits
 
 Reviews: v2:N-05 (heuristic counts near `706a12a`), with v1/v3/v5 calling A-10
@@ -980,9 +997,9 @@ Residual risk / next: pedantic stage 2 (numeric casts) and stage 3 (API
 ## Harness baseline (2026-11-21)
 
 - Harness: `harness.md` copied to repo root (745 lines, `HARNESS-EOF` verified).
-- `docs/guide.md`: **MISSING** in repo; user asked to supply the 924-line file
-  (sha256 `22ee8122209e9eda11d6f32a1e650e8f8e48f5610bd808309d94f436e5e78265`).
-  Continuing with harness (self-contained) per H-01/§3.5-8.
+- `docs/guide.md`: supplied by the user in round 2 and committed verbatim
+  (924 lines, sha256 `22ee8122209e9eda11d6f32a1e650e8f8e48f5610bd808309d94f436e5e78265`);
+  H-01 is closed. This bullet is historical context for the 2026-11-21 baseline.
 - Baseline: `a7a5c08` (clean tree) = `706a12a` + R-01/R-02 commit.
 - P0.1 environment (2026-11-21): cargo/rustc 1.100.0; rustup auto-installed
   toolchain from `rust-toolchain.toml`; tools present: mkfs.vfat, mkntfs, mcopy,
@@ -1001,9 +1018,7 @@ Residual risk / next: pedantic stage 2 (numeric casts) and stage 3 (API
 
 ## Blockers / open questions
 
-- `docs/guide.md` missing from repo; user must supply the 924-line file with the
-  expected sha256 before H-01 can be closed (§3.5 item 8).
-- Harness scope is large (Phases 0-4, 34 findings); this session begins Phase 0.
+- Harness scope is large; round 2 is tracked in `harness.md` §R. H-01 is closed.
 
 ## New findings outside this harness (N-xx + evidence + proposed priority)
 
