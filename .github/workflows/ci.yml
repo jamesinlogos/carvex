@@ -167,7 +167,8 @@ jobs:
       - name: Gate failure detail
         if: failure() && steps.gate.outcome == 'failure'
         run: |
-          tail -n 10 gate.log \
+          { grep -E '^(FAIL|XPASS)|scenario\(s\)' gate.log || true; } \
+            | tail -n 10 \
             | sed -E 's/\x1B\[[0-9;]*[A-Za-z]//g' \
             | cut -c1-200 \
             | while IFS= read -r line; do echo "::error::$line"; done
@@ -197,7 +198,8 @@ jobs:
       - name: Repro failure detail
         if: failure() && steps.repro.outcome == 'failure'
         run: |
-          tail -n 10 repro.log \
+          { grep -E '^(FAIL|XPASS)|scenario\(s\)' repro.log || true; } \
+            | tail -n 10 \
             | sed -E 's/\x1B\[[0-9;]*[A-Za-z]//g' \
             | cut -c1-200 \
             | while IFS= read -r line; do echo "::error::$line"; done
