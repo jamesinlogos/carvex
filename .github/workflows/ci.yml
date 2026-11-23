@@ -58,9 +58,10 @@ jobs:
         if: failure() && steps.tests.outcome == 'failure'
         shell: bash
         run: |
-          tail -n 40 tests.log | cut -c1-200 | while IFS= read -r line; do
-            echo "::error::$line"
-          done
+          tail -n 10 tests.log \
+            | sed -E 's/\x1B\[[0-9;]*[A-Za-z]//g' \
+            | cut -c1-200 \
+            | while IFS= read -r line; do echo "::error::$line"; done
       - name: Documentation
         run: cargo doc --no-deps --locked
         env:
@@ -166,9 +167,10 @@ jobs:
       - name: Gate failure detail
         if: failure() && steps.gate.outcome == 'failure'
         run: |
-          tail -n 80 gate.log | cut -c1-200 | while IFS= read -r line; do
-            echo "::error::$line"
-          done
+          tail -n 10 gate.log \
+            | sed -E 's/\x1B\[[0-9;]*[A-Za-z]//g' \
+            | cut -c1-200 \
+            | while IFS= read -r line; do echo "::error::$line"; done
 
   review-repro:
     name: review repro assertions
@@ -195,9 +197,10 @@ jobs:
       - name: Repro failure detail
         if: failure() && steps.repro.outcome == 'failure'
         run: |
-          tail -n 80 repro.log | cut -c1-200 | while IFS= read -r line; do
-            echo "::error::$line"
-          done
+          tail -n 10 repro.log \
+            | sed -E 's/\x1B\[[0-9;]*[A-Za-z]//g' \
+            | cut -c1-200 \
+            | while IFS= read -r line; do echo "::error::$line"; done
 
   musl-smoke:
     name: Linux musl packaged binary smoke
@@ -212,7 +215,18 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y musl-tools
-      - run: cargo build --release --locked --target x86_64-unknown-linux-musl
+      - name: Build musl release binary
+        id: musl_build
+        run: |
+          set -o pipefail
+          cargo build --release --locked --target x86_64-unknown-linux-musl 2>&1 | tee musl-build.log
+      - name: Musl build failure detail
+        if: failure() && steps.musl_build.outcome == 'failure'
+        run: |
+          tail -n 10 musl-build.log \
+            | sed -E 's/\x1B\[[0-9;]*[A-Za-z]//g' \
+            | cut -c1-200 \
+            | while IFS= read -r line; do echo "::error::$line"; done
       - name: Generate smoke fixture
         # bench/images/*.img are git-ignored and absent on a clean checkout.
         run: python3 scripts/make_smoke_image.py --out target/ci-smoke
