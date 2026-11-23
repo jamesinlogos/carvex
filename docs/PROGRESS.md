@@ -217,20 +217,20 @@ Windows**.
 | H-11 | CRIT | 2026-11-21 source / 2026-11-23 R2-11 | CLOSED | 4b86f2d, pending | tests/regress_e01_safety.rs; scripts/review_repro.py X07; clippy deny in src/image/{mod,e01,split,vhd,vmdk}.rs | Original E01 allocation bounded; R2-11 denies indexing/unwrap/expect in image parsers and replaces production hostile-field access with checked errors. |
 | H-12 | CRIT | 2026-11-23 packaged 0.3.0 + source | CLOSED | pending | tests/regress_vmdk_safety.rs; tests/regress_task_plan.rs; scripts/repro_x08b.py; scripts/repro_x26.py; scripts/review_repro.py X08 | Grain tables stay bounded (X08/X08a) and declared-size scan plans are now lazy. X08b: 512 TiB ZERO → exit 3, 5.01 s, 28.0 MiB RSS with a report; X26 VHD/E01/100k-split → typed errors at ~10 MiB RSS. |
 | H-13 | HIGH | 2026-11-21 source | CLOSED | 080b76a | tests/regress_vmdk_safety.rs; scripts/review_repro.py X09 | VMDK descriptors are confined to the containing image; relative and absolute escapes are rejected with typed errors. |
-| H-14 | HIGH | 2026-11-22 source / nightly fuzz runtime | CLOSED | e2d3f1d | fuzz/fuzz_targets/fuzz_e01.rs; fuzz/fuzz_targets/fuzz_vhd.rs; fuzz/fuzz_targets/fuzz_vmdk.rs; fuzz/fuzz_targets/fuzz_split_names.rs; fuzz/fuzz_targets/fuzz_open_image.rs; fuzz/fuzz_targets/fuzz_fragment_join.rs; scripts/fuzz.sh | Static gap: only 7 targets, none for the new parsers. Added 6 named targets, 22 committed seeds and structured property tests; each target ran 60 s clean (235,272 executions total, no crash/artifact). Real-tool E01/VMDK fixtures SKIPPED (`ewfacquire`/`ewfexport`/`qemu-img` missing). |
+| H-14 | HIGH | 2026-11-22 source / nightly fuzz runtime | CLOSED | e2d3f1d | fuzz/fuzz_targets/fuzz_e01.rs; fuzz/fuzz_targets/fuzz_vhd.rs; fuzz/fuzz_targets/fuzz_vmdk.rs; fuzz/fuzz_targets/fuzz_split_names.rs; fuzz/fuzz_targets/fuzz_open_image.rs; fuzz/fuzz_targets/fuzz_fragment_join.rs; scripts/fuzz.sh | Static gap: only 7 targets, none for the new parsers. Added 6 named targets, 22 committed seeds and structured property tests; each target ran 60 s clean (235,272 executions total, no crash/artifact). R2-08 (2026-11-23): real ewfacquire/qemu-img seeds SKIPPED (`ewfacquire`/`ewfexport`/`qemu-img` missing); 13 fuzz targets x60s with real-container seeds not re-run in this session (cargo-fuzz present, time/opportunistic). |
 | H-15 | MED | 2026-11-22 source / 0.2.0 and 0.3.0 `dist/`; 2026-11-23 R2-02 | CLOSED (R2-02 scratch reuse; shipped 0.3.1 dist measurement at R2-10) | 1c28e2e, pending | scripts/review_repro.py X23,R5; src/scan.rs | R2-02 reuses per-worker scratch buffers in count/scan/carve (ADR-H15/D-66), preserving budget drop-before-reserve. Dev release measurement: X23 default 0.168s vs 1t 0.591s (0.28x), R5 0.280s, rc 0. 0.3.0 musl dist baseline: X23 2.80s vs 1.26s (2.22x), R5 5.50s. Shipped 0.3.1 Linux/musl X23/R5 must be recorded at R2-10. |
 | H-16 | CRIT | 2026-11-22 source | CLOSED | 3f47e51 | tests/validity_model.rs; tests/cli_contract.rs; scripts/review_repro.py X10–X14/X24 | Red test proved `validity` was absent and default `complete/structure/100` rows had no "content not checked" text. Added authoritative `validity` + `checks[]`; scores and emission unchanged. |
 | H-17 | HIGH | 2026-11-22 source | CLOSED | 905c9c0 | tests/png_crc_validity.rs; src/signatures/png.rs; scripts/review_repro.py X10 | Bad PNG CRC is now `validation=partial`/`validity=suspect` in structure and decode modes, with a `chunk_crc` check naming type/offset; decode `validated_bytes` stops at the last good chunk. |
 | H-18 | HIGH | 2026-11-22 source; 2026-11-23 R2-03 | PARTIAL (R2-03 check added; eval upper bound above 0.1%) | 01ea6b3, pending | src/signatures/jpeg.rs; src/signatures/mod.rs; scripts/review_repro.py X12 | R2-03 adds conservative baseline content-continuity check (D-67, supersedes D-45 disclosure). Clean control 1000: 0 suspects. Dev splices 0/499 verified. Eval splices 2/3997 verified, Wilson 95% upper 0.182% (>0.1% target). |
-| H-19 | HIGH | 2026-11-22 source | CLOSED | cb591a3 | tests/pdf_structure_validation.rs; tests/fragment_recovery.rs; tests/scan_integration.rs; scripts/review_repro.py X11 | Stage 1 removed the false Decoded label; stage 2 adds bounded classic/xref-stream/ObjStm/trailer/catalog/length checking. Clean PDFs are `decoded`/`verified`; mismatches are `partial`/`suspect`. |
+| H-19 | HIGH | 2026-11-22 source | CLOSED | cb591a3 | tests/pdf_structure_validation.rs; tests/fragment_recovery.rs; tests/scan_integration.rs; scripts/review_repro.py X11 | Stage 1 removed the false Decoded label; stage 2 adds bounded classic/xref-stream/ObjStm/trailer/catalog/length checking. Clean PDFs are `decoded`/`verified`; mismatches are `partial`/`suspect`. R2-08 (2026-11-23): six `qpdf --check` X11 controls SKIPPED (`qpdf` not installed). |
 | H-20 | MED | 2026-11-21 source | CLOSED | cee916a | scripts/review_repro.py X13 | Trim trailing CR/LF/whitespace/NUL before %%EOF check; EOL variants now identical. |
 | H-21 | HIGH | 2026-11-22 source | CLOSED | 3b0c15c | tests/repair_validation.rs; scripts/review_repro.py X14 | Red tests proved the static footer produced an invalid PDF labelled `repaired` with no `sha256_original`. Every repair is now revalidated before `repaired`; `sha256_original` is emitted whenever output bytes change. |
-| H-22 | CRIT | 2026-11-22 in-memory fixture | CLOSED | d7d991e | tests/regress_e01_safety.rs; tests/image/mod.rs; scripts/review_repro.py X16 | Short final chunks accepted; damaged chunks and read errors follow `--on-read-error`; `unreadable_regions[]`, `UNREADABLE_REGION` and overlap downgrade are reported. `abort` exits 1 with a schema-2 partial report. |
-| H-23 | MED | 2026-11-21 source | CLOSED | 080b76a | tests/regress_vmdk_safety.rs; scripts/review_repro.py X08 | Missing grain table returned "index out of range"; now reads zeros like qemu-img. |
+| H-22 | CRIT | 2026-11-22 in-memory fixture | CLOSED | d7d991e | tests/regress_e01_safety.rs; tests/image/mod.rs; scripts/review_repro.py X16 | Short final chunks accepted; damaged chunks and read errors follow `--on-read-error`; `unreadable_regions[]`, `UNREADABLE_REGION` and overlap downgrade are reported. `abort` exits 1 with a schema-2 partial report. R2-08 (2026-11-23): X16(a) real `ewfacquire` image SKIPPED (`ewfacquire`/`ewfexport` missing; libewf2 package present but no acquire tool). |
+| H-23 | MED | 2026-11-21 source | CLOSED | 080b76a | tests/regress_vmdk_safety.rs; scripts/review_repro.py X08 | Missing grain table returned "index out of range"; now reads zeros like qemu-img. R2-08 (2026-11-23): X17 real qemu-made VMDK image SKIPPED (`qemu-img` missing). |
 | H-24 | MED | 2026-11-21 source | CLOSED | 56ee94a | scripts/review_repro.py X18 | Auto-detect now validates VHD footer checksum and requires strong VMDK descriptor markers before classifying. |
 | H-25 | LOW | 2026-11-22 source | CLOSED | e65f0f2 | tests/evidence_formats.rs; scripts/review_repro.py X22 | Red tests failed with `left: Null, right: "e01"/"vmdk"/"stdin"`. Schema 2 now adds `input.logical_size`, `physical_size`, both `_after` fields, `format` and `files[]`; stdin reports `unchanged: null`. |
-| H-26 | MED | 2026-11-22 source | CLOSED | eb649f1 | tests/volume_parse_errors.rs; scripts/review_repro.py X19 | Red tests: multi-volume scan exited 0 with no warning, the single-volume message was generic, and `info` hid the cause. Parse errors now emit `VOLUME_PARSE_FAILED`, exit 3, and flag the fallback region. |
-| H-27 | MED | 2026-11-22 source/bench FAT32 | CLOSED | 5ebe851 | tests/region_coverage.rs; scripts/review_repro.py X20 | X20 reported overlapping regions and a 7.4 MiB scanned-length mismatch. Regions now come from the scanner extent plan, cover the image exactly, and preserve `Σ scanned == bytes_scanned`. |
+| H-26 | MED | 2026-11-22 source | CLOSED | eb649f1 | tests/volume_parse_errors.rs; scripts/review_repro.py X19 | Red tests: multi-volume scan exited 0 with no warning, the single-volume message was generic, and `info` hid the cause. Parse errors now emit `VOLUME_PARSE_FAILED`, exit 3, and flag the fallback region. R2-08 (2026-11-23): X19 re-run with real `mkfs.vfat`/`mkntfs` via `scripts/review_repro.py`: PASS. |
+| H-27 | MED | 2026-11-22 source/bench FAT32 | CLOSED | 5ebe851 | tests/region_coverage.rs; scripts/review_repro.py X20 | X20 reported overlapping regions and a 7.4 MiB scanned-length mismatch. Regions now come from the scanner extent plan, cover the image exactly, and preserve `Σ scanned == bytes_scanned`. R2-08 (2026-11-23): X20 re-run with real bench FAT32 image via `scripts/review_repro.py`: PASS; R7/R8 also PASS with real bench images. |
 | H-28 | MED | 2026-11-22 source/release binary | CLOSED | c14060d | scripts/review_repro.py X21 | X21 killed the unmodified release binary with `exit -2 after SIGINT (expected 4)`. A cooperative handler now writes an `interrupted`/`INTERRUPTED` schema-2 report and exits 4. |
 | H-29 | HIGH | 2026-11-22 source/release binary | CLOSED | b902eed | tests/fragment_recovery.rs; tests/cli_contract.rs; tests/validity_model.rs; scripts/review_repro.py X15; scripts/fragment_profile.py | Red evidence: schema/CSV missing `alternatives`, S12 `file A not recovered exactly`, X15 accepted one incorrect PDF splice. Work units are authoritative; only `verified` stitches are emitted. D1 profile: recall 4/6, splice 0/4, junk FP 0/24; X15 recalls 3/3 real files with no bait stitch. |
 | H-30 | HIGH | 2026-11-22 source/CI config | CLOSED (CI green observed on archived run; current-HEAD run pending) | b9c40d3 | scripts/gate.sh; scripts/render_docs.py; scripts/perf_gate.py; scripts/sbom.py; .github/workflows/ci.yml | Red efficacy test: reintroducing H-05, H-07, H-08 and H-17 each turned the gate red. Gate runs G0-G9 at 70% coverage with 13 fuzz targets. Runs `45035152791` and `45095456201` failed; fixes N-35..N-40 landed and observed run `45121233267` at `86ae15f` completed success (27/27). Run JSON/jobs archived in `bench/results/ci_run_45121233267*.json`; job logs 403 via public API. A current-HEAD CI run is required for R2-07/R2-10. |
@@ -435,6 +435,23 @@ Measurement: clean-file control 1000 generated baseline JPEGs: 0 false suspects.
 Residual risk / next: conservative threshold avoids clean false positives but
   misses some low-contrast/flat self-consistent splices; R2-10 release evidence
   must record this status honestly.
+
+Task: R2-08 — Scenarios needing absent tools
+Reviews: round-2 R2-08 (harness §R.3).
+Repro: N/A (tool availability/evidence task).
+Change: Ran available scenarios and recorded SKIPPED reasons for missing tools.
+Measurement (2026-11-23, debug build `target/debug/carvex`): X19 PASS with real
+  `mkfs.vfat`/`mkntfs` (`scripts/review_repro.py case_x19`); X20 PASS with real
+  bench FAT32 image (`case_x20`); R7 PASS with real bench NTFS image
+  (`case_r7`); R8 PASS with real bench FAT32/NTFS images (`case_r8`).
+SKIPPED: X16(a)/X17 real `ewfacquire`/`ewfexport`/`qemu-img` images (tools not
+  installed; `libewf2` package present but no acquire/export CLI); six `qpdf
+  --check` X11 controls (`qpdf` not installed); 13 fuzz targets x60s with
+  real-container seeds not re-run (cargo-fuzz present, opportunistic/not
+  executed in session); coverage ratchet re-measurement not run
+  (cargo-llvm-cov present, opportunistic).
+Residual risk / next: real-tool E01/VMDK/qpdf controls remain unexecuted until
+  tools/images are available; record as SKIPPED, not pass.
 
 Task: H-14 — No fuzz targets for the new parsers
 Reviews: v1:R-19, v2:N-06, v4:F-14, v5:F-10 (SRC×4)
@@ -1069,10 +1086,19 @@ Residual risk / next: pedantic stage 2 (numeric casts) and stage 3 (API
   `bench/results/ci_run_45121233267*.json`; job logs are unavailable via public
   API (403), so status/conclusions/annotations are the evidence.
 - R2-03/H-18: content-continuity check added, but eval splice upper bound
-  0.182% is above the 0.1% target (D-67). Status remains PARTIAL.
+  0.182% is above the 0.1% target (D-67). Status remains PARTIAL. User decision
+  needed: accept PARTIAL with measured evidence, or authorize a more aggressive
+  measured heuristic prototype.
+- R2-08: X19/X20/R7/R8 re-run with available real tools/images PASS
+  (2026-11-23). Remaining R2-08 items SKIPPED with reasons: X16(a)/X17
+  (ewfacquire/ewfexport/qemu-img missing), qpdf X11 controls (qpdf missing),
+  13 fuzz targets x60s real-container seeds not re-run (cargo-fuzz present,
+  opportunistic), coverage ratchet not re-measured (cargo-llvm-cov present,
+  opportunistic).
 - 0.3.0 packaged dist binaries are stale relative to current source; R2-10
-  rebuilds/releases 0.3.1. The 0.3.0 Windows binary was executed under Wine
-  10.0, not a Windows runner.
+  rebuilds/releases 0.3.1 after R2-03 decision/prereqs and current-HEAD CI
+  green. The 0.3.0 Windows binary was executed under Wine 10.0, not a Windows
+  runner.
 - Post-R-01/R-02 coverage 69.72% (4456/6391); CI/local floor 60%. No 80% claim.
   Coverage has not been re-measured after H-14/H-16/H-17/H-18/H-19/H-21/H-22/H-25/H-26/H-27/H-29/R2 work.
 - Scientific benchmarks C-02, C-09 incomplete; C-06/C-07 partial; D2–D7 remain

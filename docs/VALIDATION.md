@@ -123,7 +123,7 @@ cause behind "no FAT32/NTFS filesystem found", and `info` gave the same generic
 message. After the fix, X19 asserts exit 3, a `VOLUME_PARSE_FAILED` warning with
 partition 2/offset/`$MFT`, a scanned `unsupported` region with
 `may_contain_allocated: true`, and a single-volume `info` exit 1 with the
-specific cause; X19 was removed from `scripts/repro_xfail.txt`. H-27 added three
+specific cause; X19 was removed from `scripts/repro_xfail.txt`. R2-08 (2026-11-23) re-ran X19 with real `mkfs.vfat`/`mkntfs` via `scripts/review_repro.py`: PASS. H-27 added three
 red-first CLI tests in `tests/region_coverage.rs`. Before the fix they failed
 with `region 0 starts at 1048576, expected 0`, an `info --json` free region
 spanning the whole volume, and clap rejecting `--max-regions`. After the fix,
@@ -131,7 +131,7 @@ regions are disjoint, sorted and cover the image; free rows equal the
 filesystem's real `free_extents`; and scanned lengths equal both
 `bytes_scanned` and `stats.bytes_in_extents` in auto, allocated, raw,
 largest/no-gaps and no-filesystem modes. X20 now asserts that contract plus a
-raw-mode `--max-regions 1` run and was removed from `scripts/repro_xfail.txt`.
+raw-mode `--max-regions 1` run and was removed from `scripts/repro_xfail.txt`. R2-08 (2026-11-23) re-ran X20 with the real bench FAT32 image via `scripts/review_repro.py`: PASS; R7/R8 also PASS with real bench images. R2-08 SKIPPED: X16(a)/X17 real `ewfacquire`/`qemu-img` (tools missing), six `qpdf --check` X11 controls (`qpdf` missing), 13 fuzz targets x60s with real-container seeds (not executed this session; cargo-fuzz present), coverage ratchet re-measurement (opportunistic, not run).
 H-28 strengthened X21 to check exit 4, schema 2, `interrupted: true`, the
 `INTERRUPTED` warning and the absence of `.tmp` files. It was red against the
 unmodified release binary with `exit -2 after SIGINT (expected 4)`; after the
