@@ -1968,7 +1968,9 @@ fn find_candidates(
         let counts: Vec<usize> = pool.install(|| {
             batch
                 .par_iter()
-                .map(|task| count_task(source, task, types, opts, volumes, stop))
+                .map_init(Vec::<u8>::new, |scratch, task| {
+                    count_task(source, task, types, opts, volumes, stop, scratch)
+                })
                 .collect::<Result<Vec<_>>>()
         })?;
         if stop.check() {
@@ -1993,11 +1995,13 @@ fn find_candidates(
             batch
                 .par_iter()
                 .zip(quotas)
-                .map(|(task, quota)| {
+                .map_init(Vec::<u8>::new, |scratch, (task, quota)| {
                     if stop.check() || quota == 0 {
                         return Ok(Vec::new());
                     }
-                    scan_task(source, task, types, opts, volumes, progress, quota, stop)
+                    scan_task(
+                        source, task, types, opts, volumes, progress, quota, stop, scratch,
+                    )
                 })
                 .collect::<Result<Vec<_>>>()
         })?;
@@ -2008,7 +2012,8 @@ fn find_candidates(
     Ok((out, hit))
 }
 
-// H-34: the counting worker keeps its original signature so chunk accounting stays identical.
+// H-34: the counting worker keeps chunk accounting identical; scratch reuse
+// is a per-worker allocation optimization (R2-02, ADR-H15).
 #[allow(clippy::too_many_arguments)]
 fn count_task(
     source: &dyn ImageSource,
@@ -2017,20 +2022,21 @@ fn count_task(
     opts: &ScanOptions,
     volumes: &[FsInfo],
     stop: &Stop,
+    scratch: &mut Vec<u8>,
 ) -> Result<usize> {
     if stop.check() {
         return Ok(0);
     }
-    let mut buf = vec![0u8; task.read_len as usize];
-    read_exact_at(source, &mut buf, task.start)
+    scratch.resize(task.read_len as usize, 0);
+    read_exact_at(source, scratch, task.start)
         .with_context(|| format!("cannot read scan chunk at offset {}", task.start))?;
     let mut count = 0usize;
     for &kind in types {
-        for rel in memchr::memmem::find_iter(&buf, kind.header()) {
+        for rel in memchr::memmem::find_iter(scratch.as_slice(), kind.header()) {
             if stop.check() {
                 return Ok(count);
             }
-            if rel as u64 >= task.scan_len || !plausible_header(kind, &buf, rel) {
+            if rel as u64 >= task.scan_len || !plausible_header(kind, scratch.as_slice(), rel) {
                 continue;
             }
             let offset = task.start + rel as u64;
@@ -2042,7 +2048,8 @@ fn count_task(
     Ok(count)
 }
 
-// H-34: the scanning worker keeps its original signature so chunk order and panic containment stay identical.
+// H-34: the scanning worker keeps chunk order and panic containment
+// identical; scratch reuse is a per-worker allocation optimization (R2-02).
 #[allow(clippy::too_many_arguments)]
 fn scan_task(
     source: &dyn ImageSource,
@@ -2053,19 +2060,20 @@ fn scan_task(
     progress: &Progress,
     quota: usize,
     stop: &Stop,
+    scratch: &mut Vec<u8>,
 ) -> Result<Vec<Candidate>> {
-    let mut buf = vec![0u8; task.read_len as usize];
-    read_exact_at(source, &mut buf, task.start)
+    scratch.resize(task.read_len as usize, 0);
+    read_exact_at(source, scratch, task.start)
         .with_context(|| format!("cannot read scan chunk at offset {}", task.start))?;
     let mut out = Vec::with_capacity(quota);
     let mut examined = task.scan_len;
     'types: for &kind in types {
-        for rel in memchr::memmem::find_iter(&buf, kind.header()) {
+        for rel in memchr::memmem::find_iter(scratch.as_slice(), kind.header()) {
             if stop.check() {
                 examined = (rel as u64).min(task.scan_len);
                 break 'types;
             }
-            if rel as u64 >= task.scan_len || !plausible_header(kind, &buf, rel) {
+            if rel as u64 >= task.scan_len || !plausible_header(kind, scratch.as_slice(), rel) {
                 continue;
             }
             let offset = task.start + rel as u64;
@@ -2139,12 +2147,12 @@ fn carve_batch(
     pool.install(|| {
         batch
             .par_iter()
-            .map(|cand| {
+            .map_init(Vec::<u8>::new, |scratch, cand| {
                 if stop.check() {
                     return Ok(CarveOutcome::TimeLimit);
                 }
                 let out = match catch_unwind(AssertUnwindSafe(|| {
-                    carve_one(source, cand, opts, budget, stop)
+                    carve_one(source, cand, opts, budget, stop, scratch)
                 })) {
                     Ok(result) => result?,
                     Err(payload) => CarveOutcome::InternalError {
@@ -2442,8 +2450,18 @@ fn finalize_carved(
     })
 }
 
+const CARVE_SCRATCH_RETAIN: usize = 1024 * 1024;
+
+fn cap_carve_scratch(scratch: &mut Vec<u8>) {
+    if scratch.capacity() > CARVE_SCRATCH_RETAIN {
+        *scratch = Vec::new();
+    } else {
+        scratch.clear();
+    }
+}
+
 fn grow_carve_buffer<'a>(
-    buf: &mut Vec<u8>,
+    scratch: &mut Vec<u8>,
     guard: &mut BudgetGuard<'a>,
     buf_len: &mut u64,
     hard_limit: u64,
@@ -2468,12 +2486,14 @@ fn grow_carve_buffer<'a>(
             needed: next,
         }));
     }
-    *buf = Vec::new();
+    // Drop old buffer and permit before reserving the next one so waiting
+    // threads hold no permit and cannot deadlock (ADR-H15/R2-02).
+    *scratch = Vec::new();
     guard.release();
     // A reserve failure here is an authoritative --max-memory error and is
     // propagated to the caller exactly as before the refactor.
     *guard = BudgetGuard::reserve(budget, next, "growing a carve buffer")?;
-    *buf = vec![0u8; next as usize];
+    scratch.resize(next as usize, 0);
     *buf_len = next;
     Ok(None)
 }
@@ -2484,6 +2504,20 @@ fn carve_one(
     opts: &ScanOptions,
     budget: &MemoryBudget,
     stop: &Stop,
+    scratch: &mut Vec<u8>,
+) -> Result<CarveOutcome> {
+    let result = carve_one_with_scratch(source, cand, opts, budget, stop, scratch);
+    cap_carve_scratch(scratch);
+    result
+}
+
+fn carve_one_with_scratch(
+    source: &dyn ImageSource,
+    cand: &Candidate,
+    opts: &ScanOptions,
+    budget: &MemoryBudget,
+    stop: &Stop,
+    scratch: &mut Vec<u8>,
 ) -> Result<CarveOutcome> {
     if stop.check() {
         return Ok(CarveOutcome::TimeLimit);
@@ -2504,7 +2538,8 @@ fn carve_one(
             needed: initial_len,
         });
     };
-    let mut buf = vec![0u8; initial_len as usize];
+    scratch.clear();
+    scratch.resize(initial_len as usize, 0);
     let mut buf_len = initial_len;
     let work_limit = effective_max_work(opts);
     let mut work = WorkCounter::new(work_limit);
@@ -2516,7 +2551,7 @@ fn carve_one(
         // Every growth step re-reads the full prefix after dropping the old
         // buffer and its permit. Waiting threads therefore hold no permit and
         // cannot deadlock each other.
-        if let Err(e) = read_exact_at(source, &mut buf[..buf_len as usize], cand.offset) {
+        if let Err(e) = read_exact_at(source, &mut scratch[..buf_len as usize], cand.offset) {
             return Ok(CarveOutcome::Rejected(format!("read error: {e}")));
         }
         let at_limit = buf_len >= hard_limit;
@@ -2529,9 +2564,9 @@ fn carve_one(
             ));
         }
         test_panic_probe(cand.offset, "analyze");
-        match analyze(cand.kind, &buf[..read_len], at_limit, opts.pdf_eof) {
+        match analyze(cand.kind, &scratch[..read_len], at_limit, opts.pdf_eof) {
             Need::Analyzed(mut analysis) => {
-                if let Err(outcome) = prepare_analysis(&buf[..read_len], &mut analysis, opts) {
+                if let Err(outcome) = prepare_analysis(&scratch[..read_len], &mut analysis, opts) {
                     return Ok(outcome);
                 }
                 let end = analysis.end;
@@ -2542,7 +2577,7 @@ fn carve_one(
                 let mut repair = match attempt_repair(
                     cand,
                     &mut analysis,
-                    &buf[..read_len],
+                    &scratch[..read_len],
                     end,
                     opts,
                     limits,
@@ -2580,7 +2615,7 @@ fn carve_one(
                     cand,
                     &mut repair,
                     &analysis,
-                    &buf[..read_len],
+                    &scratch[..read_len],
                     end,
                     opts,
                     limits,
@@ -2590,7 +2625,7 @@ fn carve_one(
                     analysis,
                     detail,
                     repair,
-                    &buf[..read_len],
+                    &scratch[..read_len],
                     end,
                     output_len,
                     opts,
@@ -2601,7 +2636,7 @@ fn carve_one(
             }
             Need::More => {
                 if let Some(outcome) =
-                    grow_carve_buffer(&mut buf, &mut guard, &mut buf_len, hard_limit, budget, cand)?
+                    grow_carve_buffer(scratch, &mut guard, &mut buf_len, hard_limit, budget, cand)?
                 {
                     return Ok(outcome);
                 }

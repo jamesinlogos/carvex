@@ -1275,3 +1275,21 @@ decision, and the consequences.
 - **Evidence:** `cargo clippy --all-targets --all-features --locked -- -D warnings`
   passes with the denies enabled; `cargo test --all-features --locked` passes.
   The full gate run for the R2-11 commit records G0-G9.
+
+## D-66. Worker scratch reuse for scan/carve (ADR-H15, R2-02)
+
+- **Context:** R2-02/H-15 reported musl parallel carve slowdown. Profiling and
+  harness evidence indicated per-task/per-candidate buffer allocation churn in
+  count, scan and carve workers. The user approved allocator/glibc remedy work
+  under R2-02 conditions.
+- **Decision:** reuse per-worker scratch buffers in scan count/scan passes and
+  carve workers via `rayon::map_init`. `count_task` and `scan_task` take
+  `&mut Vec<u8>` scratch and `resize/read_exact_at` into it; `carve_one`
+  reuses scratch for the initial buffer and `grow_carve_buffer` preserves the
+  drop-buffer/release-permit/reserve/resize sequence so waiting workers hold no
+  permit during growth. Retained carve scratch is capped at 1 MiB after each
+  candidate.
+- **Evidence:** `cargo test --all-features --locked` passes. Dev release
+  measurement on this host (not a shipped musl binary): X23 default 0.168s vs
+  1-thread 0.591s (0.28x), R5 0.280s, rc 0. Shipped Linux/musl 0.3.1 binaries
+  must be measured at R2-10 before claiming the harness X23/R5 targets.

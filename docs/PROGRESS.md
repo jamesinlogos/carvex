@@ -217,7 +217,7 @@ Windows**.
 | H-12 | CRIT | 2026-11-23 packaged 0.3.0 + source | CLOSED | pending | tests/regress_vmdk_safety.rs; tests/regress_task_plan.rs; scripts/repro_x08b.py; scripts/repro_x26.py; scripts/review_repro.py X08 | Grain tables stay bounded (X08/X08a) and declared-size scan plans are now lazy. X08b: 512 TiB ZERO → exit 3, 5.01 s, 28.0 MiB RSS with a report; X26 VHD/E01/100k-split → typed errors at ~10 MiB RSS. |
 | H-13 | HIGH | 2026-11-21 source | CLOSED | 080b76a | tests/regress_vmdk_safety.rs; scripts/review_repro.py X09 | VMDK descriptors are confined to the containing image; relative and absolute escapes are rejected with typed errors. |
 | H-14 | HIGH | 2026-11-22 source / nightly fuzz runtime | CLOSED | e2d3f1d | fuzz/fuzz_targets/fuzz_e01.rs; fuzz/fuzz_targets/fuzz_vhd.rs; fuzz/fuzz_targets/fuzz_vmdk.rs; fuzz/fuzz_targets/fuzz_split_names.rs; fuzz/fuzz_targets/fuzz_open_image.rs; fuzz/fuzz_targets/fuzz_fragment_join.rs; scripts/fuzz.sh | Static gap: only 7 targets, none for the new parsers. Added 6 named targets, 22 committed seeds and structured property tests; each target ran 60 s clean (235,272 executions total, no crash/artifact). Real-tool E01/VMDK fixtures SKIPPED (`ewfacquire`/`ewfexport`/`qemu-img` missing). |
-| H-15 | MED | 2026-11-22 source / 0.2.0 and 0.3.0 `dist/` | CLOSED (measured; musl/dist-only) | 1c28e2e | scripts/review_repro.py X23; scripts/perf_gate.py | Current glibc source: 1 thread 0.489 s vs default 0.156 s (0.32x). Historical 0.2.0 musl dist: 0.694 s vs 2.436 s (3.51x). Final 0.3.0 musl release: 1 thread 1.26 s vs default 2.80 s (2.22x) and R5 5.50 s vs <= 1.0 s. No allocator change; recorded as release-binary behaviour. |
+| H-15 | MED | 2026-11-22 source / 0.2.0 and 0.3.0 `dist/`; 2026-11-23 R2-02 | CLOSED (R2-02 scratch reuse; shipped 0.3.1 dist measurement at R2-10) | 1c28e2e, pending | scripts/review_repro.py X23,R5; src/scan.rs | R2-02 reuses per-worker scratch buffers in count/scan/carve (ADR-H15/D-66), preserving budget drop-before-reserve. Dev release measurement: X23 default 0.168s vs 1t 0.591s (0.28x), R5 0.280s, rc 0. 0.3.0 musl dist baseline: X23 2.80s vs 1.26s (2.22x), R5 5.50s. Shipped 0.3.1 Linux/musl X23/R5 must be recorded at R2-10. |
 | H-16 | CRIT | 2026-11-22 source | CLOSED | 3f47e51 | tests/validity_model.rs; tests/cli_contract.rs; scripts/review_repro.py X10–X14/X24 | Red test proved `validity` was absent and default `complete/structure/100` rows had no "content not checked" text. Added authoritative `validity` + `checks[]`; scores and emission unchanged. |
 | H-17 | HIGH | 2026-11-22 source | CLOSED | 905c9c0 | tests/png_crc_validity.rs; src/signatures/png.rs; scripts/review_repro.py X10 | Bad PNG CRC is now `validation=partial`/`validity=suspect` in structure and decode modes, with a `chunk_crc` check naming type/offset; decode `validated_bytes` stops at the last good chunk. |
 | H-18 | HIGH | 2026-11-22 source | CLOSED | 01ea6b3 | src/signatures/jpeg.rs; scripts/review_repro.py X12; scripts/jpeg_splice_property.py | Baseline 0.2180 [0.1935,0.2446] at a7a5c08; final 4,000-pair rate 0.0013 [0.0005,0.0029]. Unsupported variants are Unverified; D-45 records the disclosed residual accepted cases. |
@@ -395,6 +395,24 @@ Residual risk / next: the historical 0.2.0 dist binary was not a valid 0.3.0
   performance artifact. The 0.3.0 musl release was re-timed after rebuild:
   X23 default 2.80 s vs 1 thread 1.26 s and R5 5.50 s vs <= 1.0 s. No
   allocator tuning was made; see the release section above.
+
+Task: R2-02 / H-15 — worker scratch reuse (ADR-H15)
+Reviews: round-2 R2-02 (harness §R.3); addresses H-15 musl parallel slowdown.
+Repro: harness baseline recorded 0.3.0 musl X23 default 2.80s vs 1t 1.26s
+  (2.22x) and R5 5.50s; dev source already fast, so fix targets allocation churn.
+Change: `src/scan.rs` count/scan/carve workers reuse per-worker scratch buffers
+  via `rayon::par_iter().map_init(Vec::new, ...)`. `count_task`/`scan_task`
+  resize and read into scratch; `carve_one` reuses scratch for the initial buffer
+  and `grow_carve_buffer` drops buffer and releases budget permit before
+  reserving/growing, preserving ADR-H15 deadlock avoidance. Retained carve scratch
+  capacity is capped at 1 MiB after each candidate.
+New tests: existing scan/work_budget/regress_task_plan tests cover behavior;
+  no output/ordering/status/score changes.
+Gate: green (full `scripts/gate.sh` on 2026-11-23: fmt/clippy/tests/docs/actionlint/deny/audit/MSRV/release/G8/G5/coverage/fuzz-smoke/review-repro/X08b/X26/G7/G9/check_status; `GATE GREEN`).
+Measurement: dev release build on this host (not shipped musl): X23 default
+  0.168s vs 1-thread 0.591s (0.28x), R5 0.280s, rc 0. Shipped 0.3.1 Linux/musl
+  X23/R5 must be measured at R2-10 against harness targets.
+Residual risk / next: shipped musl/dist measurement remains for R2-10.
 
 Task: H-14 — No fuzz targets for the new parsers
 Reviews: v1:R-19, v2:N-06, v4:F-14, v5:F-10 (SRC×4)

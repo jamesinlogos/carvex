@@ -18,6 +18,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `clippy::unwrap_used` and `clippy::expect_used`; production hostile-field
   access uses checked helpers. Test modules and the hidden fixture builder keep
   justified `#[allow(...)]`.
+- H-15: scan count/scan/carve workers reuse per-worker scratch buffers via
+  `map_init`; carve growth still drops buffer and releases its memory-budget
+  permit before reserving a larger buffer. Retained carve scratch is capped.
 - H-12b: scan work is planned lazily from resolved extents in bounded batches.
   A container-declared 512 TiB `ZERO` extent no longer allocates a per-chunk
   task vector before the time budget or interrupt can be checked; totals and
