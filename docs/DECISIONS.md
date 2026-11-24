@@ -1323,3 +1323,11 @@ decision, and the consequences.
   release with measured evidence recorded honestly; authorize aggressive
   content-continuity heuristic as a measured follow-up prototype (not a
   default change without FP/upper-bound evidence). R2-10 may proceed.
+- **Follow-up investigation (2026-11-23):** D-67-style clean control
+  (1000 baseline JPEGs, gradient/noise/photo, 256x256, q90) re-confirmed 0
+  suspects. A harder synthetic hard-edge/text control (1010 images including
+  corpus JPEGs) produced 44/1010 suspects, all in hard-edges/text class; this
+  is not the D-67 control class and indicates FP sensitivity to sharp synthetic
+  edges. No aggressive threshold/configuration was promoted to default because
+  no measured configuration met both clean-control and eval Wilson 95% upper
+  <= 0.1% criteria without FP risk. R2-03 remains PARTIAL.
