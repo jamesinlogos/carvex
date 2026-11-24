@@ -12,7 +12,7 @@
 |---|---|
 | Date | 2026-11-23 (R2 docs update; earlier gate rows below are dated historical records) |
 | OS | Linux x86_64 (Kali), running in a container |
-| carvex | source `main` preparing 0.3.1 release (R2-10 in progress); committed `dist/` binaries are 0.3.0 built from `5480f10` and will be replaced at R2-10 |
+| carvex | source `main` at `479065c` (0.3.1 release prep/dist rebuilt); `dist/` binaries rebuilt from `v0.3.1` commit `d5be769` (Linux glibc, Windows GNU) and `DIST OK`; CI run `45309259369` green (27/27) before `v0.3.1` tag push |
 | rustc / cargo | 1.100.0 (0ef1bc386 2026-11-09) / 1.100.0 |
 | MSRV | 1.85.0, installed via rustup; `cargo +1.85 check --locked` passes |
 | Python | 3.13.12; Pillow available |
@@ -150,7 +150,7 @@ Windows**.
 | A-09 | PARTIAL | green | Fixed the NTFS sector off-by-one (`field+1`, D-21, unit test `volume_sector_count_includes_the_backup_boot_sector`); FS errors → `FS_DETECTION_FAILED`. No `$ATTRIBUTE_LIST`/multi-extent `$MFT`/`$MFTMirr`/backup boot/FAT #2 yet. |
 | A-10 | PARTIAL | green | Lib crate + thin `main.rs`; pipeline `plan_extents → build_tasks → scan_task → carve_batch → postfilter → write_outputs`; format registry; `ScanInput<'a>` groups the input parameters for `run_scan`. H-34 split the remaining long functions into behavior-preserving helpers, enabled public `missing_docs` and pedantic stage 1, and documented every remaining `too_many_arguments` allow; the change is recorded in commit f38a2ed. No non-test function exceeds 120 lines. |
 | A-11 | PARTIAL | green | **134 tests** in the current gate (43 unit + 13 cli_contract + 7 evidence_formats + 5 fragment_recovery + 8 fs_detect + 2 jpeg_frame_budget + 4 memory_budget + 3 panic_containment + 2 png_crc_validity + 4 png_decode_budget + 2 png_validator_budget + 8 pdf_structure_validation + 5 properties + 4 regress_e01_safety + 4 regress_vmdk_safety + 3 repair_validation + 6 scan_integration + 1 validity_model + 4 work_budgets + 3 volume_parse_errors + 3 region_coverage); `scripts/review_repro.py --assert/--xfail --carvex` 34 scenarios, 0 failures, 2 SKIPs, 0 XPASS; red baseline `docs/baseline/repro_v0.1.0.txt`. Post-R-01/R-02 `cargo-llvm-cov 0.9.1` measured 4456/6391 lines = **69.72%**; CI/local floor set to 60%, not the earlier aspirational 80%. No new coverage run after H-14/H-16/H-17/H-18/H-19/H-21/H-22/H-25/H-26/H-27/H-29. |
-| A-12 | PARTIAL | green | MSRV 1.85 (`rust-version`, README corrected from "Rust 1.74"); `cargo +1.85 check` in the gate; `.github/workflows/ci.yml` adds actionlint + coverage and uses a pinned direct actionlint install; `rustfmt.toml`/`clippy.toml`/`deny.toml`; 0.3.0 release rebuild + regenerated `SHA256SUMS`. Local `cargo deny check`, `cargo audit` and `actionlint 1.7.12` pass. Earlier GitHub run `44548142275` on `42376a9` succeeded but predates B-04/B-06/R-01/R-02; `45095456201` failed, then CI fixes landed and run `45121233267` at `86ae15f` completed success (27/27 jobs, archived in `bench/results/ci_run_45121233267*.json`; job logs 403 via public API). Current-HEAD CI run `45227367124` (`cfefbba`) archived as queued/pending 2026-11-23; green still required for R2-10. The 0.3.0 packaged Windows binary was executed under Wine 10.0, not on a Windows runner. SBOM generation is wired in; no signatures; removing binaries from `dist/` is STOP-AND-ASK (kept). |
+| A-12 | PARTIAL | green | MSRV 1.85 (`rust-version`, README corrected from "Rust 1.74"); `cargo +1.85 check` in the gate; `.github/workflows/ci.yml` adds actionlint + coverage and uses a pinned direct actionlint install; `rustfmt.toml`/`clippy.toml`/`deny.toml`; 0.3.0 release rebuild + regenerated `SHA256SUMS`. Local `cargo deny check`, `cargo audit` and `actionlint 1.7.12` pass. Earlier GitHub run `44548142275` on `42376a9` succeeded but predates B-04/B-06/R-01/R-02; `45095456201` failed, then CI fixes landed and run `45121233267` at `86ae15f` completed success (27/27 jobs, archived in `bench/results/ci_run_45121233267*.json`; job logs 403 via public API). Current-HEAD CI run `45309259369` (`479065c`, 2026-11-23) completed **success** (27/27 jobs), archived in `bench/results/ci_run_45309259369*.json`; job logs 403 via public API. The 0.3.0 packaged Windows binary was executed under Wine 10.0, not on a Windows runner. SBOM generation is wired in; no signatures; removing binaries from `dist/` is STOP-AND-ASK (kept). |
 | A-13 | PARTIAL | green | Exit 0/1/2/3/4 documented + CLI contract tests; coded warnings; `RAW_SCANS_ALLOCATED` informational (D-20); H-28 writes a partial report with `INTERRUPTED` and exit 4. No `thiserror` types, leveled logger or `ProgressSink`/ETA yet. |
 | A-14 | PARTIAL | green | Report schema v2: `schema_version`, `argv`, `options`, `tool_info`, `input` (before–after SHA-256), ISO-8601, `case_id`, `examiner`, `warnings[]` object, `volumes[]`, `regions[]`, `lba`, real `cluster`, `partition_index`, `extent_id`, `allocated`, `source`, `fragments`. `docs/report.schema.json` + key-matching test; atomic write; `--manifest` generates `SHA256SUMS`; `--report-schema 1`. `unreadable_regions[]` is emitted with A-08/H-22 read-error handling; schema 1 still strips additive fields. |
 | A-15 | PARTIAL | green | Hard budget checks for `--max-memory` before allocation/retention plus caps on `--max-size`/`--max-truncated-size`; atomic write; `--force`. No rejection of output inside the source image yet, no `--overwrite`/free-space check/`--max-output`/symlink ban. |
@@ -218,7 +218,7 @@ Windows**.
 | H-12 | CRIT | 2026-11-23 packaged 0.3.0 + source | CLOSED | pending | tests/regress_vmdk_safety.rs; tests/regress_task_plan.rs; scripts/repro_x08b.py; scripts/repro_x26.py; scripts/review_repro.py X08 | Grain tables stay bounded (X08/X08a) and declared-size scan plans are now lazy. X08b: 512 TiB ZERO → exit 3, 5.01 s, 28.0 MiB RSS with a report; X26 VHD/E01/100k-split → typed errors at ~10 MiB RSS. |
 | H-13 | HIGH | 2026-11-21 source | CLOSED | 080b76a | tests/regress_vmdk_safety.rs; scripts/review_repro.py X09 | VMDK descriptors are confined to the containing image; relative and absolute escapes are rejected with typed errors. |
 | H-14 | HIGH | 2026-11-22 source / nightly fuzz runtime | CLOSED | e2d3f1d | fuzz/fuzz_targets/fuzz_e01.rs; fuzz/fuzz_targets/fuzz_vhd.rs; fuzz/fuzz_targets/fuzz_vmdk.rs; fuzz/fuzz_targets/fuzz_split_names.rs; fuzz/fuzz_targets/fuzz_open_image.rs; fuzz/fuzz_targets/fuzz_fragment_join.rs; scripts/fuzz.sh | Static gap: only 7 targets, none for the new parsers. Added 6 named targets, 22 committed seeds and structured property tests; each target ran 60 s clean (235,272 executions total, no crash/artifact). R2-08 (2026-11-23): real ewfacquire/qemu-img seeds SKIPPED (`ewfacquire`/`ewfexport`/`qemu-img` missing); 13 fuzz targets x60s with real-container seeds not re-run in this session (cargo-fuzz present, time/opportunistic). |
-| H-15 | MED | 2026-11-22 source / 0.2.0 and 0.3.0 `dist/`; 2026-11-23 R2-02 | CLOSED (R2-02 scratch reuse; shipped 0.3.1 dist measurement at R2-10) | 1c28e2e, pending | scripts/review_repro.py X23,R5; src/scan.rs | R2-02 reuses per-worker scratch buffers in count/scan/carve (ADR-H15/D-66), preserving budget drop-before-reserve. Dev release measurement: X23 default 0.168s vs 1t 0.591s (0.28x), R5 0.280s, rc 0. 0.3.0 musl dist baseline: X23 2.80s vs 1.26s (2.22x), R5 5.50s. Shipped 0.3.1 Linux/musl X23/R5 must be recorded at R2-10. |
+| H-15 | MED | 2026-11-22 source / 0.2.0 and 0.3.0 `dist/`; 2026-11-23 R2-02 | CLOSED (R2-02 scratch reuse; shipped 0.3.1 glibc dist passes X23/R5) | 1c28e2e, 25b50d0 | scripts/review_repro.py X23,R5; src/scan.rs | R2-02 reuses per-worker scratch buffers in count/scan/carve (ADR-H15/D-66), preserving budget drop-before-reserve. 0.3.0 musl dist baseline: X23 2.80s vs 1.26s (2.22x), R5 5.50s. 0.3.1 musl build measured but not shipped (X23 2.452s vs 1t 1.048s, 2.34x; R5 5.020s). Shipped 0.3.1 Linux glibc (`carvex-linux-x86_64`, min GLIBC 2.34): X23 default 0.158s vs 1t 0.565s (0.28x), R5 0.310s. |
 | H-16 | CRIT | 2026-11-22 source | CLOSED | 3f47e51 | tests/validity_model.rs; tests/cli_contract.rs; scripts/review_repro.py X10–X14/X24 | Red test proved `validity` was absent and default `complete/structure/100` rows had no "content not checked" text. Added authoritative `validity` + `checks[]`; scores and emission unchanged. |
 | H-17 | HIGH | 2026-11-22 source | CLOSED | 905c9c0 | tests/png_crc_validity.rs; src/signatures/png.rs; scripts/review_repro.py X10 | Bad PNG CRC is now `validation=partial`/`validity=suspect` in structure and decode modes, with a `chunk_crc` check naming type/offset; decode `validated_bytes` stops at the last good chunk. |
 | H-18 | HIGH | 2026-11-22 source; 2026-11-23 R2-03 | PARTIAL (R2-03 check added; eval upper bound above 0.1%; accepted for 0.3.1, option A 2026-11-23) | 01ea6b3, pending | src/signatures/jpeg.rs; src/signatures/mod.rs; scripts/review_repro.py X12 | R2-03 adds conservative baseline content-continuity check (D-67, supersedes D-45 disclosure). Clean control 1000: 0 suspects. Dev splices 0/499 verified. Eval splices 2/3997 verified, Wilson 95% upper 0.182% (>0.1% target). User accepted PARTIAL for 0.3.1 release; aggressive heuristic follow-up authorized with FP/upper-bound measurement. |
@@ -233,7 +233,7 @@ Windows**.
 | H-27 | MED | 2026-11-22 source/bench FAT32 | CLOSED | 5ebe851 | tests/region_coverage.rs; scripts/review_repro.py X20 | X20 reported overlapping regions and a 7.4 MiB scanned-length mismatch. Regions now come from the scanner extent plan, cover the image exactly, and preserve `Σ scanned == bytes_scanned`. R2-08 (2026-11-23): X20 re-run with real bench FAT32 image via `scripts/review_repro.py`: PASS; R7/R8 also PASS with real bench images. |
 | H-28 | MED | 2026-11-22 source/release binary | CLOSED | c14060d | scripts/review_repro.py X21 | X21 killed the unmodified release binary with `exit -2 after SIGINT (expected 4)`. A cooperative handler now writes an `interrupted`/`INTERRUPTED` schema-2 report and exits 4. |
 | H-29 | HIGH | 2026-11-22 source/release binary | CLOSED | b902eed | tests/fragment_recovery.rs; tests/cli_contract.rs; tests/validity_model.rs; scripts/review_repro.py X15; scripts/fragment_profile.py | Red evidence: schema/CSV missing `alternatives`, S12 `file A not recovered exactly`, X15 accepted one incorrect PDF splice. Work units are authoritative; only `verified` stitches are emitted. D1 profile: recall 4/6, splice 0/4, junk FP 0/24; X15 recalls 3/3 real files with no bait stitch. |
-| H-30 | HIGH | 2026-11-22 source/CI config | CLOSED (CI green observed on archived run; current-HEAD run pending) | b9c40d3 | scripts/gate.sh; scripts/render_docs.py; scripts/perf_gate.py; scripts/sbom.py; .github/workflows/ci.yml | Red efficacy test: reintroducing H-05, H-07, H-08 and H-17 each turned the gate red. Gate runs G0-G9 at 70% coverage with 13 fuzz targets. Runs `45035152791` and `45095456201` failed; fixes N-35..N-40 landed and observed run `45121233267` at `86ae15f` completed success (27/27). Run JSON/jobs archived in `bench/results/ci_run_45121233267*.json`; job logs 403 via public API. Current-HEAD CI run `45227367124` (`cfefbba`) archived queued/pending 2026-11-23; green required for R2-10. |
+| H-30 | HIGH | 2026-11-22 source/CI config | CLOSED (CI green observed on archived run; current-HEAD run pending) | b9c40d3 | scripts/gate.sh; scripts/render_docs.py; scripts/perf_gate.py; scripts/sbom.py; .github/workflows/ci.yml | Red efficacy test: reintroducing H-05, H-07, H-08 and H-17 each turned the gate red. Gate runs G0-G9 at 70% coverage with 13 fuzz targets. Runs `45035152791` and `45095456201` failed; fixes N-35..N-40 landed and observed run `45121233267` at `86ae15f` completed success (27/27). Run JSON/jobs archived in `bench/results/ci_run_45121233267*.json`; job logs 403 via public API. Current-HEAD CI run `45309259369` (`479065c`, 2026-11-23) completed **success** (27/27 jobs), archived in `bench/results/ci_run_45309259369*.json`. |
 | H-31 | MED | 2026-11-22 source/docs | CLOSED | efd6d9f | scripts/check_status.py; scripts/gate.sh; .github/workflows/ci.yml | Static red: the checker failed with `STATUS FAIL: section heading not found` before the reconciliation; a deliberately wrong A-10 label fails after the fix. Status tables now agree across both documents. |
 | H-32 | MED | 2026-11-22 docs | CLOSED | bd9ebd0 | bench/results/EVIDENCE.md; bench/results/EVIDENCE.sha256; bench/results/evidence-bundle-0.2.0.tar.gz; bench/lockbox.log; docs/VALIDATION.md | Static red showed ignored evidence paths, no manifest and no reconstructed lockbox log. The manifest covers 47 bundled artefacts; historical figures without retained raw logs are labelled author-reported; no lockbox regeneration. |
 | H-33 | MED | 2026-11-22 docs | CLOSED | 240ef42 | README.md; docs/DECISIONS.md; docs/REPORT.md; docs/baseline/h33_static_red.txt; bench/render_docs.py | Static grep red found the speed and Pillow overstatements and a missing `fuzz/` tree entry. Speed sentence removed; Pillow wording corrected; `fuzz/` added; already-fixed items recorded as NOT-REPRODUCED. Frozen results and `/home/kali` paths were not edited. |
@@ -411,9 +411,11 @@ New tests: existing scan/work_budget/regress_task_plan tests cover behavior;
   no output/ordering/status/score changes.
 Gate: green (full `scripts/gate.sh` on 2026-11-23: fmt/clippy/tests/docs/actionlint/deny/audit/MSRV/release/G8/G5/coverage/fuzz-smoke/review-repro/X08b/X26/G7/G9/check_status; `GATE GREEN`).
 Measurement: dev release build on this host (not shipped musl): X23 default
-  0.168s vs 1-thread 0.591s (0.28x), R5 0.280s, rc 0. Shipped 0.3.1 Linux/musl
-  X23/R5 must be measured at R2-10 against harness targets.
-Residual risk / next: shipped musl/dist measurement remains for R2-10.
+  0.168s vs 1-thread 0.591s (0.28x), R5 0.280s, rc 0. Shipped 0.3.1 Linux glibc
+  binary passes X23/R5/G8 (X23 0.158s vs 1t 0.565s, 0.28x; R5 0.310s; perf gate
+  GREEN). Musl build measured but not shipped (X23 2.34x; R5 5.020s).
+Residual risk / next: optional musl allocator follow-up if a static musl binary
+  is required; current shipped Linux binary is glibc-linked (min GLIBC 2.34).
 
 Task: R2-03 / H-18 — JPEG content-continuity check (ADR-H18)
 Reviews: round-2 R2-03 (harness §R.3); supersedes D-45 disclosure-only closure.
@@ -433,8 +435,9 @@ Measurement: clean-file control 1000 generated baseline JPEGs: 0 false suspects.
   8 partial; Wilson 95% upper bound 0.182% (above 0.1% target). R2-03
   upper-bound acceptance criterion not met; residual is documented in D-67.
 Residual risk / next: conservative threshold avoids clean false positives but
-  misses some low-contrast/flat self-consistent splices; R2-10 release evidence
-  must record this status honestly.
+  misses some low-contrast/flat self-consistent splices; accepted PARTIAL for
+  0.3.1 release with measured evidence (option A, 2026-11-23). Aggressive
+  content-continuity heuristic authorized as measured follow-up prototype.
 
 Task: R2-08 — Scenarios needing absent tools
 Reviews: round-2 R2-08 (harness §R.3).
@@ -849,8 +852,9 @@ Residual risk / next: GitHub run `45035152791` on `d9dcac3` completed **failure*
   failure cause is claimed. The 0.3.0 packaged binaries were rebuilt from local
   tag `v0.3.0`; the Windows binary was executed under Wine only. No green CI at
   final HEAD, lockbox regeneration or full-benchmark rerun is claimed; the
-  `v0.3.0` tag was later pushed to origin (confirmed 2026-11-23), while `v0.3.1`
-  remains pending R2-10 release.
+  `v0.3.0` tag was pushed to origin (confirmed 2026-11-23). `v0.3.1` release
+  commit `d5be769` is tagged locally; tag push is pending after green CI
+  evidence is recorded (R2-10).
 
 Task: H-31 — Status labels overstated or inconsistent
 Reviews: v1:R-15, v2:N-04 and v5:F-12.
@@ -1081,12 +1085,11 @@ Residual risk / next: pedantic stage 2 (numeric casts) and stage 3 (API
 
 ## Blockers / open questions (current)
 
-- Current-HEAD CI run `45227367124` at `cfefbba` (2026-11-23) is archived in
-  `bench/results/ci_run_45227367124*.json`; observed **queued/pending** at
-  archive time (27 jobs queued). Job logs unavailable via public API (403);
-  status/conclusions/annotations only. R2-10 still requires this run (or a
-  newer current-HEAD run) to complete green. Prior green reference:
-  `45121233267` at `86ae15f` (27/27).
+- Current-HEAD CI run `45309259369` at `479065c` (2026-11-23) completed **success**
+  (27/27 jobs), archived in `bench/results/ci_run_45309259369*.json`; checksums
+  in `bench/results/EVIDENCE.sha256`. Job logs unavailable via public API (403);
+  status/conclusions/annotations only. Prior green reference: `45121233267` at
+  `86ae15f` (27/27).
 - R2-03/H-18: content-continuity check added, but eval splice upper bound
   0.182% is above the 0.1% target (D-67). **Accepted PARTIAL for 0.3.1 release
   by user (2026-11-23, option A)** with measured evidence recorded honestly;
@@ -1098,10 +1101,10 @@ Residual risk / next: pedantic stage 2 (numeric casts) and stage 3 (API
   13 fuzz targets x60s real-container seeds not re-run (cargo-fuzz present,
   opportunistic), coverage ratchet not re-measured (cargo-llvm-cov present,
   opportunistic).
-- 0.3.0 packaged dist binaries are stale relative to current source; R2-10
-  rebuilds/releases 0.3.1 after R2-03 decision/prereqs and current-HEAD CI
-  green. The 0.3.0 Windows binary was executed under Wine 10.0, not a Windows
-  runner.
+- 0.3.1 dist binaries rebuilt from `d5be769` and `DIST OK`; shipped Linux is
+  glibc-linked (min GLIBC 2.34) because musl failed X23/R5. Green CI
+  `45309259369` (`479065c`, 27/27) recorded; `v0.3.1` tag push pending. The
+  0.3.1 Windows binary was executed under Wine, not a Windows runner.
 - Post-R-01/R-02 coverage 69.72% (4456/6391); CI/local floor 60%. No 80% claim.
   Coverage has not been re-measured after H-14/H-16/H-17/H-18/H-19/H-21/H-22/H-25/H-26/H-27/H-29/R2 work.
 - Scientific benchmarks C-02, C-09 incomplete; C-06/C-07 partial; D2–D7 remain

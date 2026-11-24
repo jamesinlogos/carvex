@@ -1,0 +1,2897 @@
+{
+    "total_count": 27,
+    "jobs": [
+        {
+            "id": 138160584807,
+            "run_id": 45309259369,
+            "workflow_name": "CI",
+            "head_branch": "main",
+            "run_url": "https://api.github.com/repos/logosnexus/carvex/actions/runs/45309259369",
+            "run_attempt": 1,
+            "node_id": "CR_kwDOV0ZFus8AAAAgKwM4Zw",
+            "head_sha": "479065ca2de6a53387efc0da9a704cb3b7eca153",
+            "url": "https://api.github.com/repos/logosnexus/carvex/actions/jobs/138160584807",
+            "html_url": "https://github.com/logosnexus/carvex/actions/runs/45309259369/job/138160584807",
+            "status": "completed",
+            "conclusion": "success",
+            "created_at": "2026-11-24T02:01:06Z",
+            "started_at": "2026-11-24T02:01:08Z",
+            "completed_at": "2026-11-24T02:01:53Z",
+            "name": "benchmark smoke",
+            "steps": [
+                {
+                    "name": "Set up job",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 1,
+                    "started_at": "2026-11-24T02:01:09Z",
+                    "completed_at": "2026-11-24T02:01:12Z"
+                },
+                {
+                    "name": "Run actions/checkout@v4",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 2,
+                    "started_at": "2026-11-24T02:01:12Z",
+                    "completed_at": "2026-11-24T02:01:15Z"
+                },
+                {
+                    "name": "Run dtolnay/rust-toolchain@stable",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 3,
+                    "started_at": "2026-11-24T02:01:15Z",
+                    "completed_at": "2026-11-24T02:01:20Z"
+                },
+                {
+                    "name": "Run Swatinem/rust-cache@v2",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 4,
+                    "started_at": "2026-11-24T02:01:20Z",
+                    "completed_at": "2026-11-24T02:01:31Z"
+                },
+                {
+                    "name": "Run cargo build --release --locked",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 5,
+                    "started_at": "2026-11-24T02:01:31Z",
+                    "completed_at": "2026-11-24T02:01:50Z"
+                },
+                {
+                    "name": "Run python3 bench/run_benchmark.py --smoke",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 6,
+                    "started_at": "2026-11-24T02:01:50Z",
+                    "completed_at": "2026-11-24T02:01:50Z"
+                },
+                {
+                    "name": "Post Run Swatinem/rust-cache@v2",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 11,
+                    "started_at": "2026-11-24T02:01:50Z",
+                    "completed_at": "2026-11-24T02:01:50Z"
+                },
+                {
+                    "name": "Post Run actions/checkout@v4",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 12,
+                    "started_at": "2026-11-24T02:01:50Z",
+                    "completed_at": "2026-11-24T02:01:50Z"
+                },
+                {
+                    "name": "Complete job",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 13,
+                    "started_at": "2026-11-24T02:01:50Z",
+                    "completed_at": "2026-11-24T02:01:50Z"
+                }
+            ],
+            "check_run_url": "https://api.github.com/repos/logosnexus/carvex/check-runs/138160584807",
+            "labels": [
+                "ubuntu-latest"
+            ],
+            "runner_id": 1000002269,
+            "runner_name": "GitHub Actions 1000002269",
+            "runner_group_id": 0,
+            "runner_group_name": "GitHub Actions"
+        },
+        {
+            "id": 138160585057,
+            "run_id": 45309259369,
+            "workflow_name": "CI",
+            "head_branch": "main",
+            "run_url": "https://api.github.com/repos/logosnexus/carvex/actions/runs/45309259369",
+            "run_attempt": 1,
+            "node_id": "CR_kwDOV0ZFus8AAAAgKwM5YQ",
+            "head_sha": "479065ca2de6a53387efc0da9a704cb3b7eca153",
+            "url": "https://api.github.com/repos/logosnexus/carvex/actions/jobs/138160585057",
+            "html_url": "https://github.com/logosnexus/carvex/actions/runs/45309259369/job/138160585057",
+            "status": "completed",
+            "conclusion": "success",
+            "created_at": "2026-11-24T02:01:06Z",
+            "started_at": "2026-11-24T02:01:08Z",
+            "completed_at": "2026-11-24T02:03:13Z",
+            "name": "fuzz (fuzz_vhd)",
+            "steps": [
+                {
+                    "name": "Set up job",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 1,
+                    "started_at": "2026-11-24T02:01:09Z",
+                    "completed_at": "2026-11-24T02:01:10Z"
+                },
+                {
+                    "name": "Run actions/checkout@v4",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 2,
+                    "started_at": "2026-11-24T02:01:10Z",
+                    "completed_at": "2026-11-24T02:01:12Z"
+                },
+                {
+                    "name": "Run dtolnay/rust-toolchain@nightly",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 3,
+                    "started_at": "2026-11-24T02:01:12Z",
+                    "completed_at": "2026-11-24T02:01:21Z"
+                },
+                {
+                    "name": "Run Swatinem/rust-cache@v2",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 4,
+                    "started_at": "2026-11-24T02:01:21Z",
+                    "completed_at": "2026-11-24T02:01:33Z"
+                },
+                {
+                    "name": "Install cargo-fuzz",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 5,
+                    "started_at": "2026-11-24T02:01:33Z",
+                    "completed_at": "2026-11-24T02:01:34Z"
+                },
+                {
+                    "name": "Fuzz smoke (60 s on push/PR, 10 min nightly)",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 6,
+                    "started_at": "2026-11-24T02:01:34Z",
+                    "completed_at": "2026-11-24T02:03:10Z"
+                },
+                {
+                    "name": "Upload crash artifact",
+                    "status": "completed",
+                    "conclusion": "skipped",
+                    "number": 7,
+                    "started_at": "2026-11-24T02:03:10Z",
+                    "completed_at": "2026-11-24T02:03:10Z"
+                },
+                {
+                    "name": "Post Run Swatinem/rust-cache@v2",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 13,
+                    "started_at": "2026-11-24T02:03:10Z",
+                    "completed_at": "2026-11-24T02:03:10Z"
+                },
+                {
+                    "name": "Post Run actions/checkout@v4",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 14,
+                    "started_at": "2026-11-24T02:03:10Z",
+                    "completed_at": "2026-11-24T02:03:10Z"
+                },
+                {
+                    "name": "Complete job",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 15,
+                    "started_at": "2026-11-24T02:03:10Z",
+                    "completed_at": "2026-11-24T02:03:10Z"
+                }
+            ],
+            "check_run_url": "https://api.github.com/repos/logosnexus/carvex/check-runs/138160585057",
+            "labels": [
+                "ubuntu-latest"
+            ],
+            "runner_id": 1000002271,
+            "runner_name": "GitHub Actions 1000002271",
+            "runner_group_id": 0,
+            "runner_group_name": "GitHub Actions"
+        },
+        {
+            "id": 138160585092,
+            "run_id": 45309259369,
+            "workflow_name": "CI",
+            "head_branch": "main",
+            "run_url": "https://api.github.com/repos/logosnexus/carvex/actions/runs/45309259369",
+            "run_attempt": 1,
+            "node_id": "CR_kwDOV0ZFus8AAAAgKwM5hA",
+            "head_sha": "479065ca2de6a53387efc0da9a704cb3b7eca153",
+            "url": "https://api.github.com/repos/logosnexus/carvex/actions/jobs/138160585092",
+            "html_url": "https://github.com/logosnexus/carvex/actions/runs/45309259369/job/138160585092",
+            "status": "completed",
+            "conclusion": "success",
+            "created_at": "2026-11-24T02:01:06Z",
+            "started_at": "2026-11-24T02:01:54Z",
+            "completed_at": "2026-11-24T02:02:39Z",
+            "name": "coverage (\u226570%)",
+            "steps": [
+                {
+                    "name": "Set up job",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 1,
+                    "started_at": "2026-11-24T02:01:55Z",
+                    "completed_at": "2026-11-24T02:01:57Z"
+                },
+                {
+                    "name": "Run actions/checkout@v4",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 2,
+                    "started_at": "2026-11-24T02:01:57Z",
+                    "completed_at": "2026-11-24T02:01:59Z"
+                },
+                {
+                    "name": "Run dtolnay/rust-toolchain@stable",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 3,
+                    "started_at": "2026-11-24T02:01:59Z",
+                    "completed_at": "2026-11-24T02:02:02Z"
+                },
+                {
+                    "name": "Run Swatinem/rust-cache@v2",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 4,
+                    "started_at": "2026-11-24T02:02:02Z",
+                    "completed_at": "2026-11-24T02:02:14Z"
+                },
+                {
+                    "name": "Run taiki-e/install-action@cargo-llvm-cov",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 5,
+                    "started_at": "2026-11-24T02:02:14Z",
+                    "completed_at": "2026-11-24T02:02:14Z"
+                },
+                {
+                    "name": "Coverage floor (ratchet 70, next 75)",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 6,
+                    "started_at": "2026-11-24T02:02:14Z",
+                    "completed_at": "2026-11-24T02:02:35Z"
+                },
+                {
+                    "name": "Run actions/upload-artifact@v4",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 7,
+                    "started_at": "2026-11-24T02:02:35Z",
+                    "completed_at": "2026-11-24T02:02:36Z"
+                },
+                {
+                    "name": "Post Run Swatinem/rust-cache@v2",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 13,
+                    "started_at": "2026-11-24T02:02:36Z",
+                    "completed_at": "2026-11-24T02:02:37Z"
+                },
+                {
+                    "name": "Post Run actions/checkout@v4",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 14,
+                    "started_at": "2026-11-24T02:02:37Z",
+                    "completed_at": "2026-11-24T02:02:37Z"
+                },
+                {
+                    "name": "Complete job",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 15,
+                    "started_at": "2026-11-24T02:02:37Z",
+                    "completed_at": "2026-11-24T02:02:37Z"
+                }
+            ],
+            "check_run_url": "https://api.github.com/repos/logosnexus/carvex/check-runs/138160585092",
+            "labels": [
+                "ubuntu-latest"
+            ],
+            "runner_id": 1000002294,
+            "runner_name": "GitHub Actions 1000002294",
+            "runner_group_id": 0,
+            "runner_group_name": "GitHub Actions"
+        },
+        {
+            "id": 138160585100,
+            "run_id": 45309259369,
+            "workflow_name": "CI",
+            "head_branch": "main",
+            "run_url": "https://api.github.com/repos/logosnexus/carvex/actions/runs/45309259369",
+            "run_attempt": 1,
+            "node_id": "CR_kwDOV0ZFus8AAAAgKwM5jA",
+            "head_sha": "479065ca2de6a53387efc0da9a704cb3b7eca153",
+            "url": "https://api.github.com/repos/logosnexus/carvex/actions/jobs/138160585100",
+            "html_url": "https://github.com/logosnexus/carvex/actions/runs/45309259369/job/138160585100",
+            "status": "completed",
+            "conclusion": "success",
+            "created_at": "2026-11-24T02:01:06Z",
+            "started_at": "2026-11-24T02:01:08Z",
+            "completed_at": "2026-11-24T02:02:27Z",
+            "name": "release gate (G0-G9)",
+            "steps": [
+                {
+                    "name": "Set up job",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 1,
+                    "started_at": "2026-11-24T02:01:09Z",
+                    "completed_at": "2026-11-24T02:01:10Z"
+                },
+                {
+                    "name": "Run actions/checkout@v4",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 2,
+                    "started_at": "2026-11-24T02:01:10Z",
+                    "completed_at": "2026-11-24T02:01:12Z"
+                },
+                {
+                    "name": "Run dtolnay/rust-toolchain@stable",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 3,
+                    "started_at": "2026-11-24T02:01:12Z",
+                    "completed_at": "2026-11-24T02:01:13Z"
+                },
+                {
+                    "name": "Run Swatinem/rust-cache@v2",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 4,
+                    "started_at": "2026-11-24T02:01:13Z",
+                    "completed_at": "2026-11-24T02:01:23Z"
+                },
+                {
+                    "name": "Run scripts/gate.sh",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 5,
+                    "started_at": "2026-11-24T02:01:23Z",
+                    "completed_at": "2026-11-24T02:02:20Z"
+                },
+                {
+                    "name": "Gate failure detail",
+                    "status": "completed",
+                    "conclusion": "skipped",
+                    "number": 6,
+                    "started_at": "2026-11-24T02:02:20Z",
+                    "completed_at": "2026-11-24T02:02:20Z"
+                },
+                {
+                    "name": "Post Run Swatinem/rust-cache@v2",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 11,
+                    "started_at": "2026-11-24T02:02:20Z",
+                    "completed_at": "2026-11-24T02:02:25Z"
+                },
+                {
+                    "name": "Post Run actions/checkout@v4",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 12,
+                    "started_at": "2026-11-24T02:02:25Z",
+                    "completed_at": "2026-11-24T02:02:25Z"
+                },
+                {
+                    "name": "Complete job",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 13,
+                    "started_at": "2026-11-24T02:02:25Z",
+                    "completed_at": "2026-11-24T02:02:25Z"
+                }
+            ],
+            "check_run_url": "https://api.github.com/repos/logosnexus/carvex/check-runs/138160585100",
+            "labels": [
+                "ubuntu-latest"
+            ],
+            "runner_id": 1000002274,
+            "runner_name": "GitHub Actions 1000002274",
+            "runner_group_id": 0,
+            "runner_group_name": "GitHub Actions"
+        },
+        {
+            "id": 138160585104,
+            "run_id": 45309259369,
+            "workflow_name": "CI",
+            "head_branch": "main",
+            "run_url": "https://api.github.com/repos/logosnexus/carvex/actions/runs/45309259369",
+            "run_attempt": 1,
+            "node_id": "CR_kwDOV0ZFus8AAAAgKwM5kA",
+            "head_sha": "479065ca2de6a53387efc0da9a704cb3b7eca153",
+            "url": "https://api.github.com/repos/logosnexus/carvex/actions/jobs/138160585104",
+            "html_url": "https://github.com/logosnexus/carvex/actions/runs/45309259369/job/138160585104",
+            "status": "completed",
+            "conclusion": "success",
+            "created_at": "2026-11-24T02:01:06Z",
+            "started_at": "2026-11-24T02:01:08Z",
+            "completed_at": "2026-11-24T02:01:38Z",
+            "name": "MSRV",
+            "steps": [
+                {
+                    "name": "Set up job",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 1,
+                    "started_at": "2026-11-24T02:01:08Z",
+                    "completed_at": "2026-11-24T02:01:10Z"
+                },
+                {
+                    "name": "Run actions/checkout@v4",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 2,
+                    "started_at": "2026-11-24T02:01:10Z",
+                    "completed_at": "2026-11-24T02:01:14Z"
+                },
+                {
+                    "name": "Run dtolnay/rust-toolchain@master",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 3,
+                    "started_at": "2026-11-24T02:01:14Z",
+                    "completed_at": "2026-11-24T02:01:22Z"
+                },
+                {
+                    "name": "Run Swatinem/rust-cache@v2",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 4,
+                    "started_at": "2026-11-24T02:01:22Z",
+                    "completed_at": "2026-11-24T02:01:35Z"
+                },
+                {
+                    "name": "Run cargo check --locked",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 5,
+                    "started_at": "2026-11-24T02:01:35Z",
+                    "completed_at": "2026-11-24T02:01:36Z"
+                },
+                {
+                    "name": "Post Run Swatinem/rust-cache@v2",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 9,
+                    "started_at": "2026-11-24T02:01:36Z",
+                    "completed_at": "2026-11-24T02:01:36Z"
+                },
+                {
+                    "name": "Post Run actions/checkout@v4",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 10,
+                    "started_at": "2026-11-24T02:01:36Z",
+                    "completed_at": "2026-11-24T02:01:36Z"
+                },
+                {
+                    "name": "Complete job",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 11,
+                    "started_at": "2026-11-24T02:01:36Z",
+                    "completed_at": "2026-11-24T02:01:36Z"
+                }
+            ],
+            "check_run_url": "https://api.github.com/repos/logosnexus/carvex/check-runs/138160585104",
+            "labels": [
+                "ubuntu-latest"
+            ],
+            "runner_id": 1000002270,
+            "runner_name": "GitHub Actions 1000002270",
+            "runner_group_id": 0,
+            "runner_group_name": "GitHub Actions"
+        },
+        {
+            "id": 138160585106,
+            "run_id": 45309259369,
+            "workflow_name": "CI",
+            "head_branch": "main",
+            "run_url": "https://api.github.com/repos/logosnexus/carvex/actions/runs/45309259369",
+            "run_attempt": 1,
+            "node_id": "CR_kwDOV0ZFus8AAAAgKwM5kg",
+            "head_sha": "479065ca2de6a53387efc0da9a704cb3b7eca153",
+            "url": "https://api.github.com/repos/logosnexus/carvex/actions/jobs/138160585106",
+            "html_url": "https://github.com/logosnexus/carvex/actions/runs/45309259369/job/138160585106",
+            "status": "completed",
+            "conclusion": "success",
+            "created_at": "2026-11-24T02:01:06Z",
+            "started_at": "2026-11-24T02:01:08Z",
+            "completed_at": "2026-11-24T02:01:12Z",
+            "name": "status labels (H-31)",
+            "steps": [
+                {
+                    "name": "Set up job",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 1,
+                    "started_at": "2026-11-24T02:01:08Z",
+                    "completed_at": "2026-11-24T02:01:08Z"
+                },
+                {
+                    "name": "Run actions/checkout@v4",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 2,
+                    "started_at": "2026-11-24T02:01:08Z",
+                    "completed_at": "2026-11-24T02:01:10Z"
+                },
+                {
+                    "name": "Reconcile PROGRESS and REVIEW_RESPONSE",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 3,
+                    "started_at": "2026-11-24T02:01:10Z",
+                    "completed_at": "2026-11-24T02:01:10Z"
+                },
+                {
+                    "name": "Post Run actions/checkout@v4",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 6,
+                    "started_at": "2026-11-24T02:01:10Z",
+                    "completed_at": "2026-11-24T02:01:10Z"
+                },
+                {
+                    "name": "Complete job",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 7,
+                    "started_at": "2026-11-24T02:01:10Z",
+                    "completed_at": "2026-11-24T02:01:10Z"
+                }
+            ],
+            "check_run_url": "https://api.github.com/repos/logosnexus/carvex/check-runs/138160585106",
+            "labels": [
+                "ubuntu-latest"
+            ],
+            "runner_id": 1000002275,
+            "runner_name": "GitHub Actions 1000002275",
+            "runner_group_id": 0,
+            "runner_group_name": "GitHub Actions"
+        },
+        {
+            "id": 138160585109,
+            "run_id": 45309259369,
+            "workflow_name": "CI",
+            "head_branch": "main",
+            "run_url": "https://api.github.com/repos/logosnexus/carvex/actions/runs/45309259369",
+            "run_attempt": 1,
+            "node_id": "CR_kwDOV0ZFus8AAAAgKwM5lQ",
+            "head_sha": "479065ca2de6a53387efc0da9a704cb3b7eca153",
+            "url": "https://api.github.com/repos/logosnexus/carvex/actions/jobs/138160585109",
+            "html_url": "https://github.com/logosnexus/carvex/actions/runs/45309259369/job/138160585109",
+            "status": "completed",
+            "conclusion": "success",
+            "created_at": "2026-11-24T02:01:06Z",
+            "started_at": "2026-11-24T02:01:08Z",
+            "completed_at": "2026-11-24T02:03:06Z",
+            "name": "fuzz (fat32_boot)",
+            "steps": [
+                {
+                    "name": "Set up job",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 1,
+                    "started_at": "2026-11-24T02:01:08Z",
+                    "completed_at": "2026-11-24T02:01:09Z"
+                },
+                {
+                    "name": "Run actions/checkout@v4",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 2,
+                    "started_at": "2026-11-24T02:01:09Z",
+                    "completed_at": "2026-11-24T02:01:10Z"
+                },
+                {
+                    "name": "Run dtolnay/rust-toolchain@nightly",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 3,
+                    "started_at": "2026-11-24T02:01:10Z",
+                    "completed_at": "2026-11-24T02:01:19Z"
+                },
+                {
+                    "name": "Run Swatinem/rust-cache@v2",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 4,
+                    "started_at": "2026-11-24T02:01:19Z",
+                    "completed_at": "2026-11-24T02:01:29Z"
+                },
+                {
+                    "name": "Install cargo-fuzz",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 5,
+                    "started_at": "2026-11-24T02:01:29Z",
+                    "completed_at": "2026-11-24T02:01:30Z"
+                },
+                {
+                    "name": "Fuzz smoke (60 s on push/PR, 10 min nightly)",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 6,
+                    "started_at": "2026-11-24T02:01:30Z",
+                    "completed_at": "2026-11-24T02:03:04Z"
+                },
+                {
+                    "name": "Upload crash artifact",
+                    "status": "completed",
+                    "conclusion": "skipped",
+                    "number": 7,
+                    "started_at": "2026-11-24T02:03:04Z",
+                    "completed_at": "2026-11-24T02:03:04Z"
+                },
+                {
+                    "name": "Post Run Swatinem/rust-cache@v2",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 13,
+                    "started_at": "2026-11-24T02:03:04Z",
+                    "completed_at": "2026-11-24T02:03:04Z"
+                },
+                {
+                    "name": "Post Run actions/checkout@v4",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 14,
+                    "started_at": "2026-11-24T02:03:04Z",
+                    "completed_at": "2026-11-24T02:03:05Z"
+                },
+                {
+                    "name": "Complete job",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 15,
+                    "started_at": "2026-11-24T02:03:05Z",
+                    "completed_at": "2026-11-24T02:03:05Z"
+                }
+            ],
+            "check_run_url": "https://api.github.com/repos/logosnexus/carvex/check-runs/138160585109",
+            "labels": [
+                "ubuntu-latest"
+            ],
+            "runner_id": 1000002273,
+            "runner_name": "GitHub Actions 1000002273",
+            "runner_group_id": 0,
+            "runner_group_name": "GitHub Actions"
+        },
+        {
+            "id": 138160585111,
+            "run_id": 45309259369,
+            "workflow_name": "CI",
+            "head_branch": "main",
+            "run_url": "https://api.github.com/repos/logosnexus/carvex/actions/runs/45309259369",
+            "run_attempt": 1,
+            "node_id": "CR_kwDOV0ZFus8AAAAgKwM5lw",
+            "head_sha": "479065ca2de6a53387efc0da9a704cb3b7eca153",
+            "url": "https://api.github.com/repos/logosnexus/carvex/actions/jobs/138160585111",
+            "html_url": "https://github.com/logosnexus/carvex/actions/runs/45309259369/job/138160585111",
+            "status": "completed",
+            "conclusion": "success",
+            "created_at": "2026-11-24T02:01:06Z",
+            "started_at": "2026-11-24T02:01:08Z",
+            "completed_at": "2026-11-24T02:01:55Z",
+            "name": "Linux musl packaged binary smoke",
+            "steps": [
+                {
+                    "name": "Set up job",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 1,
+                    "started_at": "2026-11-24T02:01:08Z",
+                    "completed_at": "2026-11-24T02:01:09Z"
+                },
+                {
+                    "name": "Run actions/checkout@v4",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 2,
+                    "started_at": "2026-11-24T02:01:09Z",
+                    "completed_at": "2026-11-24T02:01:11Z"
+                },
+                {
+                    "name": "Run dtolnay/rust-toolchain@stable",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 3,
+                    "started_at": "2026-11-24T02:01:11Z",
+                    "completed_at": "2026-11-24T02:01:12Z"
+                },
+                {
+                    "name": "Install musl Rust target",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 4,
+                    "started_at": "2026-11-24T02:01:12Z",
+                    "completed_at": "2026-11-24T02:01:23Z"
+                },
+                {
+                    "name": "Run Swatinem/rust-cache@v2",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 5,
+                    "started_at": "2026-11-24T02:01:23Z",
+                    "completed_at": "2026-11-24T02:01:25Z"
+                },
+                {
+                    "name": "Install musl linker",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 6,
+                    "started_at": "2026-11-24T02:01:25Z",
+                    "completed_at": "2026-11-24T02:01:31Z"
+                },
+                {
+                    "name": "Build musl release binary",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 7,
+                    "started_at": "2026-11-24T02:01:31Z",
+                    "completed_at": "2026-11-24T02:01:52Z"
+                },
+                {
+                    "name": "Musl build failure detail",
+                    "status": "completed",
+                    "conclusion": "skipped",
+                    "number": 8,
+                    "started_at": "2026-11-24T02:01:52Z",
+                    "completed_at": "2026-11-24T02:01:52Z"
+                },
+                {
+                    "name": "Generate smoke fixture",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 9,
+                    "started_at": "2026-11-24T02:01:52Z",
+                    "completed_at": "2026-11-24T02:01:53Z"
+                },
+                {
+                    "name": "Execute musl binary",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 10,
+                    "started_at": "2026-11-24T02:01:53Z",
+                    "completed_at": "2026-11-24T02:01:53Z"
+                },
+                {
+                    "name": "Execute committed dist musl binary",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 11,
+                    "started_at": "2026-11-24T02:01:53Z",
+                    "completed_at": "2026-11-24T02:01:53Z"
+                },
+                {
+                    "name": "Post Run Swatinem/rust-cache@v2",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 21,
+                    "started_at": "2026-11-24T02:01:53Z",
+                    "completed_at": "2026-11-24T02:01:53Z"
+                },
+                {
+                    "name": "Post Run actions/checkout@v4",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 22,
+                    "started_at": "2026-11-24T02:01:53Z",
+                    "completed_at": "2026-11-24T02:01:53Z"
+                },
+                {
+                    "name": "Complete job",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 23,
+                    "started_at": "2026-11-24T02:01:53Z",
+                    "completed_at": "2026-11-24T02:01:53Z"
+                }
+            ],
+            "check_run_url": "https://api.github.com/repos/logosnexus/carvex/check-runs/138160585111",
+            "labels": [
+                "ubuntu-latest"
+            ],
+            "runner_id": 1000002272,
+            "runner_name": "GitHub Actions 1000002272",
+            "runner_group_id": 0,
+            "runner_group_name": "GitHub Actions"
+        },
+        {
+            "id": 138160585148,
+            "run_id": 45309259369,
+            "workflow_name": "CI",
+            "head_branch": "main",
+            "run_url": "https://api.github.com/repos/logosnexus/carvex/actions/runs/45309259369",
+            "run_attempt": 1,
+            "node_id": "CR_kwDOV0ZFus8AAAAgKwM5vA",
+            "head_sha": "479065ca2de6a53387efc0da9a704cb3b7eca153",
+            "url": "https://api.github.com/repos/logosnexus/carvex/actions/jobs/138160585148",
+            "html_url": "https://github.com/logosnexus/carvex/actions/runs/45309259369/job/138160585148",
+            "status": "completed",
+            "conclusion": "success",
+            "created_at": "2026-11-24T02:01:06Z",
+            "started_at": "2026-11-24T02:01:08Z",
+            "completed_at": "2026-11-24T02:03:03Z",
+            "name": "fuzz (pdf)",
+            "steps": [
+                {
+                    "name": "Set up job",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 1,
+                    "started_at": "2026-11-24T02:01:09Z",
+                    "completed_at": "2026-11-24T02:01:10Z"
+                },
+                {
+                    "name": "Run actions/checkout@v4",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 2,
+                    "started_at": "2026-11-24T02:01:10Z",
+                    "completed_at": "2026-11-24T02:01:12Z"
+                },
+                {
+                    "name": "Run dtolnay/rust-toolchain@nightly",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 3,
+                    "started_at": "2026-11-24T02:01:12Z",
+                    "completed_at": "2026-11-24T02:01:20Z"
+                },
+                {
+                    "name": "Run Swatinem/rust-cache@v2",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 4,
+                    "started_at": "2026-11-24T02:01:20Z",
+                    "completed_at": "2026-11-24T02:01:30Z"
+                },
+                {
+                    "name": "Install cargo-fuzz",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 5,
+                    "started_at": "2026-11-24T02:01:30Z",
+                    "completed_at": "2026-11-24T02:01:31Z"
+                },
+                {
+                    "name": "Fuzz smoke (60 s on push/PR, 10 min nightly)",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 6,
+                    "started_at": "2026-11-24T02:01:31Z",
+                    "completed_at": "2026-11-24T02:03:00Z"
+                },
+                {
+                    "name": "Upload crash artifact",
+                    "status": "completed",
+                    "conclusion": "skipped",
+                    "number": 7,
+                    "started_at": "2026-11-24T02:03:00Z",
+                    "completed_at": "2026-11-24T02:03:00Z"
+                },
+                {
+                    "name": "Post Run Swatinem/rust-cache@v2",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 13,
+                    "started_at": "2026-11-24T02:03:00Z",
+                    "completed_at": "2026-11-24T02:03:00Z"
+                },
+                {
+                    "name": "Post Run actions/checkout@v4",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 14,
+                    "started_at": "2026-11-24T02:03:00Z",
+                    "completed_at": "2026-11-24T02:03:00Z"
+                },
+                {
+                    "name": "Complete job",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 15,
+                    "started_at": "2026-11-24T02:03:00Z",
+                    "completed_at": "2026-11-24T02:03:00Z"
+                }
+            ],
+            "check_run_url": "https://api.github.com/repos/logosnexus/carvex/check-runs/138160585148",
+            "labels": [
+                "ubuntu-latest"
+            ],
+            "runner_id": 1000002279,
+            "runner_name": "GitHub Actions 1000002279",
+            "runner_group_id": 0,
+            "runner_group_name": "GitHub Actions"
+        },
+        {
+            "id": 138160585181,
+            "run_id": 45309259369,
+            "workflow_name": "CI",
+            "head_branch": "main",
+            "run_url": "https://api.github.com/repos/logosnexus/carvex/actions/runs/45309259369",
+            "run_attempt": 1,
+            "node_id": "CR_kwDOV0ZFus8AAAAgKwM53Q",
+            "head_sha": "479065ca2de6a53387efc0da9a704cb3b7eca153",
+            "url": "https://api.github.com/repos/logosnexus/carvex/actions/jobs/138160585181",
+            "html_url": "https://github.com/logosnexus/carvex/actions/runs/45309259369/job/138160585181",
+            "status": "completed",
+            "conclusion": "success",
+            "created_at": "2026-11-24T02:01:06Z",
+            "started_at": "2026-11-24T02:01:08Z",
+            "completed_at": "2026-11-24T02:02:57Z",
+            "name": "fuzz (ntfs_boot)",
+            "steps": [
+                {
+                    "name": "Set up job",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 1,
+                    "started_at": "2026-11-24T02:01:08Z",
+                    "completed_at": "2026-11-24T02:01:10Z"
+                },
+                {
+                    "name": "Run actions/checkout@v4",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 2,
+                    "started_at": "2026-11-24T02:01:10Z",
+                    "completed_at": "2026-11-24T02:01:11Z"
+                },
+                {
+                    "name": "Run dtolnay/rust-toolchain@nightly",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 3,
+                    "started_at": "2026-11-24T02:01:11Z",
+                    "completed_at": "2026-11-24T02:01:18Z"
+                },
+                {
+                    "name": "Run Swatinem/rust-cache@v2",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 4,
+                    "started_at": "2026-11-24T02:01:18Z",
+                    "completed_at": "2026-11-24T02:01:29Z"
+                },
+                {
+                    "name": "Install cargo-fuzz",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 5,
+                    "started_at": "2026-11-24T02:01:29Z",
+                    "completed_at": "2026-11-24T02:01:29Z"
+                },
+                {
+                    "name": "Fuzz smoke (60 s on push/PR, 10 min nightly)",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 6,
+                    "started_at": "2026-11-24T02:01:29Z",
+                    "completed_at": "2026-11-24T02:02:54Z"
+                },
+                {
+                    "name": "Upload crash artifact",
+                    "status": "completed",
+                    "conclusion": "skipped",
+                    "number": 7,
+                    "started_at": "2026-11-24T02:02:54Z",
+                    "completed_at": "2026-11-24T02:02:54Z"
+                },
+                {
+                    "name": "Post Run Swatinem/rust-cache@v2",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 13,
+                    "started_at": "2026-11-24T02:02:54Z",
+                    "completed_at": "2026-11-24T02:02:55Z"
+                },
+                {
+                    "name": "Post Run actions/checkout@v4",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 14,
+                    "started_at": "2026-11-24T02:02:55Z",
+                    "completed_at": "2026-11-24T02:02:55Z"
+                },
+                {
+                    "name": "Complete job",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 15,
+                    "started_at": "2026-11-24T02:02:55Z",
+                    "completed_at": "2026-11-24T02:02:55Z"
+                }
+            ],
+            "check_run_url": "https://api.github.com/repos/logosnexus/carvex/check-runs/138160585181",
+            "labels": [
+                "ubuntu-latest"
+            ],
+            "runner_id": 1000002278,
+            "runner_name": "GitHub Actions 1000002278",
+            "runner_group_id": 0,
+            "runner_group_name": "GitHub Actions"
+        },
+        {
+            "id": 138160585197,
+            "run_id": 45309259369,
+            "workflow_name": "CI",
+            "head_branch": "main",
+            "run_url": "https://api.github.com/repos/logosnexus/carvex/actions/runs/45309259369",
+            "run_attempt": 1,
+            "node_id": "CR_kwDOV0ZFus8AAAAgKwM57Q",
+            "head_sha": "479065ca2de6a53387efc0da9a704cb3b7eca153",
+            "url": "https://api.github.com/repos/logosnexus/carvex/actions/jobs/138160585197",
+            "html_url": "https://github.com/logosnexus/carvex/actions/runs/45309259369/job/138160585197",
+            "status": "completed",
+            "conclusion": "success",
+            "created_at": "2026-11-24T02:01:06Z",
+            "started_at": "2026-11-24T02:01:13Z",
+            "completed_at": "2026-11-24T02:02:41Z",
+            "name": "Windows packaged binary smoke",
+            "steps": [
+                {
+                    "name": "Set up job",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 1,
+                    "started_at": "2026-11-24T02:01:14Z",
+                    "completed_at": "2026-11-24T02:01:16Z"
+                },
+                {
+                    "name": "Run actions/checkout@v4",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 2,
+                    "started_at": "2026-11-24T02:01:16Z",
+                    "completed_at": "2026-11-24T02:01:30Z"
+                },
+                {
+                    "name": "Run dtolnay/rust-toolchain@stable",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 3,
+                    "started_at": "2026-11-24T02:01:30Z",
+                    "completed_at": "2026-11-24T02:01:38Z"
+                },
+                {
+                    "name": "Run Swatinem/rust-cache@v2",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 4,
+                    "started_at": "2026-11-24T02:01:38Z",
+                    "completed_at": "2026-11-24T02:01:54Z"
+                },
+                {
+                    "name": "Run cargo build --release --locked",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 5,
+                    "started_at": "2026-11-24T02:01:54Z",
+                    "completed_at": "2026-11-24T02:02:33Z"
+                },
+                {
+                    "name": "Generate smoke fixture",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 6,
+                    "started_at": "2026-11-24T02:02:33Z",
+                    "completed_at": "2026-11-24T02:02:35Z"
+                },
+                {
+                    "name": "Execute the release exe",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 7,
+                    "started_at": "2026-11-24T02:02:35Z",
+                    "completed_at": "2026-11-24T02:02:35Z"
+                },
+                {
+                    "name": "Execute committed dist Windows exe",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 8,
+                    "started_at": "2026-11-24T02:02:35Z",
+                    "completed_at": "2026-11-24T02:02:36Z"
+                },
+                {
+                    "name": "Run actions/upload-artifact@v4",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 9,
+                    "started_at": "2026-11-24T02:02:36Z",
+                    "completed_at": "2026-11-24T02:02:37Z"
+                },
+                {
+                    "name": "Post Run Swatinem/rust-cache@v2",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 17,
+                    "started_at": "2026-11-24T02:02:37Z",
+                    "completed_at": "2026-11-24T02:02:37Z"
+                },
+                {
+                    "name": "Post Run actions/checkout@v4",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 18,
+                    "started_at": "2026-11-24T02:02:37Z",
+                    "completed_at": "2026-11-24T02:02:39Z"
+                },
+                {
+                    "name": "Complete job",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 19,
+                    "started_at": "2026-11-24T02:02:39Z",
+                    "completed_at": "2026-11-24T02:02:39Z"
+                }
+            ],
+            "check_run_url": "https://api.github.com/repos/logosnexus/carvex/check-runs/138160585197",
+            "labels": [
+                "windows-latest"
+            ],
+            "runner_id": 1000002289,
+            "runner_name": "GitHub Actions 1000002289",
+            "runner_group_id": 0,
+            "runner_group_name": "GitHub Actions"
+        },
+        {
+            "id": 138160585206,
+            "run_id": 45309259369,
+            "workflow_name": "CI",
+            "head_branch": "main",
+            "run_url": "https://api.github.com/repos/logosnexus/carvex/actions/runs/45309259369",
+            "run_attempt": 1,
+            "node_id": "CR_kwDOV0ZFus8AAAAgKwM59g",
+            "head_sha": "479065ca2de6a53387efc0da9a704cb3b7eca153",
+            "url": "https://api.github.com/repos/logosnexus/carvex/actions/jobs/138160585206",
+            "html_url": "https://github.com/logosnexus/carvex/actions/runs/45309259369/job/138160585206",
+            "status": "completed",
+            "conclusion": "success",
+            "created_at": "2026-11-24T02:01:06Z",
+            "started_at": "2026-11-24T02:01:08Z",
+            "completed_at": "2026-11-24T02:04:56Z",
+            "name": "dependencies",
+            "steps": [
+                {
+                    "name": "Set up job",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 1,
+                    "started_at": "2026-11-24T02:01:08Z",
+                    "completed_at": "2026-11-24T02:01:09Z"
+                },
+                {
+                    "name": "Build EmbarkStudios/cargo-deny-action@v2",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 2,
+                    "started_at": "2026-11-24T02:01:09Z",
+                    "completed_at": "2026-11-24T02:01:29Z"
+                },
+                {
+                    "name": "Run actions/checkout@v4",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 3,
+                    "started_at": "2026-11-24T02:01:29Z",
+                    "completed_at": "2026-11-24T02:01:30Z"
+                },
+                {
+                    "name": "Run EmbarkStudios/cargo-deny-action@v2",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 4,
+                    "started_at": "2026-11-24T02:01:30Z",
+                    "completed_at": "2026-11-24T02:01:55Z"
+                },
+                {
+                    "name": "Run rustsec/audit-check@v2",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 5,
+                    "started_at": "2026-11-24T02:01:55Z",
+                    "completed_at": "2026-11-24T02:04:54Z"
+                },
+                {
+                    "name": "Post Run actions/checkout@v4",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 10,
+                    "started_at": "2026-11-24T02:04:54Z",
+                    "completed_at": "2026-11-24T02:04:54Z"
+                },
+                {
+                    "name": "Complete job",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 11,
+                    "started_at": "2026-11-24T02:04:54Z",
+                    "completed_at": "2026-11-24T02:04:54Z"
+                }
+            ],
+            "check_run_url": "https://api.github.com/repos/logosnexus/carvex/check-runs/138160585206",
+            "labels": [
+                "ubuntu-latest"
+            ],
+            "runner_id": 1000002277,
+            "runner_name": "GitHub Actions 1000002277",
+            "runner_group_id": 0,
+            "runner_group_name": "GitHub Actions"
+        },
+        {
+            "id": 138160585240,
+            "run_id": 45309259369,
+            "workflow_name": "CI",
+            "head_branch": "main",
+            "run_url": "https://api.github.com/repos/logosnexus/carvex/actions/runs/45309259369",
+            "run_attempt": 1,
+            "node_id": "CR_kwDOV0ZFus8AAAAgKwM6GA",
+            "head_sha": "479065ca2de6a53387efc0da9a704cb3b7eca153",
+            "url": "https://api.github.com/repos/logosnexus/carvex/actions/jobs/138160585240",
+            "html_url": "https://github.com/logosnexus/carvex/actions/runs/45309259369/job/138160585240",
+            "status": "completed",
+            "conclusion": "success",
+            "created_at": "2026-11-24T02:01:06Z",
+            "started_at": "2026-11-24T02:01:08Z",
+            "completed_at": "2026-11-24T02:01:50Z",
+            "name": "review repro assertions",
+            "steps": [
+                {
+                    "name": "Set up job",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 1,
+                    "started_at": "2026-11-24T02:01:09Z",
+                    "completed_at": "2026-11-24T02:01:10Z"
+                },
+                {
+                    "name": "Run actions/checkout@v4",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 2,
+                    "started_at": "2026-11-24T02:01:10Z",
+                    "completed_at": "2026-11-24T02:01:11Z"
+                },
+                {
+                    "name": "Run dtolnay/rust-toolchain@stable",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 3,
+                    "started_at": "2026-11-24T02:01:11Z",
+                    "completed_at": "2026-11-24T02:01:12Z"
+                },
+                {
+                    "name": "Run Swatinem/rust-cache@v2",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 4,
+                    "started_at": "2026-11-24T02:01:12Z",
+                    "completed_at": "2026-11-24T02:01:21Z"
+                },
+                {
+                    "name": "Run cargo build --release --locked",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 5,
+                    "started_at": "2026-11-24T02:01:21Z",
+                    "completed_at": "2026-11-24T02:01:37Z"
+                },
+                {
+                    "name": "Generate smoke fixture",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 6,
+                    "started_at": "2026-11-24T02:01:37Z",
+                    "completed_at": "2026-11-24T02:01:37Z"
+                },
+                {
+                    "name": "Run X01-X24 controls",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 7,
+                    "started_at": "2026-11-24T02:01:37Z",
+                    "completed_at": "2026-11-24T02:01:47Z"
+                },
+                {
+                    "name": "Repro failure detail",
+                    "status": "completed",
+                    "conclusion": "skipped",
+                    "number": 8,
+                    "started_at": "2026-11-24T02:01:47Z",
+                    "completed_at": "2026-11-24T02:01:47Z"
+                },
+                {
+                    "name": "Post Run Swatinem/rust-cache@v2",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 15,
+                    "started_at": "2026-11-24T02:01:47Z",
+                    "completed_at": "2026-11-24T02:01:47Z"
+                },
+                {
+                    "name": "Post Run actions/checkout@v4",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 16,
+                    "started_at": "2026-11-24T02:01:47Z",
+                    "completed_at": "2026-11-24T02:01:47Z"
+                },
+                {
+                    "name": "Complete job",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 17,
+                    "started_at": "2026-11-24T02:01:47Z",
+                    "completed_at": "2026-11-24T02:01:47Z"
+                }
+            ],
+            "check_run_url": "https://api.github.com/repos/logosnexus/carvex/check-runs/138160585240",
+            "labels": [
+                "ubuntu-latest"
+            ],
+            "runner_id": 1000002282,
+            "runner_name": "GitHub Actions 1000002282",
+            "runner_group_id": 0,
+            "runner_group_name": "GitHub Actions"
+        },
+        {
+            "id": 138160585242,
+            "run_id": 45309259369,
+            "workflow_name": "CI",
+            "head_branch": "main",
+            "run_url": "https://api.github.com/repos/logosnexus/carvex/actions/runs/45309259369",
+            "run_attempt": 1,
+            "node_id": "CR_kwDOV0ZFus8AAAAgKwM6Gg",
+            "head_sha": "479065ca2de6a53387efc0da9a704cb3b7eca153",
+            "url": "https://api.github.com/repos/logosnexus/carvex/actions/jobs/138160585242",
+            "html_url": "https://github.com/logosnexus/carvex/actions/runs/45309259369/job/138160585242",
+            "status": "completed",
+            "conclusion": "success",
+            "created_at": "2026-11-24T02:01:06Z",
+            "started_at": "2026-11-24T02:01:08Z",
+            "completed_at": "2026-11-24T02:01:14Z",
+            "name": "actionlint",
+            "steps": [
+                {
+                    "name": "Set up job",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 1,
+                    "started_at": "2026-11-24T02:01:09Z",
+                    "completed_at": "2026-11-24T02:01:09Z"
+                },
+                {
+                    "name": "Run actions/checkout@v4",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 2,
+                    "started_at": "2026-11-24T02:01:09Z",
+                    "completed_at": "2026-11-24T02:01:11Z"
+                },
+                {
+                    "name": "Install actionlint",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 3,
+                    "started_at": "2026-11-24T02:01:11Z",
+                    "completed_at": "2026-11-24T02:01:11Z"
+                },
+                {
+                    "name": "Lint workflows",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 4,
+                    "started_at": "2026-11-24T02:01:11Z",
+                    "completed_at": "2026-11-24T02:01:12Z"
+                },
+                {
+                    "name": "Post Run actions/checkout@v4",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 8,
+                    "started_at": "2026-11-24T02:01:12Z",
+                    "completed_at": "2026-11-24T02:01:12Z"
+                },
+                {
+                    "name": "Complete job",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 9,
+                    "started_at": "2026-11-24T02:01:12Z",
+                    "completed_at": "2026-11-24T02:01:12Z"
+                }
+            ],
+            "check_run_url": "https://api.github.com/repos/logosnexus/carvex/check-runs/138160585242",
+            "labels": [
+                "ubuntu-latest"
+            ],
+            "runner_id": 1000002281,
+            "runner_name": "GitHub Actions 1000002281",
+            "runner_group_id": 0,
+            "runner_group_name": "GitHub Actions"
+        },
+        {
+            "id": 138160585269,
+            "run_id": 45309259369,
+            "workflow_name": "CI",
+            "head_branch": "main",
+            "run_url": "https://api.github.com/repos/logosnexus/carvex/actions/runs/45309259369",
+            "run_attempt": 1,
+            "node_id": "CR_kwDOV0ZFus8AAAAgKwM6NQ",
+            "head_sha": "479065ca2de6a53387efc0da9a704cb3b7eca153",
+            "url": "https://api.github.com/repos/logosnexus/carvex/actions/jobs/138160585269",
+            "html_url": "https://github.com/logosnexus/carvex/actions/runs/45309259369/job/138160585269",
+            "status": "completed",
+            "conclusion": "success",
+            "created_at": "2026-11-24T02:01:06Z",
+            "started_at": "2026-11-24T02:01:08Z",
+            "completed_at": "2026-11-24T02:03:08Z",
+            "name": "fuzz (partition_table)",
+            "steps": [
+                {
+                    "name": "Set up job",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 1,
+                    "started_at": "2026-11-24T02:01:08Z",
+                    "completed_at": "2026-11-24T02:01:09Z"
+                },
+                {
+                    "name": "Run actions/checkout@v4",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 2,
+                    "started_at": "2026-11-24T02:01:09Z",
+                    "completed_at": "2026-11-24T02:01:11Z"
+                },
+                {
+                    "name": "Run dtolnay/rust-toolchain@nightly",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 3,
+                    "started_at": "2026-11-24T02:01:11Z",
+                    "completed_at": "2026-11-24T02:01:20Z"
+                },
+                {
+                    "name": "Run Swatinem/rust-cache@v2",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 4,
+                    "started_at": "2026-11-24T02:01:20Z",
+                    "completed_at": "2026-11-24T02:01:30Z"
+                },
+                {
+                    "name": "Install cargo-fuzz",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 5,
+                    "started_at": "2026-11-24T02:01:30Z",
+                    "completed_at": "2026-11-24T02:01:32Z"
+                },
+                {
+                    "name": "Fuzz smoke (60 s on push/PR, 10 min nightly)",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 6,
+                    "started_at": "2026-11-24T02:01:32Z",
+                    "completed_at": "2026-11-24T02:03:06Z"
+                },
+                {
+                    "name": "Upload crash artifact",
+                    "status": "completed",
+                    "conclusion": "skipped",
+                    "number": 7,
+                    "started_at": "2026-11-24T02:03:06Z",
+                    "completed_at": "2026-11-24T02:03:06Z"
+                },
+                {
+                    "name": "Post Run Swatinem/rust-cache@v2",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 13,
+                    "started_at": "2026-11-24T02:03:06Z",
+                    "completed_at": "2026-11-24T02:03:06Z"
+                },
+                {
+                    "name": "Post Run actions/checkout@v4",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 14,
+                    "started_at": "2026-11-24T02:03:06Z",
+                    "completed_at": "2026-11-24T02:03:06Z"
+                },
+                {
+                    "name": "Complete job",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 15,
+                    "started_at": "2026-11-24T02:03:06Z",
+                    "completed_at": "2026-11-24T02:03:06Z"
+                }
+            ],
+            "check_run_url": "https://api.github.com/repos/logosnexus/carvex/check-runs/138160585269",
+            "labels": [
+                "ubuntu-latest"
+            ],
+            "runner_id": 1000002276,
+            "runner_name": "GitHub Actions 1000002276",
+            "runner_group_id": 0,
+            "runner_group_name": "GitHub Actions"
+        },
+        {
+            "id": 138160585272,
+            "run_id": 45309259369,
+            "workflow_name": "CI",
+            "head_branch": "main",
+            "run_url": "https://api.github.com/repos/logosnexus/carvex/actions/runs/45309259369",
+            "run_attempt": 1,
+            "node_id": "CR_kwDOV0ZFus8AAAAgKwM6OA",
+            "head_sha": "479065ca2de6a53387efc0da9a704cb3b7eca153",
+            "url": "https://api.github.com/repos/logosnexus/carvex/actions/jobs/138160585272",
+            "html_url": "https://github.com/logosnexus/carvex/actions/runs/45309259369/job/138160585272",
+            "status": "completed",
+            "conclusion": "success",
+            "created_at": "2026-11-24T02:01:06Z",
+            "started_at": "2026-11-24T02:01:08Z",
+            "completed_at": "2026-11-24T02:02:03Z",
+            "name": "test (ubuntu-latest)",
+            "steps": [
+                {
+                    "name": "Set up job",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 1,
+                    "started_at": "2026-11-24T02:01:09Z",
+                    "completed_at": "2026-11-24T02:01:10Z"
+                },
+                {
+                    "name": "Run actions/checkout@v4",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 2,
+                    "started_at": "2026-11-24T02:01:10Z",
+                    "completed_at": "2026-11-24T02:01:12Z"
+                },
+                {
+                    "name": "Run dtolnay/rust-toolchain@stable",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 3,
+                    "started_at": "2026-11-24T02:01:12Z",
+                    "completed_at": "2026-11-24T02:01:13Z"
+                },
+                {
+                    "name": "Run Swatinem/rust-cache@v2",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 4,
+                    "started_at": "2026-11-24T02:01:13Z",
+                    "completed_at": "2026-11-24T02:01:24Z"
+                },
+                {
+                    "name": "Format",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 5,
+                    "started_at": "2026-11-24T02:01:24Z",
+                    "completed_at": "2026-11-24T02:01:24Z"
+                },
+                {
+                    "name": "Clippy",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 6,
+                    "started_at": "2026-11-24T02:01:24Z",
+                    "completed_at": "2026-11-24T02:01:27Z"
+                },
+                {
+                    "name": "Tests",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 7,
+                    "started_at": "2026-11-24T02:01:27Z",
+                    "completed_at": "2026-11-24T02:01:43Z"
+                },
+                {
+                    "name": "Test failure detail",
+                    "status": "completed",
+                    "conclusion": "skipped",
+                    "number": 8,
+                    "started_at": "2026-11-24T02:01:43Z",
+                    "completed_at": "2026-11-24T02:01:43Z"
+                },
+                {
+                    "name": "Documentation",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 9,
+                    "started_at": "2026-11-24T02:01:43Z",
+                    "completed_at": "2026-11-24T02:01:44Z"
+                },
+                {
+                    "name": "Release build",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 10,
+                    "started_at": "2026-11-24T02:01:44Z",
+                    "completed_at": "2026-11-24T02:02:01Z"
+                },
+                {
+                    "name": "Post Run Swatinem/rust-cache@v2",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 19,
+                    "started_at": "2026-11-24T02:02:01Z",
+                    "completed_at": "2026-11-24T02:02:01Z"
+                },
+                {
+                    "name": "Post Run actions/checkout@v4",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 20,
+                    "started_at": "2026-11-24T02:02:01Z",
+                    "completed_at": "2026-11-24T02:02:01Z"
+                },
+                {
+                    "name": "Complete job",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 21,
+                    "started_at": "2026-11-24T02:02:01Z",
+                    "completed_at": "2026-11-24T02:02:01Z"
+                }
+            ],
+            "check_run_url": "https://api.github.com/repos/logosnexus/carvex/check-runs/138160585272",
+            "labels": [
+                "ubuntu-latest"
+            ],
+            "runner_id": 1000002283,
+            "runner_name": "GitHub Actions 1000002283",
+            "runner_group_id": 0,
+            "runner_group_name": "GitHub Actions"
+        },
+        {
+            "id": 138160585311,
+            "run_id": 45309259369,
+            "workflow_name": "CI",
+            "head_branch": "main",
+            "run_url": "https://api.github.com/repos/logosnexus/carvex/actions/runs/45309259369",
+            "run_attempt": 1,
+            "node_id": "CR_kwDOV0ZFus8AAAAgKwM6Xw",
+            "head_sha": "479065ca2de6a53387efc0da9a704cb3b7eca153",
+            "url": "https://api.github.com/repos/logosnexus/carvex/actions/jobs/138160585311",
+            "html_url": "https://github.com/logosnexus/carvex/actions/runs/45309259369/job/138160585311",
+            "status": "completed",
+            "conclusion": "success",
+            "created_at": "2026-11-24T02:01:06Z",
+            "started_at": "2026-11-24T02:01:08Z",
+            "completed_at": "2026-11-24T02:01:29Z",
+            "name": "SBOM",
+            "steps": [
+                {
+                    "name": "Set up job",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 1,
+                    "started_at": "2026-11-24T02:01:09Z",
+                    "completed_at": "2026-11-24T02:01:10Z"
+                },
+                {
+                    "name": "Run actions/checkout@v4",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 2,
+                    "started_at": "2026-11-24T02:01:10Z",
+                    "completed_at": "2026-11-24T02:01:12Z"
+                },
+                {
+                    "name": "Run dtolnay/rust-toolchain@stable",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 3,
+                    "started_at": "2026-11-24T02:01:12Z",
+                    "completed_at": "2026-11-24T02:01:14Z"
+                },
+                {
+                    "name": "Run python3 scripts/sbom.py --out bench/results/sbom.spdx.json",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 4,
+                    "started_at": "2026-11-24T02:01:14Z",
+                    "completed_at": "2026-11-24T02:01:25Z"
+                },
+                {
+                    "name": "Run actions/upload-artifact@v4",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 5,
+                    "started_at": "2026-11-24T02:01:25Z",
+                    "completed_at": "2026-11-24T02:01:27Z"
+                },
+                {
+                    "name": "Post Run actions/checkout@v4",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 10,
+                    "started_at": "2026-11-24T02:01:27Z",
+                    "completed_at": "2026-11-24T02:01:27Z"
+                },
+                {
+                    "name": "Complete job",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 11,
+                    "started_at": "2026-11-24T02:01:27Z",
+                    "completed_at": "2026-11-24T02:01:27Z"
+                }
+            ],
+            "check_run_url": "https://api.github.com/repos/logosnexus/carvex/check-runs/138160585311",
+            "labels": [
+                "ubuntu-latest"
+            ],
+            "runner_id": 1000002284,
+            "runner_name": "GitHub Actions 1000002284",
+            "runner_group_id": 0,
+            "runner_group_name": "GitHub Actions"
+        },
+        {
+            "id": 138160585337,
+            "run_id": 45309259369,
+            "workflow_name": "CI",
+            "head_branch": "main",
+            "run_url": "https://api.github.com/repos/logosnexus/carvex/actions/runs/45309259369",
+            "run_attempt": 1,
+            "node_id": "CR_kwDOV0ZFus8AAAAgKwM6eQ",
+            "head_sha": "479065ca2de6a53387efc0da9a704cb3b7eca153",
+            "url": "https://api.github.com/repos/logosnexus/carvex/actions/jobs/138160585337",
+            "html_url": "https://github.com/logosnexus/carvex/actions/runs/45309259369/job/138160585337",
+            "status": "completed",
+            "conclusion": "success",
+            "created_at": "2026-11-24T02:01:06Z",
+            "started_at": "2026-11-24T02:01:08Z",
+            "completed_at": "2026-11-24T02:03:08Z",
+            "name": "fuzz (png)",
+            "steps": [
+                {
+                    "name": "Set up job",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 1,
+                    "started_at": "2026-11-24T02:01:09Z",
+                    "completed_at": "2026-11-24T02:01:10Z"
+                },
+                {
+                    "name": "Run actions/checkout@v4",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 2,
+                    "started_at": "2026-11-24T02:01:10Z",
+                    "completed_at": "2026-11-24T02:01:11Z"
+                },
+                {
+                    "name": "Run dtolnay/rust-toolchain@nightly",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 3,
+                    "started_at": "2026-11-24T02:01:11Z",
+                    "completed_at": "2026-11-24T02:01:20Z"
+                },
+                {
+                    "name": "Run Swatinem/rust-cache@v2",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 4,
+                    "started_at": "2026-11-24T02:01:20Z",
+                    "completed_at": "2026-11-24T02:01:31Z"
+                },
+                {
+                    "name": "Install cargo-fuzz",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 5,
+                    "started_at": "2026-11-24T02:01:31Z",
+                    "completed_at": "2026-11-24T02:01:32Z"
+                },
+                {
+                    "name": "Fuzz smoke (60 s on push/PR, 10 min nightly)",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 6,
+                    "started_at": "2026-11-24T02:01:32Z",
+                    "completed_at": "2026-11-24T02:03:06Z"
+                },
+                {
+                    "name": "Upload crash artifact",
+                    "status": "completed",
+                    "conclusion": "skipped",
+                    "number": 7,
+                    "started_at": "2026-11-24T02:03:06Z",
+                    "completed_at": "2026-11-24T02:03:06Z"
+                },
+                {
+                    "name": "Post Run Swatinem/rust-cache@v2",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 13,
+                    "started_at": "2026-11-24T02:03:06Z",
+                    "completed_at": "2026-11-24T02:03:06Z"
+                },
+                {
+                    "name": "Post Run actions/checkout@v4",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 14,
+                    "started_at": "2026-11-24T02:03:06Z",
+                    "completed_at": "2026-11-24T02:03:06Z"
+                },
+                {
+                    "name": "Complete job",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 15,
+                    "started_at": "2026-11-24T02:03:06Z",
+                    "completed_at": "2026-11-24T02:03:06Z"
+                }
+            ],
+            "check_run_url": "https://api.github.com/repos/logosnexus/carvex/check-runs/138160585337",
+            "labels": [
+                "ubuntu-latest"
+            ],
+            "runner_id": 1000002280,
+            "runner_name": "GitHub Actions 1000002280",
+            "runner_group_id": 0,
+            "runner_group_name": "GitHub Actions"
+        },
+        {
+            "id": 138160585344,
+            "run_id": 45309259369,
+            "workflow_name": "CI",
+            "head_branch": "main",
+            "run_url": "https://api.github.com/repos/logosnexus/carvex/actions/runs/45309259369",
+            "run_attempt": 1,
+            "node_id": "CR_kwDOV0ZFus8AAAAgKwM6gA",
+            "head_sha": "479065ca2de6a53387efc0da9a704cb3b7eca153",
+            "url": "https://api.github.com/repos/logosnexus/carvex/actions/jobs/138160585344",
+            "html_url": "https://github.com/logosnexus/carvex/actions/runs/45309259369/job/138160585344",
+            "status": "completed",
+            "conclusion": "success",
+            "created_at": "2026-11-24T02:01:06Z",
+            "started_at": "2026-11-24T02:01:15Z",
+            "completed_at": "2026-11-24T02:03:32Z",
+            "name": "test (windows-latest)",
+            "steps": [
+                {
+                    "name": "Set up job",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 1,
+                    "started_at": "2026-11-24T02:01:16Z",
+                    "completed_at": "2026-11-24T02:01:16Z"
+                },
+                {
+                    "name": "Run actions/checkout@v4",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 2,
+                    "started_at": "2026-11-24T02:01:16Z",
+                    "completed_at": "2026-11-24T02:01:23Z"
+                },
+                {
+                    "name": "Run dtolnay/rust-toolchain@stable",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 3,
+                    "started_at": "2026-11-24T02:01:23Z",
+                    "completed_at": "2026-11-24T02:01:30Z"
+                },
+                {
+                    "name": "Run Swatinem/rust-cache@v2",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 4,
+                    "started_at": "2026-11-24T02:01:30Z",
+                    "completed_at": "2026-11-24T02:01:50Z"
+                },
+                {
+                    "name": "Format",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 5,
+                    "started_at": "2026-11-24T02:01:50Z",
+                    "completed_at": "2026-11-24T02:01:53Z"
+                },
+                {
+                    "name": "Clippy",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 6,
+                    "started_at": "2026-11-24T02:01:53Z",
+                    "completed_at": "2026-11-24T02:02:08Z"
+                },
+                {
+                    "name": "Tests",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 7,
+                    "started_at": "2026-11-24T02:02:08Z",
+                    "completed_at": "2026-11-24T02:02:42Z"
+                },
+                {
+                    "name": "Test failure detail",
+                    "status": "completed",
+                    "conclusion": "skipped",
+                    "number": 8,
+                    "started_at": "2026-11-24T02:02:42Z",
+                    "completed_at": "2026-11-24T02:02:42Z"
+                },
+                {
+                    "name": "Documentation",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 9,
+                    "started_at": "2026-11-24T02:02:42Z",
+                    "completed_at": "2026-11-24T02:02:43Z"
+                },
+                {
+                    "name": "Release build",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 10,
+                    "started_at": "2026-11-24T02:02:43Z",
+                    "completed_at": "2026-11-24T02:03:28Z"
+                },
+                {
+                    "name": "Post Run Swatinem/rust-cache@v2",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 19,
+                    "started_at": "2026-11-24T02:03:28Z",
+                    "completed_at": "2026-11-24T02:03:28Z"
+                },
+                {
+                    "name": "Post Run actions/checkout@v4",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 20,
+                    "started_at": "2026-11-24T02:03:28Z",
+                    "completed_at": "2026-11-24T02:03:31Z"
+                },
+                {
+                    "name": "Complete job",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 21,
+                    "started_at": "2026-11-24T02:03:31Z",
+                    "completed_at": "2026-11-24T02:03:31Z"
+                }
+            ],
+            "check_run_url": "https://api.github.com/repos/logosnexus/carvex/check-runs/138160585344",
+            "labels": [
+                "windows-latest"
+            ],
+            "runner_id": 1000002290,
+            "runner_name": "GitHub Actions 1000002290",
+            "runner_group_id": 0,
+            "runner_group_name": "GitHub Actions"
+        },
+        {
+            "id": 138160585363,
+            "run_id": 45309259369,
+            "workflow_name": "CI",
+            "head_branch": "main",
+            "run_url": "https://api.github.com/repos/logosnexus/carvex/actions/runs/45309259369",
+            "run_attempt": 1,
+            "node_id": "CR_kwDOV0ZFus8AAAAgKwM6kw",
+            "head_sha": "479065ca2de6a53387efc0da9a704cb3b7eca153",
+            "url": "https://api.github.com/repos/logosnexus/carvex/actions/jobs/138160585363",
+            "html_url": "https://github.com/logosnexus/carvex/actions/runs/45309259369/job/138160585363",
+            "status": "completed",
+            "conclusion": "success",
+            "created_at": "2026-11-24T02:01:06Z",
+            "started_at": "2026-11-24T02:01:31Z",
+            "completed_at": "2026-11-24T02:02:56Z",
+            "name": "test (macos-latest)",
+            "steps": [
+                {
+                    "name": "Set up job",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 1,
+                    "started_at": "2026-11-24T02:01:31Z",
+                    "completed_at": "2026-11-24T02:01:33Z"
+                },
+                {
+                    "name": "Run actions/checkout@v4",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 2,
+                    "started_at": "2026-11-24T02:01:33Z",
+                    "completed_at": "2026-11-24T02:01:36Z"
+                },
+                {
+                    "name": "Run dtolnay/rust-toolchain@stable",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 3,
+                    "started_at": "2026-11-24T02:01:36Z",
+                    "completed_at": "2026-11-24T02:01:37Z"
+                },
+                {
+                    "name": "Run Swatinem/rust-cache@v2",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 4,
+                    "started_at": "2026-11-24T02:01:37Z",
+                    "completed_at": "2026-11-24T02:01:49Z"
+                },
+                {
+                    "name": "Format",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 5,
+                    "started_at": "2026-11-24T02:01:49Z",
+                    "completed_at": "2026-11-24T02:01:49Z"
+                },
+                {
+                    "name": "Clippy",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 6,
+                    "started_at": "2026-11-24T02:01:49Z",
+                    "completed_at": "2026-11-24T02:01:59Z"
+                },
+                {
+                    "name": "Tests",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 7,
+                    "started_at": "2026-11-24T02:01:59Z",
+                    "completed_at": "2026-11-24T02:02:22Z"
+                },
+                {
+                    "name": "Test failure detail",
+                    "status": "completed",
+                    "conclusion": "skipped",
+                    "number": 8,
+                    "started_at": "2026-11-24T02:02:22Z",
+                    "completed_at": "2026-11-24T02:02:22Z"
+                },
+                {
+                    "name": "Documentation",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 9,
+                    "started_at": "2026-11-24T02:02:22Z",
+                    "completed_at": "2026-11-24T02:02:23Z"
+                },
+                {
+                    "name": "Release build",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 10,
+                    "started_at": "2026-11-24T02:02:23Z",
+                    "completed_at": "2026-11-24T02:02:51Z"
+                },
+                {
+                    "name": "Post Run Swatinem/rust-cache@v2",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 19,
+                    "started_at": "2026-11-24T02:02:51Z",
+                    "completed_at": "2026-11-24T02:02:52Z"
+                },
+                {
+                    "name": "Post Run actions/checkout@v4",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 20,
+                    "started_at": "2026-11-24T02:02:52Z",
+                    "completed_at": "2026-11-24T02:02:53Z"
+                },
+                {
+                    "name": "Complete job",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 21,
+                    "started_at": "2026-11-24T02:02:53Z",
+                    "completed_at": "2026-11-24T02:02:53Z"
+                }
+            ],
+            "check_run_url": "https://api.github.com/repos/logosnexus/carvex/check-runs/138160585363",
+            "labels": [
+                "macos-latest"
+            ],
+            "runner_id": 1000002291,
+            "runner_name": "GitHub Actions 1000002291",
+            "runner_group_id": 0,
+            "runner_group_name": "GitHub Actions"
+        },
+        {
+            "id": 138160585368,
+            "run_id": 45309259369,
+            "workflow_name": "CI",
+            "head_branch": "main",
+            "run_url": "https://api.github.com/repos/logosnexus/carvex/actions/runs/45309259369",
+            "run_attempt": 1,
+            "node_id": "CR_kwDOV0ZFus8AAAAgKwM6mA",
+            "head_sha": "479065ca2de6a53387efc0da9a704cb3b7eca153",
+            "url": "https://api.github.com/repos/logosnexus/carvex/actions/jobs/138160585368",
+            "html_url": "https://github.com/logosnexus/carvex/actions/runs/45309259369/job/138160585368",
+            "status": "completed",
+            "conclusion": "success",
+            "created_at": "2026-11-24T02:01:06Z",
+            "started_at": "2026-11-24T02:01:08Z",
+            "completed_at": "2026-11-24T02:03:07Z",
+            "name": "fuzz (fuzz_vmdk)",
+            "steps": [
+                {
+                    "name": "Set up job",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 1,
+                    "started_at": "2026-11-24T02:01:09Z",
+                    "completed_at": "2026-11-24T02:01:10Z"
+                },
+                {
+                    "name": "Run actions/checkout@v4",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 2,
+                    "started_at": "2026-11-24T02:01:10Z",
+                    "completed_at": "2026-11-24T02:01:12Z"
+                },
+                {
+                    "name": "Run dtolnay/rust-toolchain@nightly",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 3,
+                    "started_at": "2026-11-24T02:01:12Z",
+                    "completed_at": "2026-11-24T02:01:21Z"
+                },
+                {
+                    "name": "Run Swatinem/rust-cache@v2",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 4,
+                    "started_at": "2026-11-24T02:01:21Z",
+                    "completed_at": "2026-11-24T02:01:32Z"
+                },
+                {
+                    "name": "Install cargo-fuzz",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 5,
+                    "started_at": "2026-11-24T02:01:32Z",
+                    "completed_at": "2026-11-24T02:01:33Z"
+                },
+                {
+                    "name": "Fuzz smoke (60 s on push/PR, 10 min nightly)",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 6,
+                    "started_at": "2026-11-24T02:01:33Z",
+                    "completed_at": "2026-11-24T02:03:03Z"
+                },
+                {
+                    "name": "Upload crash artifact",
+                    "status": "completed",
+                    "conclusion": "skipped",
+                    "number": 7,
+                    "started_at": "2026-11-24T02:03:03Z",
+                    "completed_at": "2026-11-24T02:03:03Z"
+                },
+                {
+                    "name": "Post Run Swatinem/rust-cache@v2",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 13,
+                    "started_at": "2026-11-24T02:03:03Z",
+                    "completed_at": "2026-11-24T02:03:03Z"
+                },
+                {
+                    "name": "Post Run actions/checkout@v4",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 14,
+                    "started_at": "2026-11-24T02:03:03Z",
+                    "completed_at": "2026-11-24T02:03:04Z"
+                },
+                {
+                    "name": "Complete job",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 15,
+                    "started_at": "2026-11-24T02:03:04Z",
+                    "completed_at": "2026-11-24T02:03:04Z"
+                }
+            ],
+            "check_run_url": "https://api.github.com/repos/logosnexus/carvex/check-runs/138160585368",
+            "labels": [
+                "ubuntu-latest"
+            ],
+            "runner_id": 1000002286,
+            "runner_name": "GitHub Actions 1000002286",
+            "runner_group_id": 0,
+            "runner_group_name": "GitHub Actions"
+        },
+        {
+            "id": 138160585387,
+            "run_id": 45309259369,
+            "workflow_name": "CI",
+            "head_branch": "main",
+            "run_url": "https://api.github.com/repos/logosnexus/carvex/actions/runs/45309259369",
+            "run_attempt": 1,
+            "node_id": "CR_kwDOV0ZFus8AAAAgKwM6qw",
+            "head_sha": "479065ca2de6a53387efc0da9a704cb3b7eca153",
+            "url": "https://api.github.com/repos/logosnexus/carvex/actions/jobs/138160585387",
+            "html_url": "https://github.com/logosnexus/carvex/actions/runs/45309259369/job/138160585387",
+            "status": "completed",
+            "conclusion": "success",
+            "created_at": "2026-11-24T02:01:06Z",
+            "started_at": "2026-11-24T02:01:08Z",
+            "completed_at": "2026-11-24T02:03:10Z",
+            "name": "fuzz (jpeg)",
+            "steps": [
+                {
+                    "name": "Set up job",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 1,
+                    "started_at": "2026-11-24T02:01:09Z",
+                    "completed_at": "2026-11-24T02:01:10Z"
+                },
+                {
+                    "name": "Run actions/checkout@v4",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 2,
+                    "started_at": "2026-11-24T02:01:10Z",
+                    "completed_at": "2026-11-24T02:01:12Z"
+                },
+                {
+                    "name": "Run dtolnay/rust-toolchain@nightly",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 3,
+                    "started_at": "2026-11-24T02:01:12Z",
+                    "completed_at": "2026-11-24T02:01:21Z"
+                },
+                {
+                    "name": "Run Swatinem/rust-cache@v2",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 4,
+                    "started_at": "2026-11-24T02:01:21Z",
+                    "completed_at": "2026-11-24T02:01:33Z"
+                },
+                {
+                    "name": "Install cargo-fuzz",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 5,
+                    "started_at": "2026-11-24T02:01:33Z",
+                    "completed_at": "2026-11-24T02:01:33Z"
+                },
+                {
+                    "name": "Fuzz smoke (60 s on push/PR, 10 min nightly)",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 6,
+                    "started_at": "2026-11-24T02:01:33Z",
+                    "completed_at": "2026-11-24T02:03:07Z"
+                },
+                {
+                    "name": "Upload crash artifact",
+                    "status": "completed",
+                    "conclusion": "skipped",
+                    "number": 7,
+                    "started_at": "2026-11-24T02:03:07Z",
+                    "completed_at": "2026-11-24T02:03:07Z"
+                },
+                {
+                    "name": "Post Run Swatinem/rust-cache@v2",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 13,
+                    "started_at": "2026-11-24T02:03:07Z",
+                    "completed_at": "2026-11-24T02:03:07Z"
+                },
+                {
+                    "name": "Post Run actions/checkout@v4",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 14,
+                    "started_at": "2026-11-24T02:03:07Z",
+                    "completed_at": "2026-11-24T02:03:07Z"
+                },
+                {
+                    "name": "Complete job",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 15,
+                    "started_at": "2026-11-24T02:03:07Z",
+                    "completed_at": "2026-11-24T02:03:07Z"
+                }
+            ],
+            "check_run_url": "https://api.github.com/repos/logosnexus/carvex/check-runs/138160585387",
+            "labels": [
+                "ubuntu-latest"
+            ],
+            "runner_id": 1000002288,
+            "runner_name": "GitHub Actions 1000002288",
+            "runner_group_id": 0,
+            "runner_group_name": "GitHub Actions"
+        },
+        {
+            "id": 138160585470,
+            "run_id": 45309259369,
+            "workflow_name": "CI",
+            "head_branch": "main",
+            "run_url": "https://api.github.com/repos/logosnexus/carvex/actions/runs/45309259369",
+            "run_attempt": 1,
+            "node_id": "CR_kwDOV0ZFus8AAAAgKwM6_g",
+            "head_sha": "479065ca2de6a53387efc0da9a704cb3b7eca153",
+            "url": "https://api.github.com/repos/logosnexus/carvex/actions/jobs/138160585470",
+            "html_url": "https://github.com/logosnexus/carvex/actions/runs/45309259369/job/138160585470",
+            "status": "completed",
+            "conclusion": "success",
+            "created_at": "2026-11-24T02:01:06Z",
+            "started_at": "2026-11-24T02:01:08Z",
+            "completed_at": "2026-11-24T02:02:57Z",
+            "name": "fuzz (fuzz_fragment_join)",
+            "steps": [
+                {
+                    "name": "Set up job",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 1,
+                    "started_at": "2026-11-24T02:01:08Z",
+                    "completed_at": "2026-11-24T02:01:09Z"
+                },
+                {
+                    "name": "Run actions/checkout@v4",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 2,
+                    "started_at": "2026-11-24T02:01:09Z",
+                    "completed_at": "2026-11-24T02:01:11Z"
+                },
+                {
+                    "name": "Run dtolnay/rust-toolchain@nightly",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 3,
+                    "started_at": "2026-11-24T02:01:11Z",
+                    "completed_at": "2026-11-24T02:01:19Z"
+                },
+                {
+                    "name": "Run Swatinem/rust-cache@v2",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 4,
+                    "started_at": "2026-11-24T02:01:19Z",
+                    "completed_at": "2026-11-24T02:01:28Z"
+                },
+                {
+                    "name": "Install cargo-fuzz",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 5,
+                    "started_at": "2026-11-24T02:01:28Z",
+                    "completed_at": "2026-11-24T02:01:29Z"
+                },
+                {
+                    "name": "Fuzz smoke (60 s on push/PR, 10 min nightly)",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 6,
+                    "started_at": "2026-11-24T02:01:29Z",
+                    "completed_at": "2026-11-24T02:02:55Z"
+                },
+                {
+                    "name": "Upload crash artifact",
+                    "status": "completed",
+                    "conclusion": "skipped",
+                    "number": 7,
+                    "started_at": "2026-11-24T02:02:55Z",
+                    "completed_at": "2026-11-24T02:02:55Z"
+                },
+                {
+                    "name": "Post Run Swatinem/rust-cache@v2",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 13,
+                    "started_at": "2026-11-24T02:02:55Z",
+                    "completed_at": "2026-11-24T02:02:55Z"
+                },
+                {
+                    "name": "Post Run actions/checkout@v4",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 14,
+                    "started_at": "2026-11-24T02:02:55Z",
+                    "completed_at": "2026-11-24T02:02:55Z"
+                },
+                {
+                    "name": "Complete job",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 15,
+                    "started_at": "2026-11-24T02:02:55Z",
+                    "completed_at": "2026-11-24T02:02:55Z"
+                }
+            ],
+            "check_run_url": "https://api.github.com/repos/logosnexus/carvex/check-runs/138160585470",
+            "labels": [
+                "ubuntu-latest"
+            ],
+            "runner_id": 1000002285,
+            "runner_name": "GitHub Actions 1000002285",
+            "runner_group_id": 0,
+            "runner_group_name": "GitHub Actions"
+        },
+        {
+            "id": 138160585504,
+            "run_id": 45309259369,
+            "workflow_name": "CI",
+            "head_branch": "main",
+            "run_url": "https://api.github.com/repos/logosnexus/carvex/actions/runs/45309259369",
+            "run_attempt": 1,
+            "node_id": "CR_kwDOV0ZFus8AAAAgKwM7IA",
+            "head_sha": "479065ca2de6a53387efc0da9a704cb3b7eca153",
+            "url": "https://api.github.com/repos/logosnexus/carvex/actions/jobs/138160585504",
+            "html_url": "https://github.com/logosnexus/carvex/actions/runs/45309259369/job/138160585504",
+            "status": "completed",
+            "conclusion": "success",
+            "created_at": "2026-11-24T02:01:06Z",
+            "started_at": "2026-11-24T02:01:09Z",
+            "completed_at": "2026-11-24T02:03:17Z",
+            "name": "fuzz (fuzz_e01)",
+            "steps": [
+                {
+                    "name": "Set up job",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 1,
+                    "started_at": "2026-11-24T02:01:09Z",
+                    "completed_at": "2026-11-24T02:01:12Z"
+                },
+                {
+                    "name": "Run actions/checkout@v4",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 2,
+                    "started_at": "2026-11-24T02:01:12Z",
+                    "completed_at": "2026-11-24T02:01:18Z"
+                },
+                {
+                    "name": "Run dtolnay/rust-toolchain@nightly",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 3,
+                    "started_at": "2026-11-24T02:01:18Z",
+                    "completed_at": "2026-11-24T02:01:27Z"
+                },
+                {
+                    "name": "Run Swatinem/rust-cache@v2",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 4,
+                    "started_at": "2026-11-24T02:01:27Z",
+                    "completed_at": "2026-11-24T02:01:43Z"
+                },
+                {
+                    "name": "Install cargo-fuzz",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 5,
+                    "started_at": "2026-11-24T02:01:43Z",
+                    "completed_at": "2026-11-24T02:01:43Z"
+                },
+                {
+                    "name": "Fuzz smoke (60 s on push/PR, 10 min nightly)",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 6,
+                    "started_at": "2026-11-24T02:01:43Z",
+                    "completed_at": "2026-11-24T02:03:13Z"
+                },
+                {
+                    "name": "Upload crash artifact",
+                    "status": "completed",
+                    "conclusion": "skipped",
+                    "number": 7,
+                    "started_at": "2026-11-24T02:03:13Z",
+                    "completed_at": "2026-11-24T02:03:13Z"
+                },
+                {
+                    "name": "Post Run Swatinem/rust-cache@v2",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 13,
+                    "started_at": "2026-11-24T02:03:13Z",
+                    "completed_at": "2026-11-24T02:03:13Z"
+                },
+                {
+                    "name": "Post Run actions/checkout@v4",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 14,
+                    "started_at": "2026-11-24T02:03:13Z",
+                    "completed_at": "2026-11-24T02:03:14Z"
+                },
+                {
+                    "name": "Complete job",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 15,
+                    "started_at": "2026-11-24T02:03:14Z",
+                    "completed_at": "2026-11-24T02:03:14Z"
+                }
+            ],
+            "check_run_url": "https://api.github.com/repos/logosnexus/carvex/check-runs/138160585504",
+            "labels": [
+                "ubuntu-latest"
+            ],
+            "runner_id": 1000002287,
+            "runner_name": "GitHub Actions 1000002287",
+            "runner_group_id": 0,
+            "runner_group_name": "GitHub Actions"
+        },
+        {
+            "id": 138160585585,
+            "run_id": 45309259369,
+            "workflow_name": "CI",
+            "head_branch": "main",
+            "run_url": "https://api.github.com/repos/logosnexus/carvex/actions/runs/45309259369",
+            "run_attempt": 1,
+            "node_id": "CR_kwDOV0ZFus8AAAAgKwM7cQ",
+            "head_sha": "479065ca2de6a53387efc0da9a704cb3b7eca153",
+            "url": "https://api.github.com/repos/logosnexus/carvex/actions/jobs/138160585585",
+            "html_url": "https://github.com/logosnexus/carvex/actions/runs/45309259369/job/138160585585",
+            "status": "completed",
+            "conclusion": "success",
+            "created_at": "2026-11-24T02:01:06Z",
+            "started_at": "2026-11-24T02:01:39Z",
+            "completed_at": "2026-11-24T02:03:36Z",
+            "name": "fuzz (ntfs_mft)",
+            "steps": [
+                {
+                    "name": "Set up job",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 1,
+                    "started_at": "2026-11-24T02:01:40Z",
+                    "completed_at": "2026-11-24T02:01:41Z"
+                },
+                {
+                    "name": "Run actions/checkout@v4",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 2,
+                    "started_at": "2026-11-24T02:01:41Z",
+                    "completed_at": "2026-11-24T02:01:46Z"
+                },
+                {
+                    "name": "Run dtolnay/rust-toolchain@nightly",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 3,
+                    "started_at": "2026-11-24T02:01:46Z",
+                    "completed_at": "2026-11-24T02:01:54Z"
+                },
+                {
+                    "name": "Run Swatinem/rust-cache@v2",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 4,
+                    "started_at": "2026-11-24T02:01:54Z",
+                    "completed_at": "2026-11-24T02:02:06Z"
+                },
+                {
+                    "name": "Install cargo-fuzz",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 5,
+                    "started_at": "2026-11-24T02:02:06Z",
+                    "completed_at": "2026-11-24T02:02:06Z"
+                },
+                {
+                    "name": "Fuzz smoke (60 s on push/PR, 10 min nightly)",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 6,
+                    "started_at": "2026-11-24T02:02:06Z",
+                    "completed_at": "2026-11-24T02:03:35Z"
+                },
+                {
+                    "name": "Upload crash artifact",
+                    "status": "completed",
+                    "conclusion": "skipped",
+                    "number": 7,
+                    "started_at": "2026-11-24T02:03:35Z",
+                    "completed_at": "2026-11-24T02:03:35Z"
+                },
+                {
+                    "name": "Post Run Swatinem/rust-cache@v2",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 13,
+                    "started_at": "2026-11-24T02:03:35Z",
+                    "completed_at": "2026-11-24T02:03:35Z"
+                },
+                {
+                    "name": "Post Run actions/checkout@v4",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 14,
+                    "started_at": "2026-11-24T02:03:35Z",
+                    "completed_at": "2026-11-24T02:03:35Z"
+                },
+                {
+                    "name": "Complete job",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 15,
+                    "started_at": "2026-11-24T02:03:35Z",
+                    "completed_at": "2026-11-24T02:03:35Z"
+                }
+            ],
+            "check_run_url": "https://api.github.com/repos/logosnexus/carvex/check-runs/138160585585",
+            "labels": [
+                "ubuntu-latest"
+            ],
+            "runner_id": 1000002292,
+            "runner_name": "GitHub Actions 1000002292",
+            "runner_group_id": 0,
+            "runner_group_name": "GitHub Actions"
+        },
+        {
+            "id": 138160585607,
+            "run_id": 45309259369,
+            "workflow_name": "CI",
+            "head_branch": "main",
+            "run_url": "https://api.github.com/repos/logosnexus/carvex/actions/runs/45309259369",
+            "run_attempt": 1,
+            "node_id": "CR_kwDOV0ZFus8AAAAgKwM7hw",
+            "head_sha": "479065ca2de6a53387efc0da9a704cb3b7eca153",
+            "url": "https://api.github.com/repos/logosnexus/carvex/actions/jobs/138160585607",
+            "html_url": "https://github.com/logosnexus/carvex/actions/runs/45309259369/job/138160585607",
+            "status": "completed",
+            "conclusion": "success",
+            "created_at": "2026-11-24T02:01:06Z",
+            "started_at": "2026-11-24T02:01:57Z",
+            "completed_at": "2026-11-24T02:04:03Z",
+            "name": "fuzz (fuzz_open_image)",
+            "steps": [
+                {
+                    "name": "Set up job",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 1,
+                    "started_at": "2026-11-24T02:01:58Z",
+                    "completed_at": "2026-11-24T02:02:00Z"
+                },
+                {
+                    "name": "Run actions/checkout@v4",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 2,
+                    "started_at": "2026-11-24T02:02:00Z",
+                    "completed_at": "2026-11-24T02:02:06Z"
+                },
+                {
+                    "name": "Run dtolnay/rust-toolchain@nightly",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 3,
+                    "started_at": "2026-11-24T02:02:06Z",
+                    "completed_at": "2026-11-24T02:02:14Z"
+                },
+                {
+                    "name": "Run Swatinem/rust-cache@v2",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 4,
+                    "started_at": "2026-11-24T02:02:14Z",
+                    "completed_at": "2026-11-24T02:02:30Z"
+                },
+                {
+                    "name": "Install cargo-fuzz",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 5,
+                    "started_at": "2026-11-24T02:02:30Z",
+                    "completed_at": "2026-11-24T02:02:30Z"
+                },
+                {
+                    "name": "Fuzz smoke (60 s on push/PR, 10 min nightly)",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 6,
+                    "started_at": "2026-11-24T02:02:30Z",
+                    "completed_at": "2026-11-24T02:03:59Z"
+                },
+                {
+                    "name": "Upload crash artifact",
+                    "status": "completed",
+                    "conclusion": "skipped",
+                    "number": 7,
+                    "started_at": "2026-11-24T02:03:59Z",
+                    "completed_at": "2026-11-24T02:03:59Z"
+                },
+                {
+                    "name": "Post Run Swatinem/rust-cache@v2",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 13,
+                    "started_at": "2026-11-24T02:03:59Z",
+                    "completed_at": "2026-11-24T02:03:59Z"
+                },
+                {
+                    "name": "Post Run actions/checkout@v4",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 14,
+                    "started_at": "2026-11-24T02:03:59Z",
+                    "completed_at": "2026-11-24T02:03:59Z"
+                },
+                {
+                    "name": "Complete job",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 15,
+                    "started_at": "2026-11-24T02:03:59Z",
+                    "completed_at": "2026-11-24T02:03:59Z"
+                }
+            ],
+            "check_run_url": "https://api.github.com/repos/logosnexus/carvex/check-runs/138160585607",
+            "labels": [
+                "ubuntu-latest"
+            ],
+            "runner_id": 1000002295,
+            "runner_name": "GitHub Actions 1000002295",
+            "runner_group_id": 0,
+            "runner_group_name": "GitHub Actions"
+        },
+        {
+            "id": 138160585630,
+            "run_id": 45309259369,
+            "workflow_name": "CI",
+            "head_branch": "main",
+            "run_url": "https://api.github.com/repos/logosnexus/carvex/actions/runs/45309259369",
+            "run_attempt": 1,
+            "node_id": "CR_kwDOV0ZFus8AAAAgKwM7ng",
+            "head_sha": "479065ca2de6a53387efc0da9a704cb3b7eca153",
+            "url": "https://api.github.com/repos/logosnexus/carvex/actions/jobs/138160585630",
+            "html_url": "https://github.com/logosnexus/carvex/actions/runs/45309259369/job/138160585630",
+            "status": "completed",
+            "conclusion": "success",
+            "created_at": "2026-11-24T02:01:06Z",
+            "started_at": "2026-11-24T02:01:51Z",
+            "completed_at": "2026-11-24T02:03:35Z",
+            "name": "fuzz (fuzz_split_names)",
+            "steps": [
+                {
+                    "name": "Set up job",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 1,
+                    "started_at": "2026-11-24T02:01:52Z",
+                    "completed_at": "2026-11-24T02:01:53Z"
+                },
+                {
+                    "name": "Run actions/checkout@v4",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 2,
+                    "started_at": "2026-11-24T02:01:53Z",
+                    "completed_at": "2026-11-24T02:01:54Z"
+                },
+                {
+                    "name": "Run dtolnay/rust-toolchain@nightly",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 3,
+                    "started_at": "2026-11-24T02:01:54Z",
+                    "completed_at": "2026-11-24T02:02:00Z"
+                },
+                {
+                    "name": "Run Swatinem/rust-cache@v2",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 4,
+                    "started_at": "2026-11-24T02:02:00Z",
+                    "completed_at": "2026-11-24T02:02:09Z"
+                },
+                {
+                    "name": "Install cargo-fuzz",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 5,
+                    "started_at": "2026-11-24T02:02:09Z",
+                    "completed_at": "2026-11-24T02:02:10Z"
+                },
+                {
+                    "name": "Fuzz smoke (60 s on push/PR, 10 min nightly)",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 6,
+                    "started_at": "2026-11-24T02:02:10Z",
+                    "completed_at": "2026-11-24T02:03:32Z"
+                },
+                {
+                    "name": "Upload crash artifact",
+                    "status": "completed",
+                    "conclusion": "skipped",
+                    "number": 7,
+                    "started_at": "2026-11-24T02:03:32Z",
+                    "completed_at": "2026-11-24T02:03:32Z"
+                },
+                {
+                    "name": "Post Run Swatinem/rust-cache@v2",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 13,
+                    "started_at": "2026-11-24T02:03:32Z",
+                    "completed_at": "2026-11-24T02:03:33Z"
+                },
+                {
+                    "name": "Post Run actions/checkout@v4",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 14,
+                    "started_at": "2026-11-24T02:03:33Z",
+                    "completed_at": "2026-11-24T02:03:33Z"
+                },
+                {
+                    "name": "Complete job",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "number": 15,
+                    "started_at": "2026-11-24T02:03:33Z",
+                    "completed_at": "2026-11-24T02:03:33Z"
+                }
+            ],
+            "check_run_url": "https://api.github.com/repos/logosnexus/carvex/check-runs/138160585630",
+            "labels": [
+                "ubuntu-latest"
+            ],
+            "runner_id": 1000002293,
+            "runner_name": "GitHub Actions 1000002293",
+            "runner_group_id": 0,
+            "runner_group_name": "GitHub Actions"
+        }
+    ]
+}
