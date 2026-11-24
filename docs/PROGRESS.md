@@ -12,7 +12,7 @@
 |---|---|
 | Date | 2026-11-23 (R2 docs update; earlier gate rows below are dated historical records) |
 | OS | Linux x86_64 (Kali), running in a container |
-| carvex | source `main` at `bae1033` (0.3.1 release prep/dist rebuilt, docs/evidence updated); `dist/` binaries rebuilt from `v0.3.1` commit `d5be769` (Linux glibc, Windows GNU) and `DIST OK`; CI run `45312234437` green (27/27) |
+| carvex | source `main` at `be4217f`+ (0.3.1, post-release refactor); `dist/` binaries rebuilt from `be4217f` (Linux glibc, Windows GNU) and `DIST OK`; latest archived green CI `45312234437` (27/27) |
 | rustc / cargo | 1.100.0 (0ef1bc386 2026-11-09) / 1.100.0 |
 | MSRV | 1.85.0, installed via rustup; `cargo +1.85 check --locked` passes |
 | Python | 3.13.12; Pillow available |
