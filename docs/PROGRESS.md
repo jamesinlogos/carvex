@@ -1100,15 +1100,16 @@ Residual risk / next: pedantic stage 2 (numeric casts) and stage 3 (API
   nightly 1.102.0-nightly (fat32_boot, fuzz_e01, fuzz_fragment_join,
   fuzz_open_image, fuzz_split_names, fuzz_vhd, fuzz_vmdk, jpeg, ntfs_boot,
   ntfs_mft, partition_table, pdf, png): no crashes observed; fuzz corpus
-  changes not committed. Remaining R2-08 items SKIPPED with reasons: X16(a)/X17
+  changes not committed. Coverage ratchet re-measured 2026-11-23: 75.25%
+  (8659/11507), floor 60% PASS (`scripts/coverage.sh`, cargo-llvm-cov).
+  Remaining R2-08 items SKIPPED with reasons: X16(a)/X17
   (ewfacquire/ewfexport/qemu-img missing), qpdf X11 controls (qpdf missing),
-  coverage ratchet not re-measured (cargo-llvm-cov present, opportunistic).
+  wine64-real runner missing.
 - 0.3.1 dist binaries rebuilt from `d5be769` and `DIST OK`; shipped Linux is
   glibc-linked (min GLIBC 2.34) because musl failed X23/R5. Green CI
   `45322611147` (`fb67641`, 27/27) recorded; `v0.3.1` tag pushed to origin. The
   0.3.1 Windows binary was executed under Wine, not a Windows runner.
-- Post-R-01/R-02 coverage 69.72% (4456/6391); CI/local floor 60%. No 80% claim.
-  Coverage has not been re-measured after H-14/H-16/H-17/H-18/H-19/H-21/H-22/H-25/H-26/H-27/H-29/R2 work.
+- Coverage re-measured 2026-11-23 (cargo-llvm-cov, `scripts/coverage.sh`): 75.25% (8659/11507 lines), floor 60% PASS. No 80% claim.
 - Scientific benchmarks C-02, C-09 incomplete; C-06/C-07 partial; D2–D7 remain
   OPEN/PARTIAL. README conclusions apply only to D1.
 
