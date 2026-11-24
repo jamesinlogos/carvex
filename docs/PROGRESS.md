@@ -1096,11 +1096,13 @@ Residual risk / next: pedantic stage 2 (numeric casts) and stage 3 (API
   aggressive continuity heuristic authorized as measured follow-up prototype
   (not a default change without FP/upper-bound evidence).
 - R2-08: X19/X20/R7/R8 re-run with available real tools/images PASS
-  (2026-11-23). Remaining R2-08 items SKIPPED with reasons: X16(a)/X17
+  (2026-11-23). 13 fuzz targets x60s each re-run with cargo-fuzz 0.13.2 /
+  nightly 1.102.0-nightly (fat32_boot, fuzz_e01, fuzz_fragment_join,
+  fuzz_open_image, fuzz_split_names, fuzz_vhd, fuzz_vmdk, jpeg, ntfs_boot,
+  ntfs_mft, partition_table, pdf, png): no crashes observed; fuzz corpus
+  changes not committed. Remaining R2-08 items SKIPPED with reasons: X16(a)/X17
   (ewfacquire/ewfexport/qemu-img missing), qpdf X11 controls (qpdf missing),
-  13 fuzz targets x60s real-container seeds not re-run (cargo-fuzz present,
-  opportunistic), coverage ratchet not re-measured (cargo-llvm-cov present,
-  opportunistic).
+  coverage ratchet not re-measured (cargo-llvm-cov present, opportunistic).
 - 0.3.1 dist binaries rebuilt from `d5be769` and `DIST OK`; shipped Linux is
   glibc-linked (min GLIBC 2.34) because musl failed X23/R5. Green CI
   `45322611147` (`fb67641`, 27/27) recorded; `v0.3.1` tag pushed to origin. The
