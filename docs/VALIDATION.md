@@ -369,6 +369,7 @@ check-run annotations were available and are the only remote evidence used.
 | `45306113660` | `d5be769` | `completed` / **failure** | expected | Release-prep commit before dist rebuild; expected release-gate dist-staleness failure in CI. |
 | `45306146454` | `25b50d0` | `completed` / **failure** | 26 success, 1 failure | `release gate (G0-G9)` failed; review repro summary `34 scenario(s), 0 failure(s), 6 SKIP(s), 0 XPASS`, then exit 1. Root cause: `actions/checkout@v4` default `fetch-depth: 1` prevented `check_dist.sh` from validating `tool_info.commit` ancestry/source-diff against built commit. |
 | `45309259369` | `479065c` | `completed` / **success** | 27 success, 0 failure | Green current-HEAD run after dist rebuild and CI checkout `fetch-depth: 0` fix. Run/job JSON archived as `bench/results/ci_run_45309259369.json` and `bench/results/ci_run_45309259369_jobs.json`; checksums added to `bench/results/EVIDENCE.sha256`. Job logs unavailable via public API (403); status/conclusions/annotations only. |
+| `45312234437` | `bae1033` | `completed` / **success** | 27 success, 0 failure | Green docs/evidence follow-up run. Run/job JSON archived as `bench/results/ci_run_45312234437.json` and `bench/results/ci_run_45312234437_jobs.json`; checksums added to `bench/results/EVIDENCE.sha256`. |
 
 The fixes were CI/tooling-only. `ef4f825` made fuzz use `cargo +nightly
 fuzz run`, installed `musl-tools`, generated the missing FAT32 smoke fixture
