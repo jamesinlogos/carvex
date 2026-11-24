@@ -1331,3 +1331,9 @@ decision, and the consequences.
   edges. No aggressive threshold/configuration was promoted to default because
   no measured configuration met both clean-control and eval Wilson 95% upper
   <= 0.1% criteria without FP risk. R2-03 remains PARTIAL.
+- **Re-measurement (2026-11-24):** deterministic eval on current release binary
+  (`jpeg_splice_property.py --pairs 4000`, seeds 20261121/70612, same pool
+  classes): 3/4000 verified, Wilson 95% upper 0.22%. Accepted residuals
+  (cases 940, 1131, 2006) were all gradient_noise low-contrast/flat boundary
+  splices; edge/variance pixel-domain signals showed no clean separation.
+  Clean-control and upper-bound acceptance criteria remain unmet.
