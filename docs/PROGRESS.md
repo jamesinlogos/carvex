@@ -1,4 +1,4 @@
-# Implementation progress (CarveX 0.3.0; frozen benchmark figures remain 0.1.0/0.2.0)
+# Implementation progress (CarveX 0.3.1; frozen benchmark figures remain 0.1.0/0.2.0)
 
 > Last updated: 2026-11-23. Every status below is verified by the command
 > recorded with it; items that could not be run due to missing tools are marked
@@ -12,7 +12,7 @@
 |---|---|
 | Date | 2026-11-23 (R2 docs update; earlier gate rows below are dated historical records) |
 | OS | Linux x86_64 (Kali), running in a container |
-| carvex | source `main` at `cc75944` (0.3.0 in `Cargo.toml`); committed `dist/` binaries are 0.3.0 built from `5480f10` and stale until R2-10 |
+| carvex | source `main` preparing 0.3.1 release (R2-10 in progress); committed `dist/` binaries are 0.3.0 built from `5480f10` and will be replaced at R2-10 |
 | rustc / cargo | 1.100.0 (0ef1bc386 2026-11-09) / 1.100.0 |
 | MSRV | 1.85.0, installed via rustup; `cargo +1.85 check --locked` passes |
 | Python | 3.13.12; Pillow available |
@@ -221,7 +221,7 @@ Windows**.
 | H-15 | MED | 2026-11-22 source / 0.2.0 and 0.3.0 `dist/`; 2026-11-23 R2-02 | CLOSED (R2-02 scratch reuse; shipped 0.3.1 dist measurement at R2-10) | 1c28e2e, pending | scripts/review_repro.py X23,R5; src/scan.rs | R2-02 reuses per-worker scratch buffers in count/scan/carve (ADR-H15/D-66), preserving budget drop-before-reserve. Dev release measurement: X23 default 0.168s vs 1t 0.591s (0.28x), R5 0.280s, rc 0. 0.3.0 musl dist baseline: X23 2.80s vs 1.26s (2.22x), R5 5.50s. Shipped 0.3.1 Linux/musl X23/R5 must be recorded at R2-10. |
 | H-16 | CRIT | 2026-11-22 source | CLOSED | 3f47e51 | tests/validity_model.rs; tests/cli_contract.rs; scripts/review_repro.py X10–X14/X24 | Red test proved `validity` was absent and default `complete/structure/100` rows had no "content not checked" text. Added authoritative `validity` + `checks[]`; scores and emission unchanged. |
 | H-17 | HIGH | 2026-11-22 source | CLOSED | 905c9c0 | tests/png_crc_validity.rs; src/signatures/png.rs; scripts/review_repro.py X10 | Bad PNG CRC is now `validation=partial`/`validity=suspect` in structure and decode modes, with a `chunk_crc` check naming type/offset; decode `validated_bytes` stops at the last good chunk. |
-| H-18 | HIGH | 2026-11-22 source; 2026-11-23 R2-03 | PARTIAL (R2-03 check added; eval upper bound above 0.1%) | 01ea6b3, pending | src/signatures/jpeg.rs; src/signatures/mod.rs; scripts/review_repro.py X12 | R2-03 adds conservative baseline content-continuity check (D-67, supersedes D-45 disclosure). Clean control 1000: 0 suspects. Dev splices 0/499 verified. Eval splices 2/3997 verified, Wilson 95% upper 0.182% (>0.1% target). |
+| H-18 | HIGH | 2026-11-22 source; 2026-11-23 R2-03 | PARTIAL (R2-03 check added; eval upper bound above 0.1%; accepted for 0.3.1, option A 2026-11-23) | 01ea6b3, pending | src/signatures/jpeg.rs; src/signatures/mod.rs; scripts/review_repro.py X12 | R2-03 adds conservative baseline content-continuity check (D-67, supersedes D-45 disclosure). Clean control 1000: 0 suspects. Dev splices 0/499 verified. Eval splices 2/3997 verified, Wilson 95% upper 0.182% (>0.1% target). User accepted PARTIAL for 0.3.1 release; aggressive heuristic follow-up authorized with FP/upper-bound measurement. |
 | H-19 | HIGH | 2026-11-22 source | CLOSED | cb591a3 | tests/pdf_structure_validation.rs; tests/fragment_recovery.rs; tests/scan_integration.rs; scripts/review_repro.py X11 | Stage 1 removed the false Decoded label; stage 2 adds bounded classic/xref-stream/ObjStm/trailer/catalog/length checking. Clean PDFs are `decoded`/`verified`; mismatches are `partial`/`suspect`. R2-08 (2026-11-23): six `qpdf --check` X11 controls SKIPPED (`qpdf` not installed). |
 | H-20 | MED | 2026-11-21 source | CLOSED | cee916a | scripts/review_repro.py X13 | Trim trailing CR/LF/whitespace/NUL before %%EOF check; EOL variants now identical. |
 | H-21 | HIGH | 2026-11-22 source | CLOSED | 3b0c15c | tests/repair_validation.rs; scripts/review_repro.py X14 | Red tests proved the static footer produced an invalid PDF labelled `repaired` with no `sha256_original`. Every repair is now revalidated before `repaired`; `sha256_original` is emitted whenever output bytes change. |
@@ -1088,9 +1088,10 @@ Residual risk / next: pedantic stage 2 (numeric casts) and stage 3 (API
   newer current-HEAD run) to complete green. Prior green reference:
   `45121233267` at `86ae15f` (27/27).
 - R2-03/H-18: content-continuity check added, but eval splice upper bound
-  0.182% is above the 0.1% target (D-67). Status remains PARTIAL. User decision
-  needed: accept PARTIAL with measured evidence, or authorize a more aggressive
-  measured heuristic prototype.
+  0.182% is above the 0.1% target (D-67). **Accepted PARTIAL for 0.3.1 release
+  by user (2026-11-23, option A)** with measured evidence recorded honestly;
+  aggressive continuity heuristic authorized as measured follow-up prototype
+  (not a default change without FP/upper-bound evidence).
 - R2-08: X19/X20/R7/R8 re-run with available real tools/images PASS
   (2026-11-23). Remaining R2-08 items SKIPPED with reasons: X16(a)/X17
   (ewfacquire/ewfexport/qemu-img missing), qpdf X11 controls (qpdf missing),

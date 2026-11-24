@@ -6,31 +6,54 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+_No unreleased changes recorded yet._
+
+## [0.3.1] — 2026-11-23
+
 ### Added
 
-- H-04: `scripts/check_dist.sh` verifies committed `dist/` checksums, version,
-  `tool_info.commit` ancestry and source diff; CI executes committed Linux musl
-  and Windows dist binaries.
+- R2-04/H-04: `scripts/check_dist.sh` verifies committed `dist/` checksums,
+  version, `tool_info.commit` ancestry and source diff; wired into
+  `scripts/gate.sh` (stale dist skips outside CI, fails in CI). CI executes
+  committed Linux musl and Windows dist binaries.
+- R2-09: archived current-HEAD CI run JSON/jobs for public status evidence and
+  recorded job-log 403 limitation (status/conclusions/annotations only).
 
 ### Fixed
 
-- H-11: `src/image/{mod,e01,split,vhd,vmdk}.rs` deny `clippy::indexing_slicing`,
-  `clippy::unwrap_used` and `clippy::expect_used`; production hostile-field
-  access uses checked helpers. Test modules and the hidden fixture builder keep
-  justified `#[allow(...)]`.
-- H-15: scan count/scan/carve workers reuse per-worker scratch buffers via
-  `map_init`; carve growth still drops buffer and releases its memory-budget
-  permit before reserving a larger buffer. Retained carve scratch is capped.
-- H-18/R2-03: baseline JPEG decode adds a conservative content-continuity seam
-  check. Failed check reports `validation=partial`/`validity=suspect` with a
-  `content_continuity` check; passed/not-applicable cases are reported
-  explicitly. Clean control 1000: 0 false suspects; eval splices 2/3997
-  verified (Wilson 95% upper 0.182%, above 0.1% target).
-- H-12b: scan work is planned lazily from resolved extents in bounded batches.
-  A container-declared 512 TiB `ZERO` extent no longer allocates a per-chunk
-  task vector before the time budget or interrupt can be checked; totals and
-  regions are computed arithmetically. Output bytes, order and work-unit
-  budgets are unchanged.
+- R2-01/H-12b: scan work is planned lazily from resolved extents in bounded
+  batches. A container-declared 512 TiB `ZERO` extent no longer allocates a
+  per-chunk task vector before the time budget or interrupt can be checked;
+  totals and regions are computed arithmetically. Output bytes, order and
+  work-unit budgets are unchanged.
+- R2-02/H-15: scan count/scan/carve workers reuse per-worker scratch buffers
+  via `map_init`; carve growth still drops buffer and releases its
+  memory-budget permit before reserving a larger buffer. Retained carve scratch
+  is capped at 1 MiB. No allocator change.
+- R2-11/H-11: `src/image/{mod,e01,split,vhd,vmdk}.rs` deny
+  `clippy::indexing_slicing`, `clippy::unwrap_used` and
+  `clippy::expect_used`; production hostile-field access uses checked helpers.
+  Test modules and the hidden fixture builder keep justified `#[allow(...)]`.
+- CI: X05 time-budget flood hardened for fast CI runners.
+
+### Changed
+
+- R2-03/H-18: decode-mode baseline JPEG validation adds a conservative
+  content-continuity seam check (D-67, supersedes D-45 disclosure-only
+  closure). Spliced/flat-seam files may now be labeled `partial`/`suspect`
+  instead of `decoded`/`verified`; benign fixture status/score/bytes unchanged.
+  Clean control 1000 generated baseline JPEGs: 0 false suspects. Eval splices
+  2/3997 verified (Wilson 95% upper 0.182%, above 0.1% target). **Accepted
+  PARTIAL for 0.3.1 release by user decision (2026-11-23, option A)**; aggressive
+  continuity heuristic authorized as measured follow-up prototype.
+- R2-06: reconciled status narratives; extended `scripts/check_status.py` with
+  CI-run contradiction and current-gate test-count checks.
+- R2-07: replaced placeholder API doc comments in `src/fs`, `src/image`,
+  `src/lib.rs`, `src/scan.rs`, `src/signatures`. `src/scan.rs` split deferred
+  (risky; G7 proof required).
+- R2-08: re-ran X19/X20/R7/R8 with available real tools/images (PASS);
+  recorded SKIPPED reasons for missing ewfacquire/ewfexport/qemu-img/qpdf/pdftoppm/wine64/libewf-real, fuzz real-seed rerun, and coverage ratchet rerun.
+- Repository GitHub references updated to `logosnexus`.
 
 ## [0.3.0] — 2026-11-22
 

@@ -1319,3 +1319,7 @@ decision, and the consequences.
   conservative threshold avoids clean false positives.
 - **Compatibility:** no score, status, emitted bytes, or benign fixture
   validity changes observed on corpus/clean control; G7 must remain green.
+- **User decision (2026-11-23, option A):** accept R2-03 as PARTIAL for 0.3.1
+  release with measured evidence recorded honestly; authorize aggressive
+  content-continuity heuristic as a measured follow-up prototype (not a
+  default change without FP/upper-bound evidence). R2-10 may proceed.
