@@ -461,6 +461,12 @@ After carving:
 - **Nested suppression:** discard candidates entirely contained within a larger complete file. For example, a JPEG image embedded in a PDF, or a PDF embedded in a PDF.
 - **A candidate file is written only once** per `(offset, type)` pair.
 
+When `--min-score` withholds candidates, the run emits one aggregate
+`BELOW_MIN_SCORE` warning with the count and the first offsets (H-02). The
+warning does not mark the run incomplete and does not change which files are
+written; it only makes the discarded evidence visible in `warnings[]` and on
+stderr.
+
 Nested suppression applies only when the parent file has `status = complete` and a `carved_size` larger than the child. The parent ends at the parsed footer rather than extending to the end of the cluster, so it does not swallow a physically subsequent file.
 
 ### 3.8. Repairing truncated files

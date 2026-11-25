@@ -7,7 +7,7 @@
 
 mod common;
 
-use common::png_1x1;
+use common::{chunk, png_1x1};
 use serde_json::Value;
 use std::fs;
 use std::path::Path;
@@ -30,7 +30,37 @@ fn bad_crc_png() -> (Vec<u8>, u64) {
     (png, chunk_start as u64)
 }
 
+fn png_three_bad_crc() -> Vec<u8> {
+    let source = png_1x1();
+    let idat = source
+        .windows(4)
+        .position(|w| w == b"IDAT")
+        .expect("fixture has IDAT");
+    let chunk_start = idat - 4;
+    let len = u32::from_be_bytes(source[chunk_start..idat].try_into().unwrap()) as usize;
+    let data = &source[idat + 4..idat + 4 + len];
+    let (a, b) = (data.len() / 3, 2 * data.len() / 3);
+    let mut out = source[..chunk_start].to_vec();
+    for part in [&data[..a], &data[a..b], &data[b..]] {
+        let mut c = chunk(b"IDAT", part);
+        let crc = c.len() - 1;
+        c[crc] ^= 0x01;
+        out.extend_from_slice(&c);
+    }
+    out.extend_from_slice(&chunk(b"IEND", b""));
+    out
+}
+
 fn scan(mode: &str, payload: &[u8], dir: &Path) -> (Value, String) {
+    scan_with_min_score(mode, payload, dir, Some("0"))
+}
+
+fn scan_with_min_score(
+    mode: &str,
+    payload: &[u8],
+    dir: &Path,
+    min_score: Option<&str>,
+) -> (Value, String) {
     let image = dir.join(format!("{mode}.img"));
     let mut bytes = vec![0u8; 4096];
     bytes.extend_from_slice(payload);
@@ -38,29 +68,30 @@ fn scan(mode: &str, payload: &[u8], dir: &Path) -> (Value, String) {
     fs::write(&image, bytes).unwrap();
     let out = dir.join(format!("out-{mode}"));
     let report_path = dir.join(format!("report-{mode}.json"));
-    let proc = Command::new(bin())
-        .args([
-            "scan",
-            image.to_str().unwrap(),
-            "-o",
-            out.to_str().unwrap(),
-            "--mode",
-            "raw",
-            "--no-fs",
-            "--types",
-            "png",
-            "--validate",
-            mode,
-            "--min-score",
-            "0",
-            "--min-size",
-            "1",
-            "--quiet",
-            "--json-report",
-            report_path.to_str().unwrap(),
-        ])
-        .output()
-        .unwrap();
+    let mut args = vec![
+        "scan",
+        image.to_str().unwrap(),
+        "-o",
+        out.to_str().unwrap(),
+        "--mode",
+        "raw",
+        "--no-fs",
+        "--types",
+        "png",
+        "--validate",
+        mode,
+    ];
+    if let Some(score) = min_score {
+        args.extend(["--min-score", score]);
+    }
+    args.extend([
+        "--min-size",
+        "1",
+        "--quiet",
+        "--json-report",
+        report_path.to_str().unwrap(),
+    ]);
+    let proc = Command::new(bin()).args(args).output().unwrap();
     let stderr = String::from_utf8_lossy(&proc.stderr).into_owned();
     assert_eq!(proc.status.code(), Some(0), "stderr: {stderr}");
     let report: Value = serde_json::from_slice(&fs::read(&report_path).unwrap()).unwrap();
@@ -103,6 +134,33 @@ fn bad_png_crc_is_suspect_in_structure_and_decode_modes() {
     // last good chunk. Its historical 20-point decode-penalty is preserved.
     let (decode, _) = scan("decode", &png, dir.path());
     assert_suspect(&decode, expected_prefix, 65);
+}
+
+#[test]
+fn png_three_bad_crc_decode_is_not_silent() {
+    let png = png_three_bad_crc();
+    let dir = tempfile::tempdir().unwrap();
+
+    // Default --min-score (50): three bad CRCs drop the decode score to 35.
+    // The file may still be written as suspect (§9 Q3), but a silent drop is
+    // not allowed: BELOW_MIN_SCORE must report the count and first offsets.
+    let (report, stderr) = scan_with_min_score("decode", &png, dir.path(), None);
+    let files = report["files"].as_array().unwrap();
+    let warnings = report["warnings"].as_array().unwrap();
+    let low_score = warnings
+        .iter()
+        .find(|w| w["code"] == "BELOW_MIN_SCORE")
+        .unwrap_or_else(|| {
+            panic!("silent low-score drop: files={files:#?} warnings={warnings:#?} stderr={stderr}")
+        });
+    let message = low_score["message"].as_str().unwrap();
+    assert!(message.contains("not written"), "message: {message}");
+    assert!(message.contains("first offsets"), "message: {message}");
+    assert!(
+        report["stats"]["below_min_score"].as_u64().unwrap() >= 1,
+        "stats: {}",
+        report["stats"]
+    );
 }
 
 #[test]

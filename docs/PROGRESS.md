@@ -62,6 +62,21 @@ Residual risk / next: after B4, run the full gate and the A.2 S-CONTROL check;
         changes only) and that --verbose output has one [+] line per file.
 ```
 
+```text
+Task: H-02 — PNG CRC errors must not be complete/decoded/verified [repo H-17]
+Change: src/scan.rs, docs/REPORT.md, CHANGELOG.md
+New tests: png_three_bad_crc_decode_is_not_silent (red: silent low-score drop).
+        The three-bad-IDAT fixture is built in-process from the deterministic
+        1x1 PNG; it pins the warning mechanism, not the §9 Q3 emission policy.
+Gate: PENDING-BENCH (cargo fmt/clippy/test deferred while B4 measures timings).
+Measurement: none yet; source-only change. BELOW_MIN_SCORE is intentionally
+        absent from Warning::incomplete(), so exit codes and --min-score
+        semantics stay unchanged.
+Residual risk / next: after B4 run cargo test (including the new red test) and
+        re-check the A.2 S-PNGCRC rows; if Q3 later exempts suspect files from
+        --min-score, update this test together with that decision.
+```
+
 ### Gate at time of writing — **GATE GREEN (2026-11-20, historical)**
 
 ```text

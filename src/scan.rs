@@ -25,6 +25,8 @@ use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 type WorkLimit = (u64, FileType, u64, u64);
+/// Offset, type and score of a candidate withheld by `--min-score` (H-02).
+type LowScored = (u64, FileType, u8);
 
 /// Test-only panic injection target. Production never sets this; it exists so
 /// panic containment can be exercised from integration tests and the Python
@@ -1205,7 +1207,11 @@ enum CarveOutcome {
     },
     TimeLimit,
     TooSmall(u64),
-    LowScore(u8),
+    LowScore {
+        offset: u64,
+        kind: FileType,
+        score: u8,
+    },
     NotComplete,
     TooLargeTruncated(u64),
 }
@@ -2202,6 +2208,7 @@ fn work_limit_outcome(cand: &Candidate, examined: u64, limit: u64) -> CarveOutco
 }
 
 fn prepare_analysis(
+    cand: &Candidate,
     prefix: &[u8],
     analysis: &mut Analysis,
     opts: &ScanOptions,
@@ -2226,7 +2233,11 @@ fn prepare_analysis(
         return Err(CarveOutcome::TooLargeTruncated(end as u64));
     }
     if analysis.score < opts.min_score {
-        return Err(CarveOutcome::LowScore(analysis.score));
+        return Err(CarveOutcome::LowScore {
+            offset: cand.offset,
+            kind: cand.kind,
+            score: analysis.score,
+        });
     }
     if opts.complete_only && !analysis.complete {
         return Err(CarveOutcome::NotComplete);
@@ -2449,7 +2460,11 @@ fn finalize_carved(
         }
         analysis.notes.append(&mut validation_notes);
         if analysis.score < opts.min_score {
-            return Err(CarveOutcome::LowScore(analysis.score));
+            return Err(CarveOutcome::LowScore {
+                offset: cand.offset,
+                kind: cand.kind,
+                score: analysis.score,
+            });
         }
     }
     let sha256 = sha256_hex_with_suffix(&prefix[..end], &repair.suffix);
@@ -2595,7 +2610,7 @@ fn carve_one_with_scratch(
         match analyze(cand.kind, &scratch[..read_len], at_limit, opts.pdf_eof) {
             Need::Analyzed(mut analysis) => {
                 let tail_trimmed_bytes =
-                    match prepare_analysis(&scratch[..read_len], &mut analysis, opts) {
+                    match prepare_analysis(cand, &scratch[..read_len], &mut analysis, opts) {
                         Ok(trimmed) => trimmed,
                         Err(outcome) => return Ok(outcome),
                     };
@@ -4030,9 +4045,10 @@ fn collect_outcomes(
     stats: &mut ScanStats,
     warnings: &mut Vec<Warning>,
     internal_errors: &mut Vec<InternalError>,
-) -> (Vec<CarvedData>, Vec<WorkLimit>) {
+) -> (Vec<CarvedData>, Vec<WorkLimit>, Vec<LowScored>) {
     let mut candidates: Vec<CarvedData> = Vec::new();
     let mut work_limited: Vec<WorkLimit> = Vec::new();
+    let mut low_scored: Vec<LowScored> = Vec::new();
     for outcome in outcomes {
         match outcome {
             CarveOutcome::Carved(data) => candidates.push(*data),
@@ -4079,10 +4095,19 @@ fn collect_outcomes(
                     eprintln!("[-] below --min-size {}: {size}", opts.min_size);
                 }
             }
-            CarveOutcome::LowScore(score) => {
+            CarveOutcome::LowScore {
+                offset,
+                kind,
+                score,
+            } => {
                 stats.below_min_score += 1;
+                low_scored.push((offset, kind, score));
                 if opts.verbose {
-                    eprintln!("[-] below --min-score {}: {score}", opts.min_score);
+                    eprintln!(
+                        "[-] below --min-score {}: {score} at byte {offset} ({})",
+                        opts.min_score,
+                        kind.label()
+                    );
                 }
             }
             CarveOutcome::NotComplete => {
@@ -4102,7 +4127,7 @@ fn collect_outcomes(
             }
         }
     }
-    (candidates, work_limited)
+    (candidates, work_limited, low_scored)
 }
 
 fn suppressed_flags(
@@ -4201,6 +4226,25 @@ fn work_limit_warning(first: &WorkLimit, count: usize) -> Warning {
     )
 }
 
+/// H-02: a low score must never silently discard evidence. This warning is
+/// deliberately not in `Warning::incomplete()`: the run still finished, and
+/// the default `--min-score` semantics stay unchanged (§9 Q3).
+fn low_score_warning(low: &[LowScored], min_score: u8) -> Warning {
+    let offsets: Vec<String> = low
+        .iter()
+        .take(3)
+        .map(|(offset, kind, score)| format!("{offset} ({} score {score})", kind.label()))
+        .collect();
+    Warning::new(
+        "BELOW_MIN_SCORE",
+        format!(
+            "{} candidate(s) scored below --min-score {min_score} and were not written; first offsets: {}",
+            low.len(),
+            offsets.join(", ")
+        ),
+    )
+}
+
 fn postfilter(
     outcomes: Vec<CarveOutcome>,
     opts: &ScanOptions,
@@ -4208,7 +4252,7 @@ fn postfilter(
     warnings: &mut Vec<Warning>,
     internal_errors: &mut Vec<InternalError>,
 ) -> Vec<CarvedData> {
-    let (mut candidates, work_limited) =
+    let (mut candidates, work_limited, mut low_scored) =
         collect_outcomes(outcomes, opts, stats, warnings, internal_errors);
     if opts.suppress_nested && candidates.len() > 1 {
         let keep = suppressed_flags(&candidates, stats, opts);
@@ -4235,6 +4279,10 @@ fn postfilter(
     }
     if let Some(first) = work_limited.first() {
         warnings.push(work_limit_warning(first, work_limited.len()));
+    }
+    if !low_scored.is_empty() {
+        low_scored.sort_by_key(|(offset, kind, _)| (*offset, *kind as u8));
+        warnings.push(low_score_warning(&low_scored, opts.min_score));
     }
     candidates
 }
