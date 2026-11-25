@@ -1347,6 +1347,15 @@ struct TaskPlan<'a> {
     chunk_size: u64,
 }
 
+/// Shared inputs for the header-candidate discovery workers.
+struct CandidateScanCtx<'a> {
+    source: &'a dyn ImageSource,
+    types: &'a [FileType],
+    opts: &'a ScanOptions,
+    volumes: &'a [FsInfo],
+    stop: &'a Stop,
+}
+
 impl<'a> TaskPlan<'a> {
     fn new(extents: &'a [Extent], chunk_size: u64) -> Self {
         Self {
@@ -1429,16 +1438,15 @@ fn find_scan_candidates(
     let task_plan = TaskPlan::new(&plan.extents, opts.chunk_size);
     let scan_progress = Arc::new(Progress::new(plan.bytes_in_extents));
     let scan_thread = start_progress(scan_progress.clone(), opts.quiet, "Scanning");
-    let (mut candidates, candidate_limit_hit) = find_candidates(
+    let find_ctx = CandidateScanCtx {
         source,
-        task_plan,
-        &opts.types,
+        types: &opts.types,
         opts,
         volumes,
-        &scan_progress,
-        pool,
         stop,
-    )?;
+    };
+    let (mut candidates, candidate_limit_hit) =
+        find_candidates(&find_ctx, task_plan, &scan_progress, pool)?;
     candidates.sort_by_key(|c| (c.offset, c.kind as u8));
     candidates.dedup_by(|a, b| a.offset == b.offset && a.kind == b.kind);
     if candidate_limit_hit {
@@ -1650,21 +1658,21 @@ fn scan_throughput(
     (elapsed, bytes_scanned, throughput)
 }
 
-// H-34: report assembly preserves the original field order and warning provenance.
-#[allow(clippy::too_many_arguments)]
-fn assemble_scan_report(
+/// Inputs to the final report assembly, grouped for H-22 without changing the
+/// order in which report fields and warnings are produced.
+struct ScanReportAssembly<'a> {
     started: u64,
     elapsed: Duration,
     bytes_scanned: u64,
     throughput: f64,
-    image: &str,
+    image: &'a str,
     image_len: u64,
     input: InputInfo,
     mode: ScanMode,
-    out_dir: &Path,
-    ctx: &ScanContext,
-    opts: &ScanOptions,
-    volumes: &[FsInfo],
+    out_dir: &'a Path,
+    ctx: &'a ScanContext,
+    opts: &'a ScanOptions,
+    volumes: &'a [FsInfo],
     unreadable_snapshot: Vec<UnreadableRegion>,
     warnings: Vec<Warning>,
     internal_errors: Vec<InternalError>,
@@ -1672,7 +1680,30 @@ fn assemble_scan_report(
     interrupted: bool,
     files: Vec<CarvedFile>,
     stats: ScanStats,
-) -> ScanReport {
+}
+
+fn assemble_scan_report(assembly: ScanReportAssembly<'_>) -> ScanReport {
+    let ScanReportAssembly {
+        started,
+        elapsed,
+        bytes_scanned,
+        throughput,
+        image,
+        image_len,
+        input,
+        mode,
+        out_dir,
+        ctx,
+        opts,
+        volumes,
+        unreadable_snapshot,
+        warnings,
+        internal_errors,
+        nondeterministic_stop,
+        interrupted,
+        files,
+        stats,
+    } = assembly;
     ScanReport {
         schema_version: SCHEMA_VERSION,
         tool: format!("CarveX {}", env!("CARGO_PKG_VERSION")),
@@ -1766,18 +1797,17 @@ pub fn run_scan(
     );
     let mut fragment_nondeterministic = false;
     if opts.fragment_recovery {
-        let fragments = recover_fragments(
+        let fragment_ctx = FragmentRecoveryCtx {
             source,
-            &candidates,
-            kept,
-            &plan.extents,
+            candidates: &candidates,
+            extents: &plan.extents,
             volumes,
             opts,
-            &budget,
-            &mut warnings,
-            &stop,
-            &mut internal_errors,
-        )?;
+            budget: &budget,
+            stop: &stop,
+        };
+        let fragments =
+            recover_fragments(&fragment_ctx, kept, &mut warnings, &mut internal_errors)?;
         kept = fragments.files;
         fragment_nondeterministic = fragments.nondeterministic_stop;
     }
@@ -1790,9 +1820,10 @@ pub fn run_scan(
         &mut warnings,
     );
     print_verbose_candidates(&kept, opts);
-    let (files, write_warnings) = write_outputs(
-        source, out_dir, &kept, volumes, plan.mode, &mut stats, opts, &budget, &stop,
-    )?;
+    let write_ctx = WriteCtx(
+        source, out_dir, &kept, volumes, plan.mode, opts, &budget, &stop,
+    );
+    let (files, write_warnings) = write_outputs(write_ctx, &mut stats)?;
     warnings.extend(write_warnings);
     update_output_stats(&mut stats, &files);
     if opts.manifest {
@@ -1814,15 +1845,15 @@ pub fn run_scan(
             "source image size or mtime changed during the scan",
         ));
     }
-    Ok(assemble_scan_report(
+    Ok(assemble_scan_report(ScanReportAssembly {
         started,
         elapsed,
         bytes_scanned,
         throughput,
         image,
         image_len,
-        input_info,
-        plan.mode,
+        input: input_info,
+        mode: plan.mode,
         out_dir,
         ctx,
         opts,
@@ -1834,7 +1865,7 @@ pub fn run_scan(
         interrupted,
         files,
         stats,
-    ))
+    }))
 }
 
 /// Build the schema-valid report left behind when a read-error `abort` stops
@@ -1986,22 +2017,18 @@ pub fn plan_extents(
     Ok((resolved, merge_extents(extents)))
 }
 
-// H-34: candidate discovery keeps its original worker signature so source-read and warning order remain auditable.
-#[allow(clippy::too_many_arguments)]
+// H-22: candidate discovery groups its shared worker inputs in `CandidateScanCtx`;
+// source reads, quota assignment and warning order are unchanged.
 fn find_candidates(
-    source: &dyn ImageSource,
+    ctx: &CandidateScanCtx<'_>,
     task_plan: TaskPlan<'_>,
-    types: &[FileType],
-    opts: &ScanOptions,
-    volumes: &[FsInfo],
     progress: &Progress,
     pool: &rayon::ThreadPool,
-    stop: &Stop,
 ) -> Result<(Vec<Candidate>, bool)> {
-    if stop.check() {
+    if ctx.stop.check() {
         return Ok((Vec::new(), false));
     }
-    let max_u64 = effective_max_candidates(opts);
+    let max_u64 = effective_max_candidates(ctx.opts);
     let max = usize::try_from(max_u64).unwrap_or(usize::MAX);
     let mut out = Vec::new();
     // Only the initial capacity is capped; the vector still grows to the
@@ -2018,7 +2045,7 @@ fn find_candidates(
     // plan per declared TiB) before any budget could be checked. Quotas are
     // still assigned in task order, so the result is byte-for-byte identical.
     loop {
-        if stop.check() {
+        if ctx.stop.check() {
             break;
         }
         let batch: Vec<Task> = tasks.by_ref().take(SCAN_TASK_BATCH).collect();
@@ -2033,11 +2060,11 @@ fn find_candidates(
             batch
                 .par_iter()
                 .map_init(Vec::<u8>::new, |scratch, task| {
-                    count_task(source, task, types, opts, volumes, stop, scratch)
+                    count_task(ctx, task, scratch)
                 })
                 .collect::<Result<Vec<_>>>()
         })?;
-        if stop.check() {
+        if ctx.stop.check() {
             break;
         }
         for &count in &counts {
@@ -2060,12 +2087,10 @@ fn find_candidates(
                 .par_iter()
                 .zip(quotas)
                 .map_init(Vec::<u8>::new, |scratch, (task, quota)| {
-                    if stop.check() || quota == 0 {
+                    if ctx.stop.check() || quota == 0 {
                         return Ok(Vec::new());
                     }
-                    scan_task(
-                        source, task, types, opts, volumes, progress, quota, stop, scratch,
-                    )
+                    scan_task(ctx, task, progress, quota, scratch)
                 })
                 .collect::<Result<Vec<_>>>()
         })?;
@@ -2076,35 +2101,26 @@ fn find_candidates(
     Ok((out, hit))
 }
 
-// H-34: the counting worker keeps chunk accounting identical; scratch reuse
+// H-22: the counting worker keeps chunk accounting identical; scratch reuse
 // is a per-worker allocation optimization (R2-02, ADR-H15).
-#[allow(clippy::too_many_arguments)]
-fn count_task(
-    source: &dyn ImageSource,
-    task: &Task,
-    types: &[FileType],
-    opts: &ScanOptions,
-    volumes: &[FsInfo],
-    stop: &Stop,
-    scratch: &mut Vec<u8>,
-) -> Result<usize> {
-    if stop.check() {
+fn count_task(ctx: &CandidateScanCtx<'_>, task: &Task, scratch: &mut Vec<u8>) -> Result<usize> {
+    if ctx.stop.check() {
         return Ok(0);
     }
     scratch.resize(task.read_len as usize, 0);
-    read_exact_at(source, scratch, task.start)
+    read_exact_at(ctx.source, scratch, task.start)
         .with_context(|| format!("cannot read scan chunk at offset {}", task.start))?;
     let mut count = 0usize;
-    for &kind in types {
+    for &kind in ctx.types {
         for rel in memchr::memmem::find_iter(scratch.as_slice(), kind.header()) {
-            if stop.check() {
+            if ctx.stop.check() {
                 return Ok(count);
             }
             if rel as u64 >= task.scan_len || !plausible_header(kind, scratch.as_slice(), rel) {
                 continue;
             }
             let offset = task.start + rel as u64;
-            if aligned(offset, opts.align, volumes) {
+            if aligned(offset, ctx.opts.align, ctx.volumes) {
                 count = count.saturating_add(1);
             }
         }
@@ -2112,28 +2128,23 @@ fn count_task(
     Ok(count)
 }
 
-// H-34: the scanning worker keeps chunk order and panic containment
+// H-22: the scanning worker keeps chunk order and panic containment
 // identical; scratch reuse is a per-worker allocation optimization (R2-02).
-#[allow(clippy::too_many_arguments)]
 fn scan_task(
-    source: &dyn ImageSource,
+    ctx: &CandidateScanCtx<'_>,
     task: &Task,
-    types: &[FileType],
-    opts: &ScanOptions,
-    volumes: &[FsInfo],
     progress: &Progress,
     quota: usize,
-    stop: &Stop,
     scratch: &mut Vec<u8>,
 ) -> Result<Vec<Candidate>> {
     scratch.resize(task.read_len as usize, 0);
-    read_exact_at(source, scratch, task.start)
+    read_exact_at(ctx.source, scratch, task.start)
         .with_context(|| format!("cannot read scan chunk at offset {}", task.start))?;
     let mut out = Vec::with_capacity(quota);
     let mut examined = task.scan_len;
-    'types: for &kind in types {
+    'types: for &kind in ctx.types {
         for rel in memchr::memmem::find_iter(scratch.as_slice(), kind.header()) {
-            if stop.check() {
+            if ctx.stop.check() {
                 examined = (rel as u64).min(task.scan_len);
                 break 'types;
             }
@@ -2141,7 +2152,7 @@ fn scan_task(
                 continue;
             }
             let offset = task.start + rel as u64;
-            if !aligned(offset, opts.align, volumes) {
+            if !aligned(offset, ctx.opts.align, ctx.volumes) {
                 continue;
             }
             if out.len() >= quota {
@@ -2304,20 +2315,34 @@ impl RepairState {
     }
 }
 
-// H-34: pure field assembly keeps the original assembly order; a wrapper struct would add indirection without removing state.
-#[allow(clippy::too_many_arguments)]
-fn attempt_repair(
-    cand: &Candidate,
-    analysis: &mut Analysis,
-    prefix: &[u8],
+/// Inputs to one repair attempt, grouped for H-22 without changing validation
+/// order or budget accounting.
+struct RepairAttempt<'a> {
+    cand: &'a Candidate,
+    analysis: &'a mut Analysis,
+    prefix: &'a [u8],
     end: usize,
-    opts: &ScanOptions,
+    opts: &'a ScanOptions,
     limits: ValidationLimits,
-    budget: &MemoryBudget,
-    work: &mut WorkCounter,
+    budget: &'a MemoryBudget,
+    work: &'a mut WorkCounter,
     work_limit: u64,
     attempted: bool,
-) -> Result<RepairState, CarveOutcome> {
+}
+
+fn attempt_repair(ctx: RepairAttempt<'_>) -> Result<RepairState, CarveOutcome> {
+    let RepairAttempt {
+        cand,
+        analysis,
+        prefix,
+        end,
+        opts,
+        limits,
+        budget,
+        work,
+        work_limit,
+        attempted,
+    } = ctx;
     let mut state = RepairState::new(attempted);
     if !attempted {
         return Ok(state);
@@ -2444,19 +2469,32 @@ fn validation_detail_for(
     }
 }
 
-// H-34: pure field assembly keeps the original assembly order; a wrapper struct would add indirection without removing state.
-#[allow(clippy::too_many_arguments)]
-fn finalize_carved(
-    cand: &Candidate,
-    mut analysis: Analysis,
+/// Inputs to the final carved-data assembly, grouped for H-22 without
+/// changing validation labels, notes or output lengths.
+struct CarveFinalize<'a> {
+    cand: &'a Candidate,
+    analysis: Analysis,
     detail: ValidationDetail,
     repair: RepairState,
-    prefix: &[u8],
+    prefix: &'a [u8],
     end: usize,
     output_len: u64,
     tail_trimmed_bytes: u64,
-    opts: &ScanOptions,
-) -> Result<CarvedData, CarveOutcome> {
+    opts: &'a ScanOptions,
+}
+
+fn finalize_carved(ctx: CarveFinalize<'_>) -> Result<CarvedData, CarveOutcome> {
+    let CarveFinalize {
+        cand,
+        mut analysis,
+        detail,
+        repair,
+        prefix,
+        end,
+        output_len,
+        tail_trimmed_bytes,
+        opts,
+    } = ctx;
     let ValidationDetail {
         validation,
         notes: mut validation_notes,
@@ -2576,6 +2614,91 @@ fn grow_carve_buffer<'a>(
     Ok(None)
 }
 
+/// Inputs to the repair/validate/finalize stage after a candidate has been
+/// fully analyzed. Kept separate so `carve_one_with_scratch` stays within the
+/// A-10 line limit without changing the order of work accounting or probes.
+struct AnalyzedCandidateCtx<'a> {
+    cand: &'a Candidate,
+    analysis: Analysis,
+    prefix: &'a [u8],
+    tail_trimmed_bytes: u64,
+    opts: &'a ScanOptions,
+    limits: ValidationLimits,
+    budget: &'a MemoryBudget,
+    work: &'a mut WorkCounter,
+    work_limit: u64,
+}
+
+fn finalize_analyzed_candidate(ctx: AnalyzedCandidateCtx<'_>) -> Result<CarveOutcome> {
+    let AnalyzedCandidateCtx {
+        cand,
+        mut analysis,
+        prefix,
+        tail_trimmed_bytes,
+        opts,
+        limits,
+        budget,
+        work,
+        work_limit,
+    } = ctx;
+    let end = analysis.end;
+    // Validator scratch is bounded by its own flag and, for this scan, can
+    // never raise the shared working-memory ceiling.
+    let repair_attempted = opts.repair && !analysis.complete;
+    let mut repair = match attempt_repair(RepairAttempt {
+        cand,
+        analysis: &mut analysis,
+        prefix,
+        end,
+        opts,
+        limits,
+        budget,
+        work: &mut *work,
+        work_limit,
+        attempted: repair_attempted,
+    }) {
+        Ok(state) => state,
+        Err(outcome) => return Ok(outcome),
+    };
+
+    let output_len = (end as u64).saturating_add(repair.suffix.len() as u64);
+    if output_len < opts.min_size {
+        return Ok(CarveOutcome::TooSmall(output_len));
+    }
+
+    let validate_bytes = if repair.detail.is_none()
+        && opts.validate == ValidationMode::Decode
+        && analysis.complete
+    {
+        end as u64
+    } else {
+        0
+    };
+    test_panic_probe(cand.offset, "validate");
+    if validate_bytes > 0 && !work.add(validate_bytes) {
+        return Ok(work_limit_outcome(
+            cand,
+            work.used().saturating_add(validate_bytes),
+            work_limit,
+        ));
+    }
+    let detail = validation_detail_for(cand, &mut repair, &analysis, prefix, end, opts, limits);
+    match finalize_carved(CarveFinalize {
+        cand,
+        analysis,
+        detail,
+        repair,
+        prefix,
+        end,
+        output_len,
+        tail_trimmed_bytes,
+        opts,
+    }) {
+        Ok(data) => Ok(CarveOutcome::Carved(Box::new(data))),
+        Err(outcome) => Ok(outcome),
+    }
+}
+
 fn carve_one(
     source: &dyn ImageSource,
     cand: &Candidate,
@@ -2658,70 +2781,17 @@ fn carve_one_with_scratch(
                         Ok(trimmed) => trimmed,
                         Err(outcome) => return Ok(outcome),
                     };
-                let end = analysis.end;
-                // Validator scratch is bounded by its own flag and, for this
-                // scan, can never raise the shared working-memory ceiling.
-                let repair_attempted = opts.repair && !analysis.complete;
-                let mut repair = match attempt_repair(
+                return finalize_analyzed_candidate(AnalyzedCandidateCtx {
                     cand,
-                    &mut analysis,
-                    &scratch[..read_len],
-                    end,
+                    analysis,
+                    prefix: &scratch[..read_len],
+                    tail_trimmed_bytes,
                     opts,
                     limits,
                     budget,
-                    &mut work,
+                    work: &mut work,
                     work_limit,
-                    repair_attempted,
-                ) {
-                    Ok(state) => state,
-                    Err(outcome) => return Ok(outcome),
-                };
-
-                let output_len = (end as u64).saturating_add(repair.suffix.len() as u64);
-                if output_len < opts.min_size {
-                    return Ok(CarveOutcome::TooSmall(output_len));
-                }
-
-                let validate_bytes = if repair.detail.is_none()
-                    && opts.validate == ValidationMode::Decode
-                    && analysis.complete
-                {
-                    end as u64
-                } else {
-                    0
-                };
-                test_panic_probe(cand.offset, "validate");
-                if validate_bytes > 0 && !work.add(validate_bytes) {
-                    return Ok(work_limit_outcome(
-                        cand,
-                        work.used().saturating_add(validate_bytes),
-                        work_limit,
-                    ));
-                }
-                let detail = validation_detail_for(
-                    cand,
-                    &mut repair,
-                    &analysis,
-                    &scratch[..read_len],
-                    end,
-                    opts,
-                    limits,
-                );
-                return match finalize_carved(
-                    cand,
-                    analysis,
-                    detail,
-                    repair,
-                    &scratch[..read_len],
-                    end,
-                    output_len,
-                    tail_trimmed_bytes,
-                    opts,
-                ) {
-                    Ok(data) => Ok(CarveOutcome::Carved(Box::new(data))),
-                    Err(outcome) => Ok(outcome),
-                };
+                });
             }
             Need::More => {
                 if let Some(outcome) =
@@ -3456,20 +3526,34 @@ fn junction_analysis(
     }
 }
 
-// H-34: pure field assembly keeps the original assembly order; a wrapper struct would add indirection without removing state.
-#[allow(clippy::too_many_arguments)]
-fn joined_carved_data(
-    cand: &Candidate,
-    join: &FragmentJoin,
-    mut analysis: Analysis,
-    bytes: &[u8],
+/// Inputs to one B-06 stitch record, grouped for H-22 without changing the
+/// order in which fragment notes, hashes and validation checks are assembled.
+struct JoinedCarvedSpec<'a> {
+    cand: &'a Candidate,
+    join: &'a FragmentJoin,
+    analysis: Analysis,
+    bytes: &'a [u8],
     detail: ValidationDetail,
     validation: Validation,
     status: Status,
     validity: Validity,
     head_len: u64,
     used_tail: u64,
-) -> CarvedData {
+}
+
+fn joined_carved_data(spec: JoinedCarvedSpec<'_>) -> CarvedData {
+    let JoinedCarvedSpec {
+        cand,
+        join,
+        mut analysis,
+        bytes,
+        detail,
+        validation,
+        status,
+        validity,
+        head_len,
+        used_tail,
+    } = spec;
     analysis.notes.push(format!(
         "B-06 deep-validated 2 fragments with a {} cluster gap",
         join.gap_clusters
@@ -3596,9 +3680,18 @@ fn try_fragment_join(
             work_limit: None,
         });
     }
-    let data = joined_carved_data(
-        cand, join, analysis, &bytes, detail, validation, status, validity, head_len, used_tail,
-    );
+    let data = joined_carved_data(JoinedCarvedSpec {
+        cand,
+        join,
+        analysis,
+        bytes: &bytes,
+        detail,
+        validation,
+        status,
+        validity,
+        head_len,
+        used_tail,
+    });
     Ok(JoinAttempt {
         data: Some(data),
         deep_checked: true,
@@ -3759,20 +3852,34 @@ impl FragmentScanState {
     }
 }
 
-// H-34: pure field assembly keeps the original assembly order; a wrapper struct would add indirection without removing state.
-#[allow(clippy::too_many_arguments)]
-fn probe_fragment_heads<'a>(
-    source: &dyn ImageSource,
+/// Shared inputs for the first B-06 pass. Mutable outputs stay explicit at
+/// the call site so work-budget and warning provenance remain auditable.
+#[derive(Clone, Copy)]
+struct FragmentProbeCtx<'a> {
+    source: &'a dyn ImageSource,
     candidates: &'a [Candidate],
     volumes: &'a [FsInfo],
-    opts: &ScanOptions,
-    budget: &Arc<MemoryBudget>,
-    stop: &Stop,
-    classification: &FragmentHeadClassification,
+    opts: &'a ScanOptions,
+    budget: &'a Arc<MemoryBudget>,
+    stop: &'a Stop,
+    classification: &'a FragmentHeadClassification,
+}
+
+fn probe_fragment_heads<'a>(
+    ctx: &FragmentProbeCtx<'a>,
     state: &mut FragmentScanState,
     warnings: &mut Vec<Warning>,
     internal_errors: &mut Vec<InternalError>,
 ) -> Result<Vec<(&'a Candidate, &'a FsInfo)>> {
+    let FragmentProbeCtx {
+        source,
+        candidates,
+        volumes,
+        opts,
+        budget,
+        stop,
+        classification,
+    } = *ctx;
     let mut heads = Vec::new();
     let work_budget = state.work_budget(opts);
     // Pass one: classify heads. Footer scanning is deliberately deferred until
@@ -3901,21 +4008,36 @@ fn scan_fragment_footers(
     (found, footer_failed)
 }
 
-// H-34: the join helper preserves the original bounded-attempt call order; grouping inputs would obscure budget and panic-boundary provenance.
-#[allow(clippy::too_many_arguments)]
+/// Shared inputs for one head's bounded B-06 join attempts. Mutable outputs
+/// remain explicit so the attempt, warning and panic order is unchanged.
+#[derive(Clone, Copy)]
+struct FragmentJoinCtx<'a> {
+    source: &'a dyn ImageSource,
+    cand: &'a Candidate,
+    fs: &'a FsInfo,
+    found: &'a HashMap<FileType, Vec<u64>>,
+    extents: &'a [Extent],
+    opts: &'a ScanOptions,
+    budget: &'a Arc<MemoryBudget>,
+    stop: &'a Stop,
+}
+
 fn attempt_head_joins(
-    source: &dyn ImageSource,
-    cand: &Candidate,
-    fs: &FsInfo,
-    found: &HashMap<FileType, Vec<u64>>,
-    extents: &[Extent],
-    opts: &ScanOptions,
-    budget: &Arc<MemoryBudget>,
-    stop: &Stop,
+    ctx: &FragmentJoinCtx<'_>,
     state: &mut FragmentScanState,
     warnings: &mut Vec<Warning>,
     internal_errors: &mut Vec<InternalError>,
 ) -> Result<Option<CarvedData>> {
+    let FragmentJoinCtx {
+        source,
+        cand,
+        fs,
+        found,
+        extents,
+        opts,
+        budget,
+        stop,
+    } = *ctx;
     let Some(footer_hits) = found.get(&cand.kind) else {
         return Ok(None);
     };
@@ -4050,20 +4172,34 @@ fn finalize_fragment_files(mut kept: Vec<CarvedData>, state: FragmentScanState) 
     }
 }
 
-// H-34: the fragment pass keeps its original argument order so work-budget and warning provenance stay auditable.
-#[allow(clippy::too_many_arguments)]
+/// Shared inputs for the whole B-06 pass. The owned `kept` vector and mutable
+/// diagnostics stay explicit so replacement and warning order are unchanged.
+#[derive(Clone, Copy)]
+struct FragmentRecoveryCtx<'a> {
+    source: &'a dyn ImageSource,
+    candidates: &'a [Candidate],
+    extents: &'a [Extent],
+    volumes: &'a [FsInfo],
+    opts: &'a ScanOptions,
+    budget: &'a Arc<MemoryBudget>,
+    stop: &'a Stop,
+}
+
 fn recover_fragments(
-    source: &dyn ImageSource,
-    candidates: &[Candidate],
+    ctx: &FragmentRecoveryCtx<'_>,
     kept: Vec<CarvedData>,
-    extents: &[Extent],
-    volumes: &[FsInfo],
-    opts: &ScanOptions,
-    budget: &Arc<MemoryBudget>,
     warnings: &mut Vec<Warning>,
-    stop: &Stop,
     internal_errors: &mut Vec<InternalError>,
 ) -> Result<FragmentResult> {
+    let FragmentRecoveryCtx {
+        source,
+        candidates,
+        extents,
+        volumes,
+        opts,
+        budget,
+        stop,
+    } = *ctx;
     let started = Instant::now();
     if volumes.is_empty() {
         warnings.push(Warning::new(
@@ -4077,18 +4213,16 @@ fn recover_fragments(
     }
     let classification = classify_fragment_heads(source, candidates, &kept, volumes);
     let mut state = FragmentScanState::new(started, &kept, opts, internal_errors);
-    let heads = probe_fragment_heads(
+    let probe_ctx = FragmentProbeCtx {
         source,
         candidates,
         volumes,
         opts,
         budget,
         stop,
-        &classification,
-        &mut state,
-        warnings,
-        internal_errors,
-    )?;
+        classification: &classification,
+    };
+    let heads = probe_fragment_heads(&probe_ctx, &mut state, warnings, internal_errors)?;
     let (found, footer_failed) =
         scan_fragment_footers(source, extents, &heads, opts, &state, warnings);
 
@@ -4105,19 +4239,19 @@ fn recover_fragments(
             if state.time_exhausted(opts) {
                 break;
             }
-            if let Some(data) = attempt_head_joins(
+            let join_ctx = FragmentJoinCtx {
                 source,
                 cand,
                 fs,
-                &found,
+                found: &found,
                 extents,
                 opts,
                 budget,
                 stop,
-                &mut state,
-                warnings,
-                internal_errors,
-            )? {
+            };
+            if let Some(data) =
+                attempt_head_joins(&join_ctx, &mut state, warnings, internal_errors)?
+            {
                 state.successful_keys.insert((cand.offset, cand.kind));
                 state.successes.push(data);
             }
@@ -4597,19 +4731,26 @@ fn output_limit_warning(skipped_output: usize, written: u64, output_limit: u64) 
     )
 }
 
-// H-34: pure field assembly keeps the original assembly order; a wrapper struct would add indirection without removing state.
-#[allow(clippy::too_many_arguments)]
+/// Shared inputs for output writing. The tuple form keeps the call site short
+/// while the mutable stats object stays explicit; byte and rejection counts are
+/// updated at the same points as before.
+#[derive(Clone, Copy)]
+struct WriteCtx<'a>(
+    &'a dyn ImageSource,
+    &'a Path,
+    &'a [CarvedData],
+    &'a [FsInfo],
+    ScanMode,
+    &'a ScanOptions,
+    &'a MemoryBudget,
+    &'a Stop,
+);
+
 fn write_outputs(
-    source: &dyn ImageSource,
-    out_dir: &Path,
-    files: &[CarvedData],
-    volumes: &[FsInfo],
-    mode: ScanMode,
+    ctx: WriteCtx<'_>,
     stats: &mut ScanStats,
-    opts: &ScanOptions,
-    budget: &MemoryBudget,
-    stop: &Stop,
 ) -> Result<(Vec<CarvedFile>, Vec<Warning>)> {
+    let WriteCtx(source, out_dir, files, volumes, mode, opts, budget, stop) = ctx;
     // With more than one scanned volume each file goes into its own
     // `part<N>/` sub-directory so outputs of different partitions cannot be
     // confused (A-07 `--partition all`).

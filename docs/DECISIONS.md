@@ -967,8 +967,9 @@ decision, and the consequences.
   [0, 0.1380]) in `bench/results/d1_fragment_profile.json`. X15 passes: bait
   produced 0 stitches, the ordinary image had no `FRAGMENT_*` warning, output
   hashes matched the plain scan, runtime stayed within 10%, the realistic
-  layout recalled 3/3 exact source files, and `--threads 1` matched the
-  default. The profile is development evidence, not the frozen lockbox.
+  supported filler-gap layout recalled 3/3 exact source files, and `--threads
+  1` matched the default. The profile is development evidence, not the frozen
+  lockbox; D-71 records the observed gap classes separately.
 
 ## D-54. Enforce G0-G9 locally and in CI (H-30)
 
@@ -1106,6 +1107,18 @@ decision, and the consequences.
   raw-image path changed. The H-34 commit-hash backfill was committed
   separately; D-03 remains PARTIAL because H-01 is blocked and H-04 is only
   PARTIAL for Windows-runner execution.
+- **H-22 closure (last item):** all 13 `#[allow(clippy::too_many_arguments)]`
+  attributes were removed by local stage/parameter structs: `RegionPlanSpec`
+  for region planning, `CandidateScanCtx` for header discovery, a report
+  assembly spec, repair/finalize specs, three B-06 stage contexts, and an
+  output-writing context. Two pre-existing clippy `too_many_lines` overflows
+  were split into `finalize_analyzed_candidate` and `pdf::complete_analysis` in
+  the same pure refactor. No test file was edited for H-22. clippy's code-line
+  metric is the gate of record and reports 0 findings; `scripts/fn_len.py`
+  remains informational and reports 3 raw-line findings because it also counts
+  comments, blank lines and struct literals. G7 golden output is byte-identical
+  to the pre-refactor log, and G8 is `PERF GREEN` with `rand64m` at 1.051x of
+  the committed baseline.
 
 ## D-59. Release 0.3.0 with local tag and disclosed execution limits
 
@@ -1397,3 +1410,34 @@ decision, and the consequences.
   provably inflatable prefix. `--repair` appends at the new end and still
   revalidates (D-68). Regression guards are in `tests/regress_tail_padding.rs`
   and `tests/properties.rs`; frozen benchmark artifacts were not touched.
+
+## D-71. B-06 keeps precision over recall on unsupported gaps (harness H-17)
+
+- **Context:** the S-B06 residual asked for a final decision on random and
+  other-file gaps. On `ab725a6`, a false PDF stitch made with raised limits was
+  accepted without a decode proof; the current join path rejects that stitch,
+  but a random gap still leaves the three S-B06 files unrecovered. The two B-06
+  limit flags also did not bind on that fixture because the stage stopped
+  before consuming a work unit.
+- **Decision:** precision over recall is the intended final design. Supported
+  gaps are (1) filler — all-zero bytes, at most eight distinct byte values, or
+  a repeated byte pattern with period ≤ 32 — and (2) an embedded file header
+  at the gap start, which is only ranking evidence. Random/high-entropy gaps
+  and arbitrary other-file bytes are not supported gap classes. A stitch is
+  never `verified` without the deep validator; the lexical PDF exception is
+  permanently rejected here. This closes the H-17 scope without changing the
+  join algorithm, defaults or frozen benchmark.
+- **Evidence:** `scripts/h17_gap_matrix.py` regenerates the S-B06 fixture and
+  writes `bench/results/h17_gap_matrix.json`. The current release binary
+  recovered 3/3 zero-gap files, 0/3 random-gap files and 2/3 embedded-header
+  files, with zero spliced stitches and no `FRAGMENT_*` warning. The current
+  A.2 row is retained as the historical `ab725a6` observation; the generated
+  matrix is the current measurement. `tests/fragment_recovery.rs::h17_fragment_limits_bind_on_a_hostile_layout`
+  plants 64 distinct truncated heads and valid footers: `--max-frag-candidates
+  1` emits `FRAGMENT_CANDIDATE_LIMIT` deterministically, a 1 ns
+  `--frag-time-limit` emits `FRAGMENT_TIME_LIMIT` with
+  `nondeterministic_stop=true`, and raised limits emit neither. The existing
+  X15/S12 controls and the exit-3 Q4 answer are unchanged.
+- **Documentation:** `scan --help` and the README now name the supported gap
+  classes; the harness A.2 row carries the closure note. No test result,
+  report value or output byte from the frozen benchmark changed.

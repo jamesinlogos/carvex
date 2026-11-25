@@ -622,7 +622,7 @@ These measurements were taken on `a7a5c08` (Linux x86-64, 2 cores; observations,
 | `unsafe` / lints | `#![forbid(unsafe_code)]`; `deny(unwrap_used, expect_used, indexing_slicing)` in `src/fs/`, `src/signatures/` | present | extend to `src/image/` when touched (done on `ab725a6` by repo R2-11 / D-65; new code must obey the same lints) |
 | FIXED scenarios of A.2 | every A.2 row marked FIXED (S-PDFLEX, S-PDFEOL, S-E01-*, S-VMDK-*, S-DETECT, S-REGIONS, S-STDIN, S-SIGINT, S-JPEGSOF, S-MAXMEM, S-MAXCAND, S-PDFEOF, S-B06 zero-gap row, S-REPAIR PDF row) | the `ab725a6` values of A.2 | re-run in every end-of-phase report (§10); any reverted row is a regression even if unit tests are green |
 | Repository repro script | `python3 scripts/review_repro.py --carvex target/release/carvex --assert --xfail scripts/repro_xfail.txt` | 34 scenarios, 0 failures, 6 SKIP, exit 0 | stays 0 failures; SKIPs only for missing tools |
-| Lint metric | `cargo clippy --lib -- -W clippy::too_many_lines` (`clippy.toml` threshold 120) | 0 findings; `#[allow(clippy::too_many_arguments)]` ×13 (H-22) | findings 0; allow count only decreases |
+| Lint metric | `cargo clippy --lib -- -W clippy::too_many_lines` (`clippy.toml` threshold 120) | 0 findings; `#[allow(clippy::too_many_arguments)]` ×13 (H-22) | findings 0; allow count 0 after H-22 closure |
 
 ---
 
@@ -730,13 +730,13 @@ Both binaries were run on the same fixtures (Appendix C builders; Appendix A com
 | S-REGIONS | Σ scanned region lengths = `bytes_scanned` = 53,067,776, disjoint and ordered (Σ = 53,477,376 ≠ 53,067,776, overlapping); NTFS-garbage 2nd volume: exit 3, `VOLUME_PARSE_FAILED` (exit 0, no warning) | FIXED | H-18 |
 | S-STDIN | `input.format="stdin"`, `unchanged=null` (`true`); `--max-stdin-bytes 100000` → exit 1 "stdin image exceeds --max-stdin-bytes" (flag absent) | FIXED | H-20 |
 | S-SIGINT | 512 MiB random raw scan, SIGINT after 0.15 s: exit 4, report written, `interrupted=true` (killed, exit −2, no report) | FIXED | H-14 |
-| S-B06 | zeros gap, `--fragment-recovery`: **3/3 exact**, `verified`, `source=bgc`, 1.25 s, no warning (0/3, 5.1 s, `FRAGMENT_TIME_LIMIT`). Random gap: 0/3, 0.26–0.31 s, 2 files (png `partial` 721,061 B; pdf `complete`/`suspect` 635,908 B = file + 12,288 B gap), no warning (0/3; raised limits 2/3 exact + false PDF stitch, 3.3 s). Other-file gap: 0/3, 0.23–0.28 s (raised limits 2/3, 10.5 s). Without `--fragment-recovery` all gaps: 0/3 as before | PARTLY | H-17 |
+| S-B06 | zeros gap, `--fragment-recovery`: **3/3 exact**, `verified`, `source=bgc`, 1.25 s, no warning (0/3, 5.1 s, `FRAGMENT_TIME_LIMIT`). Random gap: 0/3, 0.26–0.31 s, 2 files (png `partial` 721,061 B; pdf `complete`/`suspect` 635,908 B = file + 12,288 B gap), no warning (0/3; raised limits 2/3 exact + false PDF stitch, 3.3 s). Other-file gap: 0/3, 0.23–0.28 s (raised limits 2/3, 10.5 s). Without `--fragment-recovery` all gaps: 0/3 as before. H-17 closure (D-71): precision over recall; supported gaps are filler or an embedded header, not random/high-entropy bytes; current generated matrix `bench/results/h17_gap_matrix.json` = 3/3 zeros, 0/3 random, 2/3 embedded-header, 0 spliced stitches; both limit flags bind on the hostile fixture test | PARTLY (scope closed by D-71) | H-17 |
 | S-TAIL | zeros rows exact (212,468 / 839,272 / 374,172 B, `truncated`, now `validity=partial`) — `0xFF` rows JPEG 1,261,044, PNG 852,157, PDF 1,422,748 B (≈ +1 MiB swallowed); random rows PNG 852,157, PDF 1,422,748 B, **JPEG lost** (`rejected=1`); big rows: zeros-48M 212,468; random-48M no file (`rejected=3`); ff-4M 4,406,772; ff-48M no file (`too_large_truncated=1`) — identical to `a7a5c08` | OPEN | H-25 |
 | S-TAIL-NEIGH | only the complete JPEG (234,049 B) is carved, `rejected=1`, gap 0 and 4,096 — identical (now `structural`) | OPEN | H-25 |
 | S-FLOOD (median of 3, default threads; `--threads 1`) | S9-256K 0.07 s (0.18); S9-1M 0.27 (0.61); S9-4M 1.04 (2.32), RSS 44 MiB (89); S10-flood512-64M 0.57 (1.23); random-64M 0.02 (0.02). `--threads 1`: 0.14 / 0.51 / 2.08 / 1.14 / 0.03 s (0.29 / 1.16 / 4.53 / 2.66 / 0.03) | FIXED (guard) | §8 |
 | S-GATE | `scripts/review_repro.py --assert --xfail scripts/repro_xfail.txt`: 34 scenarios, 0 failures, 6 SKIP, 0 XPASS, exit 0 (log: `review_repro_ab725a6.log` of the verification) | FIXED | H-26 |
 | S-DIST | `dist/carvex-linux-x86_64` = `carvex 0.3.1`, `commit=be4217f7e2b4`, 49 `scan` flags = the source build; `scripts/check_dist.sh` → DIST OK (Windows binary skipped, wine missing) | FIXED | H-21 |
-| S-QUALITY | `cargo test` 135 passed / 0 failed; `cargo clippy --lib -- -W clippy::too_many_lines` 0 findings; `scripts/fn_len.py` 4 functions (136 / 134 / 129 / 125 raw lines: `pdf.rs:23`, `scan.rs:2514`, `jpeg.rs:543`, `pdf_validate.rs:138`) (12); `allow(clippy::too_many_arguments)` 13 (2); `check_status.py` and G9 render check green | PARTLY | H-22, H-23 |
+| S-QUALITY | `cargo test` 135 passed / 0 failed; `cargo clippy --lib -- -W clippy::too_many_lines` 0 findings; `scripts/fn_len.py` 4 functions (136 / 134 / 129 / 125 raw lines: `pdf.rs:23`, `scan.rs:2514`, `jpeg.rs:543`, `pdf_validate.rs:138`) (12); `allow(clippy::too_many_arguments)` 13 (2); `check_status.py` and G9 render check green | FIXED (H-23 closure: README test count/breakdown generated from `cargo test -- --list`; missing `/tmp/opencode` logs marked **not archived**; H-22 closure: 0 `too_many_arguments` allows, clippy line count 0, `fn_len.py` 3 informational findings, golden byte-identical, G8 green) | H-22 |
 
 Not re-run in A.2: fuzz targets, coverage ratchet, `scripts/golden.py`, `scripts/perf_gate.py`, CI, Windows, benchmarks, the 5–15 % JPEG-splice escape rate (H-09), real libewf/VMware/Hyper-V images.
 
@@ -1388,8 +1388,8 @@ The repository's `docs/PROGRESS.md` / `harness.md` use `repo H-01 … H-34`, `R2
 | H-19 gates / fuzz | repo H-14, H-30 | — | CLOSED | FIXED (static) |
 | H-20 container / stdin report | repo H-25 | X22 PASS | CLOSED | FIXED |
 | H-21 release identity | repo H-04 (R2-04, R2-10) | — | PARTIAL | FIXED |
-| H-22 A-10 limits | repo H-34 (R2-07) | — | CLOSED | PARTLY (13 `allow(too_many_arguments)`) |
-| H-23 docs honesty | repo H-01, H-31, H-32, H-33 | — | CLOSED | PARTLY (134 vs 135 tests, `/tmp/opencode` evidence) |
+| H-22 A-10 limits | repo H-34 (R2-07) | — | CLOSED | FIXED (0 `too_many_arguments` allows; clippy line count 0; `fn_len.py` 3 informational; golden byte-identical; G8 green) |
+| H-23 docs honesty | repo H-01, H-31, H-32, H-33 | — | CLOSED | FIXED (generated test count in README; missing `/tmp/opencode` logs marked **not archived**) |
 | H-24 benchmark wording | repo H-33 | — | CLOSED | NOT RE-RUN |
 | H-25 truncated-file end | — (no repo item) | — | — | **OPEN** |
 | H-26 gate without root | repo H-02 | whole script: 34 scenarios, 0 failures, 6 SKIP | CLOSED | FIXED |

@@ -153,7 +153,7 @@ Main options:
 | `--include-gaps` | `on` | Scan image regions outside every supported volume (gaps and partitions without a supported filesystem); on by default |
 | `--no-gaps` | `off` | Restore the historical behaviour: do not scan gaps or unsupported partitions (use with `--partition largest`) |
 | `--max-regions <MAX_REGIONS>` | `4096` | Maximum detailed `regions[]` rows before adjacent rows of the same scanned state are summarised (0 = unlimited; H-27) |
-| `--fragment-recovery` | `off` | Opt in to bounded bifragment gap carving (B-06) |
+| `--fragment-recovery` | `off` | Opt in to bounded B-06 gap carving (supported gaps: filler or embedded header; verified only) Supported filler is zero/low-cardinality (<=8 distinct bytes) or a repeated period <=32; random/high-entropy gaps are not joined. Acceptance always requires deep validation |
 | `--max-gap <MAX_GAP>` | `16` | Maximum gap between joined fragments, in clusters (B-06) |
 | `--max-frag-candidates <MAX_FRAG_CANDIDATES>` | `1024` | Maximum candidate joins evaluated by B-06 |
 | `--frag-time-limit <FRAG_TIME_LIMIT>` | `5000` | Wall-clock budget for B-06, in milliseconds |
@@ -193,10 +193,15 @@ but not the per-sector presence bitmap. Ordinary raw images keep the unchanged
 detected FAT32/NTFS volume it joins a header fragment to a later
 cluster-aligned tail fragment. A contiguous, gap-free carve is left alone; a
 truncated carve, a carve with filler inside it, or a PDF carve containing more
-than one footer is probed with the deep validator. Skipped clusters must look
-like filler or another file's header, joins with the best-explained gaps are
-tried first, and a stitch is written only when its authoritative `validity` is
-`verified` (the earlier lexical PDF exception is no longer accepted here).
+than one footer is probed with the deep validator. Supported gap classes are
+**filler** (all-zero bytes, at most eight distinct byte values, or a repeated
+byte pattern with period ≤ 32) and **an embedded file header** at the gap
+start; random/high-entropy gaps are deliberately not joined. Joins with the
+best-explained gaps are tried first, and a stitch is written only when its
+authoritative `validity` is `verified` (the earlier lexical PDF exception is no
+longer accepted here). This is a precision-over-recall decision (D-71): a
+random gap can leave the file unrecovered, but no stitch is accepted without a
+deep decode proof.
 
 `--max-frag-candidates` is the authoritative budget: each head probe and each
 join attempt consumes one work unit, and reaching it emits
@@ -211,10 +216,13 @@ these JSON fields are omitted when the stage is disabled. Limits without
 The D1-style development profile in `bench/results/d1_fragment_profile.json`
 measured exact recall 4/6 = 66.7% (Wilson 95% [30.0%; 90.3%]), splice rate
 0/4 = 0% (Wilson 95% [0%; 49.0%]), and junk-FP 0/24 = 0% (Wilson 95%
-[0%; 13.8%]); the X15 realistic fixture recalled 3/3 files, and `--threads 1`
-produced identical outputs. The stage is not a runlist/metadata reassembler,
-supports at most two fragments, remains opt-in, and is excluded from the
-published benchmark figures.
+[0%; 13.8%]); the X15 realistic fixture uses supported filler gaps, recalled
+3/3 files, and `--threads 1` produced identical outputs. The generated H-17
+gap matrix in `bench/results/h17_gap_matrix.json` records exact recall, Wilson
+intervals, splice count and wall time separately for zero-filled, random and
+embedded-header gaps. The stage is not a runlist/metadata reassembler, supports
+at most two fragments, remains opt-in, and is excluded from the published
+benchmark figures.
 
 ### Multi-volume scanning, warnings, and exit codes
 
@@ -547,14 +555,9 @@ D-57).
 cargo test
 ```
 
-The current suite has 134 tests (43 unit + 13 `cli_contract` +
-7 `evidence_formats` + 5 `fragment_recovery` + 8 `fs_detect` +
-2 `jpeg_frame_budget` + 4 `memory_budget` + 3 `panic_containment` +
-2 `png_crc_validity` + 4 `png_decode_budget` + 2 `png_validator_budget` +
-8 `pdf_structure_validation` + 5 `properties` + 4 `regress_e01_safety` +
-4 `regress_vmdk_safety` + 3 `repair_validation` + 6 `scan_integration` +
-1 `validity_model` + 4 `work_budgets` + 3 `volume_parse_errors` +
-3 `region_coverage`).
+<!-- BEGIN GENERATED TEST COUNT -->
+The current suite has 147 tests (43 unit + 15 `cli_contract` + 7 `evidence_formats` + 6 `fragment_recovery` + 8 `fs_detect` + 2 `jpeg_frame_budget` + 4 `memory_budget` + 3 `panic_containment` + 8 `pdf_structure_validation` + 3 `png_crc_validity` + 4 `png_decode_budget` + 2 `png_validator_budget` + 7 `properties` + 3 `region_coverage` + 4 `regress_e01_safety` + 5 `regress_tail_padding` + 1 `regress_task_plan` + 4 `regress_vmdk_safety` + 4 `repair_validation` + 6 `scan_integration` + 1 `validity_model` + 3 `volume_parse_errors` + 4 `work_budgets`).
+<!-- END GENERATED TEST COUNT -->
 Run the full G0-G9 release gate with `bash scripts/gate.sh`: it also runs G7
 golden hashes, G8 performance checks against committed baselines, a generated
 flag-table check (G9), 70% line coverage, a 13-target fuzz smoke, all repro

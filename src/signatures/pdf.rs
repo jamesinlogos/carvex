@@ -122,6 +122,18 @@ pub fn analyze_with_limits(
         }
     }
 
+    complete_analysis(data, &version, &eofs, chosen, chosen_idx)
+}
+
+/// Assemble the accepted PDF result after the footer has been selected.
+/// Split out for the A-10 line limit; scoring and note order are unchanged.
+fn complete_analysis(
+    data: &[u8],
+    version: &str,
+    eofs: &[EofCandidate],
+    chosen: &EofCandidate,
+    chosen_idx: usize,
+) -> Need {
     let has_xref = eofs.iter().any(|e| e.xref_target)
         || memchr::memmem::find(data.get(..chosen.end).unwrap_or(data), b"/XRef").is_some();
     let mut score = 50i32;

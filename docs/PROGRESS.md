@@ -94,6 +94,80 @@ Residual risk / next: after B4 run cargo test and re-check the A.2 S-REPAIR
 ```
 
 ```text
+Task: H-17 — B-06 precision/recall decision and hostile budget check
+Change: src/cli.rs (--help), README.md (generated flag table and B-06 prose),
+        docs/DECISIONS.md (D-53 qualification, D-71), docs/harness-ab725a6.md
+        (A.2 S-B06 closure note), CHANGELOG.md, tests/fragment_recovery.rs
+New tests: h17_fragment_limits_bind_on_a_hostile_layout (64 distinct
+        truncated heads and valid footers on FAT32; cap=1 ⇒
+        FRAGMENT_CANDIDATE_LIMIT, 1 ns time limit ⇒ FRAGMENT_TIME_LIMIT and
+        nondeterministic_stop, raised limits ⇒ no FRAGMENT_* warning).
+        scripts/h17_gap_matrix.py regenerates the S-B06 fixture into
+        bench/results/h17_gap_matrix.json with exact recall, Wilson 95%
+        intervals, spliced-stitch count and wall time per gap class.
+Decision: precision over recall. Supported gaps are filler (zeros, <=8
+        distinct bytes, or repeated period <=32) and an embedded file header
+        at the gap start; random/high-entropy gaps are not joined. No stitch
+        is verified without deep validation. Q4 remains answered: both
+        FRAGMENT_* warnings are incomplete and exit 3.
+Gate: GREEN (fmt, clippy -D warnings, 147 tests, rustdoc -D warnings,
+        34 repro scenarios/0 failures/5 SKIPs/0 XPASS, G9 and status). G7
+        golden output byte-identical; G8 PERF GREEN with rand64m 1.051x.
+Measurement: h17_gap_matrix.json regenerated from the final release binary:
+        zeros 3/3 exact, random 0/3, embedded-header 2/3, zero splices,
+        no FRAGMENT_* warnings. The A.2 row stays as the historical ab725a6
+        observation; the generated matrix is the current evidence.
+Residual risk / next: none for this item; do not treat this row as a recall
+        target change or re-enable B-06 by default.
+```
+
+```text
+Task: H-23 — Documentation honesty residual
+Change: bench/render_docs.py (new generated README test-count block derived
+        from `cargo test --all-features --locked -- --list`), README.md,
+        docs/PROGRESS.md, docs/REVIEW_RESPONSE.md, docs/VALIDATION.md,
+        docs/harness-ab725a6.md (A.2 S-QUALITY closure note), CHANGELOG.md
+New tests: none; G9 now checks both the 49-option flag table and the generated
+        test count/breakdown, so a stale number fails the gate. The missing
+        `/tmp/opencode/gate_repro_temp.log`, `gate_release_030.log` and
+        `release_x23_repro.log` are explicitly marked **not archived** in
+        docs/VALIDATION.md rather than presented as available evidence.
+Gate: GREEN (`bench/render_docs.py --check` reports 49 scan options and 147
+        tests; `scripts/check_status.py` and `RUSTDOCFLAGS="-D warnings"
+        cargo doc --no-deps --locked` are green; full Rust/repro/golden/perf
+        gate is green after H-22).
+Measurement: G9 reported 49 scan options and 147 registered tests when the
+        generated block was rewritten. Historical 134-test rows are labelled
+        historical or replaced by a pointer to the generated block.
+Residual risk / next: none for this item; do not re-add hand-typed test counts
+        to README or status rows.
+```
+
+```text
+Task: H-22 — A-10 argument-count residual (last item)
+Change: src/fs/mod.rs (RegionPlanSpec), src/cli.rs (abort-report spec and
+        region call sites), src/scan.rs (CandidateScanCtx, report/repair/
+        finalize/stitch/B-06/output stage structs plus two A-10 helper
+        extractions), src/signatures/pdf.rs (complete_analysis),
+        docs/DECISIONS.md (D-58 closure), docs/harness-ab725a6.md,
+        docs/PROGRESS.md, CHANGELOG.md
+New tests: none; no test file was edited for H-22.
+Gate: GREEN (cargo fmt --all -- --check, cargo clippy --all-targets
+        --all-features --locked -- -D warnings, cargo clippy --lib --
+        -W clippy::too_many_lines: 0 findings, 147 tests, rustdoc -D warnings,
+        34 repro scenarios/0 failures/5 SKIPs/0 XPASS, G9, status).
+Measurement: `grep -R '#[allow(clippy::too_many_arguments)]' src/` finds no
+        matches. `scripts/fn_len.py` is informational: 3 raw-line findings
+        (jpeg content_continuity_check, pdf_validate validate, jpeg analyze),
+        down from 5 at committed HEAD; clippy's code-line metric is the gate
+        of record. G7 golden output is byte-identical to
+        target/h22-golden-before.log. G8 `rand64m` median 0.032 s = 1.051x
+        committed baseline (the earlier 1.330x xfail no longer reproduces).
+Residual risk / next: none; this closes the harness round. Frozen benchmark
+        artifacts, dist/ and the frozen binary were not touched.
+```
+
+```text
 Task: H-25 — Truncated-file end (harness-ab725a6; distinct from repo H-25)
 Change: src/scan.rs, src/signatures/{jpeg,png,pdf,mod}.rs,
         docs/report.schema.json, docs/DECISIONS.md (D-70),
@@ -123,8 +197,8 @@ Gate: cargo fmt --all -- --check, cargo check --all-targets --locked,
         are green (all tests, including the new 512-case property and 5 tail
         tests). Post-commit `review_repro.py --assert --xfail` is 34 scenarios,
         0 failures, 5 SKIPs, 0 XPASS. `scripts/golden.py` is GOLDEN GREEN,
-        `scripts/perf_gate.py` is PERF GREEN (the already-xfailed rand64m
-        baseline timing is the only REGRESSION line), and
+        `scripts/perf_gate.py` is PERF GREEN (the earlier rand64m regression
+        no longer reproduces; final H-22 rebuild measured 1.051x), and
         `bench/render_docs.py --check` plus `scripts/check_status.py` are green.
 Measurement: no benchmark artifact or frozen binary changed. Appendix A.2
         S-TAIL on the frozen corpus with fresh output dirs: JPEG zeros/random/
@@ -191,7 +265,7 @@ scripts/coverage.sh 60                                OK (4456/6391 lines = 69.7
 scripts/fuzz.sh 60                                   7 targets x 60 s, 18,520,025 runs, no crashes/artifacts
 ```
 
-Current gate after H-29 (2026-11-22): **GATE GREEN**, 134 tests
+Gate after H-29 (2026-11-22, historical; current count is generated in README): **GATE GREEN**, 134 tests
 (43 unit + 13 cli_contract + 7 evidence_formats + 5 fragment_recovery +
 8 fs_detect + 2 jpeg_frame_budget + 4 memory_budget + 3 panic_containment +
 2 png_crc_validity + 4 png_decode_budget + 2 png_validator_budget +
@@ -275,7 +349,7 @@ Windows**.
 | A-08 | PARTIAL | green | `trait ImageSource {len, read_at}` + unchanged `RawFile` default; `seek(End)` fallback when metadata len = 0. B-04 adds split raw, E01, VHD, VMDK and stdin sources under `src/image/`. `--on-read-error` and report `unreadable_regions[]` are present (H-22); raw/split reads are retried per 512-byte sector, and abort leaves a partial report. No `BlockDevice`/`--sector-size` yet and real device/Windows not tested. |
 | A-09 | PARTIAL | green | Fixed the NTFS sector off-by-one (`field+1`, D-21, unit test `volume_sector_count_includes_the_backup_boot_sector`); FS errors → `FS_DETECTION_FAILED`. No `$ATTRIBUTE_LIST`/multi-extent `$MFT`/`$MFTMirr`/backup boot/FAT #2 yet. |
 | A-10 | PARTIAL | green | Lib crate + thin `main.rs`; pipeline `plan_extents → build_tasks → scan_task → carve_batch → postfilter → write_outputs`; format registry; `ScanInput<'a>` groups the input parameters for `run_scan`. H-34 split the remaining long functions into behavior-preserving helpers, enabled public `missing_docs` and pedantic stage 1, and documented every remaining `too_many_arguments` allow; the change is recorded in commit f38a2ed. No non-test function exceeds 120 lines. |
-| A-11 | PARTIAL | green | **134 tests** in the current gate (43 unit + 13 cli_contract + 7 evidence_formats + 5 fragment_recovery + 8 fs_detect + 2 jpeg_frame_budget + 4 memory_budget + 3 panic_containment + 2 png_crc_validity + 4 png_decode_budget + 2 png_validator_budget + 8 pdf_structure_validation + 5 properties + 4 regress_e01_safety + 4 regress_vmdk_safety + 3 repair_validation + 6 scan_integration + 1 validity_model + 4 work_budgets + 3 volume_parse_errors + 3 region_coverage); `scripts/review_repro.py --assert/--xfail --carvex` 34 scenarios, 0 failures, 2 SKIPs, 0 XPASS; red baseline `docs/baseline/repro_v0.1.0.txt`. Post-R-01/R-02 `cargo-llvm-cov 0.9.1` measured 4456/6391 lines = **69.72%**; CI/local floor set to 60%, not the earlier aspirational 80%. No new coverage run after H-14/H-16/H-17/H-18/H-19/H-21/H-22/H-25/H-26/H-27/H-29. |
+| A-11 | PARTIAL | green | test count and breakdown generated from `cargo test --all-features --locked -- --list` into README by `bench/render_docs.py --check` (G9; the stale 134-test breakdown was removed in H-23); `scripts/review_repro.py --assert/--xfail --carvex` 34 scenarios, 0 failures, 2 SKIPs, 0 XPASS; red baseline `docs/baseline/repro_v0.1.0.txt`. Post-R-01/R-02 `cargo-llvm-cov 0.9.1` measured 4456/6391 lines = **69.72%**; CI/local floor set to 60%, not the earlier aspirational 80%. No new coverage run after H-14/H-16/H-17/H-18/H-19/H-21/H-22/H-25/H-26/H-27/H-29. |
 | A-12 | PARTIAL | green | MSRV 1.85 (`rust-version`, README corrected from "Rust 1.74"); `cargo +1.85 check` in the gate; `.github/workflows/ci.yml` adds actionlint + coverage and uses a pinned direct actionlint install; `rustfmt.toml`/`clippy.toml`/`deny.toml`; 0.3.0 release rebuild + regenerated `SHA256SUMS`. Local `cargo deny check`, `cargo audit` and `actionlint 1.7.12` pass. Earlier GitHub run `44548142275` on `42376a9` succeeded but predates B-04/B-06/R-01/R-02; `45095456201` failed, then CI fixes landed and run `45121233267` at `86ae15f` completed success (27/27 jobs, archived in `bench/results/ci_run_45121233267*.json`; job logs 403 via public API). Current-HEAD CI run `45332545060` (`749ee7a`, 2026-11-24) completed **success** (27/27 jobs), archived in `bench/results/ci_run_45332545060*.json`; job logs 403 via public API. The 0.3.0 packaged Windows binary was executed under Wine 10.0, not on a Windows runner. SBOM generation is wired in; no signatures; removing binaries from `dist/` is STOP-AND-ASK (kept). |
 | A-13 | PARTIAL | green | Exit 0/1/2/3/4 documented + CLI contract tests; coded warnings; `RAW_SCANS_ALLOCATED` informational (D-20); H-28 writes a partial report with `INTERRUPTED` and exit 4. No `thiserror` types, leveled logger or `ProgressSink`/ETA yet. |
 | A-14 | PARTIAL | green | Report schema v2: `schema_version`, `argv`, `options`, `tool_info`, `input` (before–after SHA-256), ISO-8601, `case_id`, `examiner`, `warnings[]` object, `volumes[]`, `regions[]`, `lba`, real `cluster`, `partition_index`, `extent_id`, `allocated`, `source`, `fragments`. `docs/report.schema.json` + key-matching test; atomic write; `--manifest` generates `SHA256SUMS`; `--report-schema 1`. `unreadable_regions[]` is emitted with A-08/H-22 read-error handling; schema 1 still strips additive fields. |

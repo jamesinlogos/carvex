@@ -22,6 +22,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   default emission policy is unchanged.
 - H-04: document PDF, PNG and JPEG footer repair (§9 Q11 user decision) and pin
   that mid-stream PNG/JPEG cuts stay `partial` with unchanged bytes.
+- H-17: document the supported B-06 gap classes and the precision-over-recall
+  decision; `scan --help` now states that random/high-entropy gaps are not
+  joined. No join behaviour, default, threshold or frozen result changed.
+- H-23: README's test count and per-binary breakdown are generated from
+  `cargo test -- --list` and checked by G9; missing historical `/tmp/opencode`
+  logs are marked **not archived** in `docs/VALIDATION.md`.
+- H-22: all `#[allow(clippy::too_many_arguments)]` attributes were removed in
+  favour of local stage/parameter structs. A pure refactor with no test edits;
+  golden output is byte-identical, G8 is green and clippy reports no line-count
+  findings.
 
 ## [0.3.1] — 2026-11-23
 

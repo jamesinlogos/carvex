@@ -7,8 +7,8 @@ use carvex::io::ImageSource;
 use carvex::scan::{run_scan, ScanContext, ScanInput, ScanMode};
 use carvex::signatures::{FileType, Status, Validation, ValidationMode, Validity};
 use common::{
-    fat32_interleaved, jpeg_with_cluster_split, pdf_with_cluster_split, png_with_cluster_split,
-    scan_options, MemSource,
+    fat32_interleaved, fat32_volume_sectors_spc, jpeg_with_cluster_split, pdf_with_cluster_split,
+    png_with_cluster_split, scan_options, MemSource,
 };
 use std::collections::HashSet;
 use std::fs as std_fs;
@@ -309,4 +309,73 @@ fn h29_fragment_work_limit_exits_three() {
         .iter()
         .any(|w| w["code"] == "FRAGMENT_CANDIDATE_LIMIT"));
     assert_eq!(report["nondeterministic_stop"], false);
+}
+
+/// H-17 residual: the S-B06 fixtures stop before either B-06 budget binds, so
+/// use a hostile layout with many distinct heads and valid footers instead.
+fn hostile_fragment_image(heads: usize) -> Vec<u8> {
+    const HEADS: usize = 64;
+    const SPC: u8 = 8;
+    assert!(heads <= HEADS);
+    let mut image = fat32_volume_sectors_spc(2048, SPC);
+    let fat_sectors = (2048u64 * 4 + 1024).div_ceil(512) as usize;
+    let first_free = (1 + fat_sectors) * 512 + CLUSTER;
+    let file = jpeg_with_cluster_split(CLUSTER);
+    let tail = &file[CLUSTER..];
+    assert!(tail.len() <= CLUSTER);
+    let mut offset = first_free;
+    for index in 0..heads {
+        let mut head = file[..CLUSTER].to_vec();
+        head[6] = (index + 1) as u8;
+        image[offset..offset + CLUSTER].copy_from_slice(&head);
+        offset += CLUSTER;
+        offset += CLUSTER; // the gap remains zero-filled
+        image[offset..offset + tail.len()].copy_from_slice(tail);
+        offset += CLUSTER;
+    }
+    assert!(offset <= image.len());
+    image
+}
+
+#[test]
+fn h17_fragment_limits_bind_on_a_hostile_layout() {
+    let image = hostile_fragment_image(64);
+    let mut capped = scan_options(vec![FileType::Jpeg], ScanMode::Auto);
+    capped.min_size = 1;
+    capped.fragment_recovery = true;
+    capped.validate = ValidationMode::Structure;
+    capped.max_frag_candidates = 1;
+    capped.frag_time_limit = Duration::from_secs(60);
+    capped.threads = 1;
+    let (_dir, report) = run_bgc(image.clone(), &capped);
+    assert_incomplete(&report, "FRAGMENT_CANDIDATE_LIMIT");
+    assert!(!report.nondeterministic_stop);
+
+    let mut timed = scan_options(vec![FileType::Jpeg], ScanMode::Auto);
+    timed.min_size = 1;
+    timed.fragment_recovery = true;
+    timed.validate = ValidationMode::Structure;
+    timed.max_frag_candidates = 10_000;
+    timed.frag_time_limit = Duration::from_nanos(1);
+    timed.threads = 1;
+    let (_dir, report) = run_bgc(image.clone(), &timed);
+    assert_incomplete(&report, "FRAGMENT_TIME_LIMIT");
+    assert!(report.nondeterministic_stop);
+
+    let mut roomy = scan_options(vec![FileType::Jpeg], ScanMode::Auto);
+    roomy.min_size = 1;
+    roomy.fragment_recovery = true;
+    roomy.validate = ValidationMode::Structure;
+    roomy.max_frag_candidates = 10_000;
+    roomy.frag_time_limit = Duration::from_secs(60);
+    roomy.threads = 1;
+    let (_dir, report) = run_bgc(image, &roomy);
+    assert!(
+        !report
+            .warnings
+            .iter()
+            .any(|w| w.code.starts_with("FRAGMENT_")),
+        "raised limits should not truncate the hostile scan: {:?}",
+        report.warnings
+    );
 }

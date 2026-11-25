@@ -200,7 +200,9 @@ struct ScanArgs {
     /// scanned state are summarised (0 = unlimited; H-27)
     #[arg(long, value_parser = clap::value_parser!(u64), default_value_t = DEFAULT_MAX_REGIONS)]
     max_regions: u64,
-    /// Opt in to bounded bifragment gap carving (B-06)
+    /// Opt in to bounded B-06 gap carving (supported gaps: filler or embedded header; verified only)
+    /// Supported filler is zero/low-cardinality (<=8 distinct bytes) or a repeated period <=32;
+    /// random/high-entropy gaps are not joined. Acceptance always requires deep validation.
     #[arg(long)]
     fragment_recovery: bool,
     /// Maximum gap between joined fragments, in clusters (B-06)
@@ -475,15 +477,15 @@ fn forced_offset_selection(
     let scans_free = matches!(args.mode, ScanMode::Auto | ScanMode::Unallocated);
     let scans_alloc = args.mode == ScanMode::Allocated;
     let (_, planned) = scan::plan_extents(args.mode, &selection.volumes, &[], len)?;
-    selection.regions = single.regions_with_plan(
-        &selection.volumes,
-        whole,
+    selection.regions = single.regions_with_plan(fs::RegionPlanSpec {
+        selected: &selection.volumes,
+        whole_image_scanned: whole,
         scans_free,
-        scans_alloc,
-        false,
-        &planned,
-        args.max_regions,
-    );
+        scans_allocated: scans_alloc,
+        include_gaps: false,
+        plan: &planned,
+        max_regions: args.max_regions,
+    });
     Ok(selection)
 }
 
@@ -502,15 +504,15 @@ fn detection_failure_selection(
         .map(|(i, v)| VolumeSummary::from_fs(i + 1, v, true))
         .collect();
     let (_, planned) = scan::plan_extents(ScanMode::Raw, &[], &[], len)?;
-    let regions = set.regions_with_plan(
-        &[],
-        true,
-        false,
-        false,
+    let regions = set.regions_with_plan(fs::RegionPlanSpec {
+        selected: &[],
+        whole_image_scanned: true,
+        scans_free: false,
+        scans_allocated: false,
         include_gaps,
-        &planned,
-        args.max_regions,
-    );
+        plan: &planned,
+        max_regions: args.max_regions,
+    });
     Ok(ScanSelection {
         volume_rows,
         regions,
@@ -612,15 +614,15 @@ fn selected_volumes_selection(
         })
         .collect();
     let (_, planned) = scan::plan_extents(args.mode, &selection.volumes, &selection.extra, len)?;
-    selection.regions = set.regions_with_plan(
-        &selection.volumes,
-        whole_image,
+    selection.regions = set.regions_with_plan(fs::RegionPlanSpec {
+        selected: &selection.volumes,
+        whole_image_scanned: whole_image,
         scans_free,
-        scans_alloc,
+        scans_allocated: scans_alloc,
         include_gaps,
-        &planned,
-        args.max_regions,
-    );
+        plan: &planned,
+        max_regions: args.max_regions,
+    });
     append_not_scanned_warnings(&mut selection, set, include_gaps, whole_image);
     Ok(selection)
 }
@@ -830,18 +832,30 @@ fn unreadable_warning(regions: &[UnreadableRegion]) -> Option<Warning> {
     ))
 }
 
-// H-34: the helper preserves the original abort-report call order; grouping inputs would obscure that order.
-#[allow(clippy::too_many_arguments)]
-fn write_abort_partial_report(
-    input: &scan::ScanInput<'_>,
-    opts: &ScanOptions,
-    ctx: &ScanContext,
-    args: &ScanArgs,
-    mut warnings: Vec<Warning>,
+/// Inputs to the schema-valid partial report left behind by a read-error
+/// abort, grouped for H-22 without changing warning or write order.
+struct AbortReportSpec<'a, 'b> {
+    input: &'a scan::ScanInput<'b>,
+    opts: &'a ScanOptions,
+    ctx: &'a ScanContext,
+    args: &'a ScanArgs,
+    warnings: Vec<Warning>,
     volume_rows: Vec<VolumeSummary>,
     regions: Vec<crate::fs::Region>,
-    unreadable_regions: &[UnreadableRegion],
-) -> Result<()> {
+    unreadable_regions: &'a [UnreadableRegion],
+}
+
+fn write_abort_partial_report(spec: AbortReportSpec<'_, '_>) -> Result<()> {
+    let AbortReportSpec {
+        input,
+        opts,
+        ctx,
+        args,
+        mut warnings,
+        volume_rows,
+        regions,
+        unreadable_regions,
+    } = spec;
     // `abort` intentionally returns exit 1, but the run must still leave a
     // schema-valid partial report when unreadable bytes were the reason it
     // stopped.
@@ -962,16 +976,16 @@ fn scan(args: ScanArgs) -> Result<i32> {
     let report = match run_result {
         Ok(report) => report,
         Err(err) => {
-            write_abort_partial_report(
-                &input,
-                &opts,
-                &ctx,
-                &args,
+            write_abort_partial_report(AbortReportSpec {
+                input: &input,
+                opts: &opts,
+                ctx: &ctx,
+                args: &args,
                 warnings,
-                selection.volume_rows,
-                selection.regions,
-                &unreadable_regions,
-            )?;
+                volume_rows: selection.volume_rows,
+                regions: selection.regions,
+                unreadable_regions: &unreadable_regions,
+            })?;
             return Err(err);
         }
     };

@@ -234,6 +234,26 @@ impl std::fmt::Display for VolumeParseError {
     }
 }
 
+/// Inputs to [`VolumeSet::regions_with_plan`] that describe one scan's
+/// selection and summarisation policy.
+#[derive(Debug, Clone, Copy)]
+pub struct RegionPlanSpec<'a> {
+    /// Volumes selected for free/allocated scanning.
+    pub selected: &'a [FsInfo],
+    /// Whether the run reads every byte of the image.
+    pub whole_image_scanned: bool,
+    /// Whether free clusters of selected volumes are read.
+    pub scans_free: bool,
+    /// Whether allocated clusters of selected volumes are read.
+    pub scans_allocated: bool,
+    /// Whether unpartitioned gaps and unsupported partitions are read.
+    pub include_gaps: bool,
+    /// Extents from `scan::plan_extents`, used to populate `extent_id`.
+    pub plan: &'a [Extent],
+    /// Maximum detailed rows before adjacent scanned rows are summarised.
+    pub max_regions: u64,
+}
+
 /// Everything a detection pass found: every supported volume, every
 /// partition-table entry, the image regions between them, and probe errors.
 #[derive(Debug, Clone)]
@@ -287,35 +307,33 @@ impl VolumeSet {
         scans_allocated: bool,
         include_gaps: bool,
     ) -> Vec<Region> {
-        self.regions_with_plan(
+        self.regions_with_plan(RegionPlanSpec {
             selected,
             whole_image_scanned,
             scans_free,
             scans_allocated,
             include_gaps,
-            &[],
-            0,
-        )
+            plan: &[],
+            max_regions: 0,
+        })
     }
 
     /// Build the H-27 coverage map from the same extents the scanner reads.
     ///
-    /// `plan` is the output of `scan::plan_extents`; when it is empty (for
-    /// `info`) `extent_id` is left unset. `max_regions == 0` keeps every
+    /// The spec groups the selection flags and the plan inputs; `plan` is the
+    /// output of `scan::plan_extents`, and `max_regions == 0` keeps every
     /// detailed extent. Adjacent rows with the same `scanned` state may be
     /// summarised, but coverage and the sum of scanned lengths are exact.
-    // H-34: region planning keeps its original signature so coverage and summarisation inputs stay explicit.
-    #[allow(clippy::too_many_arguments)]
-    pub fn regions_with_plan(
-        &self,
-        selected: &[FsInfo],
-        whole_image_scanned: bool,
-        scans_free: bool,
-        scans_allocated: bool,
-        include_gaps: bool,
-        plan: &[Extent],
-        max_regions: u64,
-    ) -> Vec<Region> {
+    pub fn regions_with_plan(&self, spec: RegionPlanSpec<'_>) -> Vec<Region> {
+        let RegionPlanSpec {
+            selected,
+            whole_image_scanned,
+            scans_free,
+            scans_allocated,
+            include_gaps,
+            plan,
+            max_regions,
+        } = spec;
         let mut tagged: Vec<TaggedRegion> = Vec::new();
         let parse_failed = |index: usize| self.errors.iter().any(|e| e.partition_index == index);
         let volume_end = |v: &FsInfo| {
