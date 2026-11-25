@@ -119,6 +119,13 @@ Gate: cargo fmt --all -- --check, cargo check --all-targets --locked,
         after commit: build --release, review_repro, A.2, golden/perf, G9.
 Measurement: no benchmark artifact or frozen binary changed. Focused matrix
         run: 5 tests pass; property suite: 7 tests pass with 512 cases.
+A.2 regression guard: `review_repro.py` X14 initially showed
+        `sha256_original=None` because the conservative PDF end cut off the
+        zero fill before the generic trimmer could reproduce the exact S-REPAIR
+        prefix. Long zero/FF fill tails are now left to the generic O(tail)
+        trimmer; random/text padding still uses the conservative structural
+        end. `review_repro.py --assert --xfail` is back to 34 scenarios,
+        0 failures, 5 SKIPs, 0 XPASS.
 Residual risk / next: ASCII/random padding is bounded by the structural end,
         not by a content hash; a cut before the first complete object keeps
         only the header/object header. Verify the A.2 S-TAIL/S-TAIL-NEIGH

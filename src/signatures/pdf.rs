@@ -275,6 +275,34 @@ fn find_eofs(data: &[u8]) -> Vec<EofCandidate> {
     eofs
 }
 
+/// True when the buffer tail is a fill pattern the generic carve trimmer will
+/// remove: a long zero run, or a long `0xFF` run after the trailing zeros.
+/// The 16 KiB zero threshold is above the 8 KiB trailer used by the S-TAIL
+/// fixtures, so random padding followed by that trailer still takes the
+/// conservative path.
+fn padding_after_cut_is_trim_only(prefix: &[u8]) -> bool {
+    let mut end = prefix.len();
+    let zero_run = prefix
+        .get(..end)
+        .unwrap_or(prefix)
+        .iter()
+        .rev()
+        .take_while(|b| **b == 0)
+        .count();
+    if zero_run >= 16 * 1024 {
+        return true;
+    }
+    end = end.saturating_sub(zero_run);
+    let ff_run = prefix
+        .get(..end)
+        .unwrap_or(prefix)
+        .iter()
+        .rev()
+        .take_while(|b| **b == 0xFF)
+        .count();
+    ff_run >= 512
+}
+
 /// Conservative end for a PDF with no footer (H-25). The last complete
 /// top-level `endobj` is the structural floor; a cut `FlateDecode` stream with a
 /// provable inflate prefix may extend it. The decode budget is the validator's
@@ -285,6 +313,13 @@ fn conservative_truncated_end(
     limits: ValidationLimits,
 ) -> (usize, Option<String>) {
     let prefix = data.get(..search_end).unwrap_or(data);
+    // A long zero/FF fill after the cut is removed by the generic O(tail)
+    // trimmer in `carve_one`. Letting it see the whole buffer keeps zero-padded
+    // cuts byte-identical (S-REPAIR PDF and S-TAIL zero rows) while random or
+    // text padding still gets the conservative structural end below.
+    if padding_after_cut_is_trim_only(prefix) {
+        return (search_end, None);
+    }
     let mut end = 0usize;
     for pos in memchr::memmem::find_iter(prefix, b"endobj") {
         let mut candidate = pos.saturating_add(b"endobj".len());
