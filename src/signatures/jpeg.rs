@@ -51,11 +51,26 @@ fn jpeg_segment_end(
     progress: &JpegProgress,
     at_limit: bool,
 ) -> Result<usize, Need> {
+    // H-25: a declared length that runs past the supplied buffer is the cut,
+    // not verified image data. Once SOF proves the header, end at the segment
+    // boundary that is actually present instead of claiming the padding that
+    // happens to satisfy the length field.
+    let cut_end = |why: &str| {
+        progress.truncated(
+            if progress.sof {
+                pos.saturating_sub(2)
+            } else {
+                data.len()
+            },
+            at_limit,
+            why,
+        )
+    };
     if pos + 2 > data.len() {
-        return Err(progress.truncated(data.len(), at_limit, "truncated segment length"));
+        return Err(cut_end("truncated segment length"));
     }
     let Some(seg_len) = be16(data, pos) else {
-        return Err(progress.truncated(data.len(), at_limit, "truncated segment length"));
+        return Err(cut_end("truncated segment length"));
     };
     let seg_len = seg_len as usize;
     if seg_len < 2 {
@@ -65,7 +80,7 @@ fn jpeg_segment_end(
     }
     match pos.checked_add(seg_len) {
         Some(v) if v <= data.len() => Ok(v),
-        _ => Err(progress.truncated(data.len(), at_limit, "truncated segment payload")),
+        _ => Err(cut_end("truncated segment payload")),
     }
 }
 
@@ -166,23 +181,63 @@ pub fn analyze(data: &[u8], at_limit: bool) -> Need {
         if pos >= data.len() {
             return progress.truncated(data.len(), at_limit, "end of buffer");
         }
+        // H-25: a marker must follow every segment. Once SOF has been seen the
+        // candidate is provably a JPEG; an invalid continuation (padding or
+        // unrelated data after a cut) ends the salvaged prefix here instead of
+        // rejecting everything before it.
+        let marker_start = pos;
         if data.get(pos) != Some(&0xFF) {
+            if progress.sof {
+                return progress.truncated(
+                    marker_start,
+                    at_limit,
+                    if progress.sos {
+                        "invalid continuation after SOS"
+                    } else {
+                        "invalid segment continuation"
+                    },
+                );
+            }
             return Need::Reject(format!("expected JPEG marker at offset {pos}"));
         }
         while data.get(pos) == Some(&0xFF) {
             pos += 1;
         }
         if pos >= data.len() {
-            return progress.truncated(data.len(), at_limit, "truncated marker");
+            // A trailing FF run after a cut is fill, not entropy data: FF is
+            // stuffed as FF 00 inside a scan. Never claim those bytes.
+            return progress.truncated(
+                marker_start,
+                at_limit,
+                "trailing FF run after truncated data",
+            );
         }
         let Some(&marker) = data.get(pos) else {
-            return progress.truncated(data.len(), at_limit, "truncated marker");
+            return progress.truncated(marker_start, at_limit, "truncated marker");
         };
         pos += 1;
 
         match marker {
-            0x00 => return Need::Reject("invalid JPEG marker 0x00 outside entropy data".into()),
-            0xD8 => return Need::Reject("nested JPEG SOI".into()),
+            0x00 => {
+                if progress.sof {
+                    return progress.truncated(
+                        marker_start,
+                        at_limit,
+                        if progress.sos {
+                            "invalid marker 0x00 after SOS"
+                        } else {
+                            "invalid marker 0x00 after SOF"
+                        },
+                    );
+                }
+                return Need::Reject("invalid JPEG marker 0x00 outside entropy data".into());
+            }
+            0xD8 => {
+                if progress.sos {
+                    return progress.truncated(marker_start, at_limit, "next SOI after SOS");
+                }
+                return Need::Reject("nested JPEG SOI".into());
+            }
             0xD9 => {
                 if !progress.sof {
                     return Need::Reject("JPEG EOI before any SOF".into());
@@ -199,11 +254,17 @@ pub fn analyze(data: &[u8], at_limit: bool) -> Need {
 
         let seg_end = match jpeg_segment_end(data, pos, &progress, at_limit) {
             Ok(v) => v,
+            Err(Need::Reject(_)) if progress.sof => {
+                return progress.truncated(marker_start, at_limit, "invalid segment after SOF");
+            }
             Err(need) => return need,
         };
         if is_sof(marker) {
             if let Err(need) = apply_sof(data, pos, seg_end - pos, marker, &mut progress, at_limit)
             {
+                if progress.sos && matches!(&need, Need::Reject(_)) {
+                    return progress.truncated(marker_start, at_limit, "invalid SOF after SOS");
+                }
                 return need;
             }
         }

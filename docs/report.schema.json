@@ -111,7 +111,10 @@
         "additionalProperties": false,
         "properties": {
           "code": { "type": "string" },
-          "message": { "type": "string" }
+          "message": { "type": "string" },
+          "type": { "type": "string", "description": "File type for a candidate-specific warning (H-25)." },
+          "offset": { "type": "integer", "minimum": 0, "description": "Source byte offset for a candidate-specific warning (H-25)." },
+          "size": { "type": "integer", "minimum": 0, "description": "Candidate size for a candidate-specific warning (H-25)." }
         }
       }
     },

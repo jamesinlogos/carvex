@@ -1,5 +1,5 @@
 #![deny(clippy::indexing_slicing, clippy::unwrap_used, clippy::expect_used)]
-use super::{Analysis, Need, PdfEofMode};
+use super::{Analysis, Need, PdfEofMode, ValidationLimits};
 
 const EOF_SUFFIX: &[u8] = b"\n%%EOF\n";
 
@@ -19,8 +19,18 @@ impl EofCandidate {
     }
 }
 
-/// Analyze a PDF candidate and return structural parse results.
+/// Analyze a PDF candidate with the default decode budget.
 pub fn analyze(data: &[u8], at_limit: bool, mode: PdfEofMode) -> Need {
+    analyze_with_limits(data, at_limit, mode, ValidationLimits::default())
+}
+
+/// Analyze a PDF candidate and return structural parse results (H-25).
+pub fn analyze_with_limits(
+    data: &[u8],
+    at_limit: bool,
+    mode: PdfEofMode,
+    limits: ValidationLimits,
+) -> Need {
     if data.len() < 8 {
         return if at_limit {
             Need::Reject("too short for PDF".into())
@@ -61,8 +71,8 @@ pub fn analyze(data: &[u8], at_limit: bool, mode: PdfEofMode) -> Need {
         if !at_limit && boundaries.is_empty() {
             return Need::More;
         }
-        let end = search_end;
-        return truncated(
+        let (end, bound_note) = conservative_truncated_end(data, search_end, limits);
+        let mut need = truncated(
             end,
             true,
             data.get(..end).unwrap_or(data),
@@ -73,6 +83,10 @@ pub fn analyze(data: &[u8], at_limit: bool, mode: PdfEofMode) -> Need {
                 "next document header before any %%EOF"
             },
         );
+        if let (Need::Analyzed(analysis), Some(note)) = (&mut need, bound_note) {
+            analysis.notes.push(note);
+        }
+        return need;
     }
 
     let chosen_idx = match mode {
@@ -259,6 +273,96 @@ fn find_eofs(data: &[u8]) -> Vec<EofCandidate> {
         }
     }
     eofs
+}
+
+/// Conservative end for a PDF with no footer (H-25). The last complete
+/// top-level `endobj` is the structural floor; a cut `FlateDecode` stream with a
+/// provable inflate prefix may extend it. The decode budget is the validator's
+/// bounded budget, so no stream is inflated without a cap.
+fn conservative_truncated_end(
+    data: &[u8],
+    search_end: usize,
+    limits: ValidationLimits,
+) -> (usize, Option<String>) {
+    let prefix = data.get(..search_end).unwrap_or(data);
+    let mut end = 0usize;
+    for pos in memchr::memmem::find_iter(prefix, b"endobj") {
+        let mut candidate = pos.saturating_add(b"endobj".len());
+        // The line terminator belongs to the object, not to the padding that
+        // follows a cut. Take at most one line ending so a padded stream is
+        // never extended on the strength of whitespace alone.
+        if prefix.get(candidate) == Some(&b'\r') {
+            candidate += 1;
+        }
+        if prefix.get(candidate) == Some(&b'\n') {
+            candidate += 1;
+        }
+        if candidate <= search_end
+            && memchr::memmem::find(prefix.get(..pos).unwrap_or(&[]), b" obj").is_some()
+        {
+            end = candidate;
+        }
+    }
+
+    let mut bound_note = None;
+    if let Some((stream_start, stream)) = last_open_flate_stream(prefix, search_end) {
+        if let Some((_, consumed)) = super::zlib_prefix(&[stream], limits.max_validator_memory) {
+            let stream_end = stream_start.saturating_add(consumed).min(search_end);
+            if stream_end > end {
+                end = stream_end;
+                bound_note = Some("end set to last inflatable FlateDecode stream byte".to_string());
+            }
+        }
+    }
+
+    // No complete object: keep only the header and the last object header that
+    // is actually present. A cut before the first `endobj` has no verified
+    // body; claiming `search_end` would swallow arbitrary padding.
+    if end < 8 {
+        end = 8.min(prefix.len());
+    }
+    for pos in memchr::memmem::find_iter(prefix, b" obj") {
+        let candidate = pos.saturating_add(b" obj".len());
+        if candidate > end && candidate <= search_end {
+            end = candidate;
+        }
+    }
+    (end, bound_note)
+}
+
+/// Last `stream` keyword that has no `endstream` after it and whose object
+/// dictionary declares `FlateDecode`. Returns the payload start and the bounded
+/// slice ending at `search_end`.
+fn last_open_flate_stream(prefix: &[u8], search_end: usize) -> Option<(usize, &[u8])> {
+    let mut found = None;
+    for pos in memchr::memmem::find_iter(prefix, b"stream") {
+        if pos >= 3 && prefix.get(pos - 3..pos) == Some(b"end".as_slice()) {
+            continue;
+        }
+        let after = pos.saturating_add(b"stream".len());
+        if after > search_end {
+            continue;
+        }
+        let dict_start = pos.saturating_sub(512);
+        let dict = prefix.get(dict_start..pos).unwrap_or(&[]);
+        if memchr::memmem::find(dict, b"/FlateDecode").is_none() {
+            continue;
+        }
+        if memchr::memmem::find(prefix.get(after..search_end).unwrap_or(&[]), b"endstream")
+            .is_some()
+        {
+            continue;
+        }
+        let mut start = after;
+        if prefix.get(start) == Some(&b'\r') {
+            start += 1;
+        }
+        if prefix.get(start) == Some(&b'\n') {
+            start += 1;
+        }
+        found = Some((start, prefix.get(start..search_end).unwrap_or(&[])));
+    }
+    found
 }
 
 fn truncated(end: usize, at_limit: bool, prefix: &[u8], version: &str, why: &str) -> Need {
@@ -472,7 +576,11 @@ mod tests {
         match analyze(cut, true, PdfEofMode::Smart) {
             Need::Analyzed(a) => {
                 assert!(!a.complete);
-                assert_eq!(a.end, cut.len());
+                // H-25: a footerless PDF ends after the last complete object
+                // and its line terminator, not at the buffer end (the cut
+                // trailer is not verified).
+                assert_eq!(a.end, 114 + 1);
+                assert!(a.end < cut.len());
                 assert!(a.score >= 50);
                 assert_eq!(a.repair_suffix, EOF_SUFFIX);
             }
@@ -489,7 +597,9 @@ mod tests {
         match analyze(&d, true, PdfEofMode::Smart) {
             Need::Analyzed(a) => {
                 assert!(!a.complete);
-                assert_eq!(a.end, first.len());
+                // H-25: the object's own newline is kept, but the next
+                // document header is not swallowed.
+                assert_eq!(a.end, 56 + 1);
             }
             _ => panic!("expected truncated first PDF"),
         }

@@ -663,7 +663,8 @@ fn verbose_prints_each_carved_file_exactly_once() {
         "1",
     ]);
     assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr(&out));
-    let lines: Vec<_> = stderr(&out)
+    let verbose_stderr = stderr(&out);
+    let lines: Vec<_> = verbose_stderr
         .lines()
         .filter(|line| line.starts_with("[+] "))
         .collect();

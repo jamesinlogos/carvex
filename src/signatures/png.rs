@@ -1,5 +1,5 @@
 #![deny(clippy::indexing_slicing, clippy::unwrap_used, clippy::expect_used)]
-use super::{png_chunk_crc_check, Analysis, Need, ValidationCheck};
+use super::{png_chunk_crc_check, Analysis, Need, ValidationCheck, ValidationLimits};
 use crc32fast::Hasher;
 
 const PNG_MAGIC: &[u8] = &[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
@@ -7,8 +7,13 @@ pub(crate) const IEND_SUFFIX: &[u8] = &[
     0x00, 0x00, 0x00, 0x00, b'I', b'E', b'N', b'D', 0xAE, 0x42, 0x60, 0x82,
 ];
 
-/// Analyze a PNG candidate and return structural parse results.
+/// Analyze a PNG candidate with the default decode budget.
 pub fn analyze(data: &[u8], at_limit: bool) -> Need {
+    analyze_with_limits(data, at_limit, ValidationLimits::default())
+}
+
+/// Analyze a PNG candidate and return structural parse results (H-25).
+pub fn analyze_with_limits(data: &[u8], at_limit: bool, limits: ValidationLimits) -> Need {
     if data.len() < 8 {
         return if at_limit {
             Need::Reject("too short for PNG".into())
@@ -31,6 +36,37 @@ pub fn analyze(data: &[u8], at_limit: bool) -> Need {
     loop {
         let chunk = match read_png_chunk(data, pos, &progress, at_limit) {
             Ok(chunk) => chunk,
+            Err(Need::Analyzed(mut analysis)) => {
+                // H-25: an incomplete chunk is not a verified byte boundary.
+                // The last inflatable IDAT byte is; for a cut inside IDAT this
+                // extends the structural fallback up to that byte, and for a
+                // cut after IDAT it trims anything the stream did not decode.
+                let pending =
+                    if data.get(pos + 4..pos + 8) == Some(&b"IDAT"[..]) && pos + 8 <= data.len() {
+                        Some(pos + 8)
+                    } else {
+                        None
+                    };
+                if let Some((end, from_pending)) =
+                    png_inflate_end(data, &progress.idat_ranges, pending, limits)
+                {
+                    let end = end.min(data.len());
+                    if from_pending && end > analysis.end {
+                        analysis.notes.push(format!(
+                            "kept {} byte(s) of inflatable IDAT payload",
+                            end - analysis.end
+                        ));
+                    } else if end < analysis.end {
+                        analysis.notes.push(format!(
+                            "trimmed {} byte(s) after the last inflatable IDAT byte",
+                            analysis.end - end
+                        ));
+                    }
+                    analysis.end = end;
+                    analysis.validated_prefix = analysis.validated_prefix.min(end as u64);
+                }
+                return Need::Analyzed(analysis);
+            }
             Err(need) => return need,
         };
         update_chunk_crc(pos, &chunk, &mut progress);
@@ -45,7 +81,10 @@ pub fn analyze(data: &[u8], at_limit: bool) -> Need {
                 }
             }
             b"PLTE" => progress.plte = true,
-            b"IDAT" => progress.idat = true,
+            b"IDAT" => {
+                progress.idat = true;
+                progress.idat_ranges.push((pos + 8, pos + 8 + chunk.len));
+            }
             b"IEND" => {
                 if chunk.len != 0 {
                     return Need::Reject("PNG IEND has non-zero length".into());
@@ -231,6 +270,41 @@ fn png_finished(progress: &PngProgress, chunks: u32) -> Need {
     })
 }
 
+/// Map a bounded zlib-prefix decision back to a byte offset in the PNG.
+/// `pending` is the payload start of an IDAT chunk cut by the carve boundary.
+/// The boolean in the result says whether the decision came from that chunk.
+fn png_inflate_end(
+    data: &[u8],
+    ranges: &[(usize, usize)],
+    pending: Option<usize>,
+    limits: ValidationLimits,
+) -> Option<(usize, bool)> {
+    let mut all = ranges.to_vec();
+    if let Some(start) = pending {
+        if start <= data.len() {
+            all.push((start, data.len()));
+        }
+    }
+    let slices: Vec<&[u8]> = all
+        .iter()
+        .map(|(start, end)| data.get(*start..*end))
+        .collect::<Option<Vec<_>>>()?;
+    let (index, consumed) = super::zlib_prefix(&slices, limits.max_validator_memory)?;
+    let (start, payload_end) = all.get(index)?;
+    let is_pending = index >= ranges.len();
+    // A complete zlib stream ending exactly at an IDAT payload boundary still
+    // owns that chunk's four CRC bytes; --repair must append IEND after them.
+    let end = if !is_pending
+        && consumed >= payload_end.saturating_sub(*start)
+        && payload_end.saturating_add(4) <= data.len()
+    {
+        payload_end.saturating_add(4)
+    } else {
+        start.saturating_add(consumed)
+    };
+    Some((end.min(data.len()), is_pending))
+}
+
 #[derive(Clone, Default)]
 struct PngProgress {
     last_good: usize,
@@ -244,6 +318,8 @@ struct PngProgress {
     crc_failed: bool,
     checks: Vec<ValidationCheck>,
     validated_prefix: u64,
+    /// Payload ranges of complete IDAT chunks, in file order (H-25).
+    idat_ranges: Vec<(usize, usize)>,
 }
 
 impl PngProgress {

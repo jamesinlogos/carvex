@@ -7,10 +7,38 @@ mod common;
 
 use carvex::fs;
 use carvex::io::ImageSource;
-use carvex::signatures::{jpeg, pdf, png, PdfEofMode};
+use carvex::scan::{run_scan, ScanContext, ScanInput, ScanMode};
+use carvex::signatures::{
+    jpeg, pdf, png, FileType, PdfEofMode, Status, Validation, ValidationLimits,
+};
 use carvex::util::{complement_extents, merge_extents, Extent};
-use common::MemSource;
+use common::{pdf_min, png_1x1, scan_options, MemSource, JPEG_1X1};
 use proptest::prelude::*;
+use std::sync::{Arc, Mutex};
+
+/// Deterministic padding patterns used by the H-25 property test.
+fn padding(kind: u8, len: usize) -> Vec<u8> {
+    match kind % 4 {
+        0 => vec![0u8; len],
+        1 => vec![0xFF; len],
+        2 => {
+            let mut state = 0x9E37_79B9_7F4A_7C15u64;
+            (0..len)
+                .map(|_| {
+                    state ^= state << 13;
+                    state ^= state >> 7;
+                    state ^= state << 17;
+                    (state & 0xFF) as u8
+                })
+                .collect()
+        }
+        _ => b"ABCDEFGH"
+            .repeat(len.div_ceil(8))
+            .get(..len)
+            .unwrap_or(&[])
+            .to_vec(),
+    }
+}
 
 fn extent() -> impl Strategy<Value = Extent> {
     (0u64..1_000_000, 0u64..100_000).prop_map(|(offset, len)| Extent { offset, len })
@@ -107,6 +135,78 @@ proptest! {
         if offset <= src.len() {
             let mut buf = vec![0u8; len];
             let _ = carvex::io::read_exact_at(&src, &mut buf, offset);
+        }
+    }
+
+    /// H-25: a cut file followed by arbitrary padding must never grow more
+    /// than 4 KiB past the cut, and any carved prefix must match the original.
+    #[test]
+    fn truncated_carve_end_is_bounded_for_random_cut_and_padding(
+        kind_id in 0u8..3,
+        fraction in 15u32..86,
+        pad_kind in 0u8..4,
+        pad_len in 0usize..4097,
+    ) {
+        let (kind, full): (FileType, Vec<u8>) = match kind_id {
+            0 => (FileType::Jpeg, JPEG_1X1.to_vec()),
+            1 => (FileType::Png, png_1x1()),
+            _ => (FileType::Pdf, pdf_min()),
+        };
+        let cut_len = (full.len() * fraction as usize / 100).max(1);
+        let mut image = vec![0u8; 4096];
+        image.extend_from_slice(full.get(..cut_len).unwrap_or(&full));
+        image.extend_from_slice(&padding(pad_kind, pad_len));
+        image.extend_from_slice(&[0u8; 8192]);
+
+        let src = MemSource::new(image);
+        let dir = tempfile::tempdir().unwrap();
+        let ctx = ScanContext::default();
+        let regions = Arc::new(Mutex::new(Vec::new()));
+        let mut opts = scan_options(vec![kind], ScanMode::Raw);
+        opts.min_size = 1;
+        opts.min_score = 0;
+        let input = ScanInput {
+            source: &src,
+            image: "tail.raw",
+            image_identity: None,
+            image_len: src.len(),
+            volumes: &[],
+            extra_extents: &[],
+            out_dir: dir.path(),
+            unreadable_regions: &regions,
+            skip_unreadable: false,
+            interrupt: None,
+        };
+        let report = run_scan(&input, &opts, &ctx).unwrap();
+        prop_assert!(report.files.len() <= 1, "more than one file: {:?}", report.files);
+        for file in &report.files {
+            let size = usize::try_from(file.size).unwrap_or(usize::MAX);
+            prop_assert!(size <= cut_len.saturating_add(4096), "kind={:?} size={} cut={}", kind, size, cut_len);
+            prop_assert!(size >= cut_len.saturating_sub(4096), "kind={:?} size={} cut={}", kind, size, cut_len);
+            prop_assert_eq!(file.status, Status::Truncated);
+            prop_assert_eq!(file.validation, Validation::Partial);
+            let carved = std::fs::read(dir.path().join(&file.path)).unwrap();
+            let common = size.min(cut_len).min(carved.len());
+            prop_assert_eq!(
+                carved.get(..common),
+                full.get(..common),
+                "kind={:?} carved bytes differ before the cut",
+                kind
+            );
+        }
+    }
+
+    /// The structural prefix scan must honour a caller-supplied decode budget
+    /// and still never return an end past the supplied buffer.
+    #[test]
+    fn png_prefix_analysis_respects_the_decode_budget(
+        data in proptest::collection::vec(any::<u8>(), 0..1024),
+    ) {
+        let limits = ValidationLimits::new(64);
+        let need = png::analyze_with_limits(&data, true, limits);
+        if let carvex::signatures::Need::Analyzed(analysis) = need {
+            prop_assert!(analysis.end <= data.len());
+            prop_assert!(analysis.validated_prefix <= analysis.end as u64);
         }
     }
 }

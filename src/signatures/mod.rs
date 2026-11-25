@@ -447,13 +447,71 @@ pub enum Need {
     Reject(String),
 }
 
-/// Dispatch to the validator for `kind`.
+/// Dispatch to the validator for `kind` with the default decode budget.
 pub fn analyze(kind: FileType, data: &[u8], at_limit: bool, pdf_mode: PdfEofMode) -> Need {
+    analyze_with_limits(kind, data, at_limit, pdf_mode, ValidationLimits::default())
+}
+
+/// Dispatch to the validator for `kind` with an explicit decode budget (H-25).
+pub fn analyze_with_limits(
+    kind: FileType,
+    data: &[u8],
+    at_limit: bool,
+    pdf_mode: PdfEofMode,
+    limits: ValidationLimits,
+) -> Need {
     match kind {
         FileType::Jpeg => jpeg::analyze(data, at_limit),
-        FileType::Png => png::analyze(data, at_limit),
-        FileType::Pdf => pdf::analyze(data, at_limit, pdf_mode),
+        FileType::Png => png::analyze_with_limits(data, at_limit, limits),
+        FileType::Pdf => pdf::analyze_with_limits(data, at_limit, pdf_mode, limits),
     }
+}
+
+/// Find the last compressed byte that a bounded zlib stream can consume.
+///
+/// The slices are consecutive compressed ranges in file order (PNG IDAT
+/// payloads, or one PDF stream). The return value is `(slice index, bytes
+/// consumed in that slice)`: inflation stops at a provable boundary (an
+/// inflate error, an exhausted output budget, or `StreamEnd`) or, when no
+/// decision is reached, at the last byte accepted from the last slice. That
+/// last case is the cut point for a truncated stream. `None` only means that
+/// no bytes were supplied. No complete image is materialized.
+pub(crate) fn zlib_prefix(slices: &[&[u8]], max_decoded: u64) -> Option<(usize, usize)> {
+    if slices.is_empty() {
+        return None;
+    }
+    let mut inflater = Decompress::new(true);
+    let mut out = vec![0u8; PNG_INFLATE_BUFFER];
+    let mut produced = 0u64;
+    for (index, original) in slices.iter().enumerate() {
+        let mut input = *original;
+        let mut slice_consumed = 0usize;
+        while !input.is_empty() {
+            let before_in = inflater.total_in();
+            let before_out = inflater.total_out();
+            let result = inflater.decompress(input, &mut out, FlushDecompress::None);
+            let consumed = usize::try_from(inflater.total_in().saturating_sub(before_in))
+                .unwrap_or(usize::MAX);
+            let written = usize::try_from(inflater.total_out().saturating_sub(before_out))
+                .unwrap_or(usize::MAX);
+            let consumed = consumed.min(input.len());
+            slice_consumed = slice_consumed.saturating_add(consumed);
+            match result {
+                Ok(status) => {
+                    produced = produced.saturating_add(written as u64);
+                    if produced > max_decoded {
+                        return Some((index, slice_consumed));
+                    }
+                    input = input.get(consumed..).unwrap_or(&[]);
+                    if status == InflateStatus::StreamEnd || (consumed == 0 && written == 0) {
+                        return Some((index, slice_consumed));
+                    }
+                }
+                Err(_) => return Some((index, slice_consumed)),
+            }
+        }
+    }
+    Some((slices.len() - 1, slices.last().map_or(0, |s| s.len())))
 }
 
 /// Run optional decode-level validation.

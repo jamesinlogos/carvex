@@ -93,6 +93,38 @@ Residual risk / next: after B4 run cargo test and re-check the A.2 S-REPAIR
         rows (PDF repaired, PNG/JPEG partial) as regression guards.
 ```
 
+```text
+Task: H-25 — Truncated-file end (harness-ab725a6; distinct from repo H-25)
+Change: src/scan.rs, src/signatures/{jpeg,png,pdf,mod}.rs,
+        docs/report.schema.json, docs/DECISIONS.md (D-70)
+New tests: tests/regress_tail_padding.rs (9 fixtures = 3 per format,
+        10 cut fractions, {zeros, 0xFF, seeded random, ASCII} ×
+        {4 KiB, 1 MiB}, plus 48 MiB JPEG FF padding, neighbour recovery,
+        oversized warning/exit 3, complete-file control), and
+        tests/properties.rs::truncated_carve_end_is_bounded_for_random_cut_and_padding
+        (512 proptest cases) + png_prefix_analysis_respects_the_decode_budget.
+Change details: incomplete candidates end at the last verified byte. JPEG
+        truncates at the first invalid continuation after SOF and never claims
+        a trailing FF run; PNG stops at the last inflatable IDAT byte with a
+        bounded zlib prefix (including a cut/pending IDAT); PDF stops after the
+        last complete top-level object (one line terminator) or the bounded
+        Flate prefix, never at the buffer end. A generic O(tail) trim removes
+        trailing zeros and FF runs ≥512 B. `tail_trimmed_bytes` records the
+        removed bytes. TRUNCATED_TOO_LARGE now warns with code/type/offset/size
+        and counts toward exit 3; the stat is retained.
+Gate: cargo fmt --all -- --check, cargo check --all-targets --locked,
+        cargo clippy --all-targets --all-features --locked -- -D warnings and
+        cargo test --all-features --locked are green (all tests, including the
+        new 512-case property and 5 tail tests). Heavy gates still pending
+        after commit: build --release, review_repro, A.2, golden/perf, G9.
+Measurement: no benchmark artifact or frozen binary changed. Focused matrix
+        run: 5 tests pass; property suite: 7 tests pass with 512 cases.
+Residual risk / next: ASCII/random padding is bounded by the structural end,
+        not by a content hash; a cut before the first complete object keeps
+        only the header/object header. Verify the A.2 S-TAIL/S-TAIL-NEIGH
+        scenarios on the frozen corpus without changing the benchmark inputs.
+```
+
 ### Gate at time of writing — **GATE GREEN (2026-11-20, historical)**
 
 ```text

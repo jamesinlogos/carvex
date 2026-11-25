@@ -1,8 +1,8 @@
 use crate::fs::FsInfo;
 use crate::io::{read_exact_at, ImageSource, RegionLog, UnreadableRegion};
 use crate::signatures::{
-    analyze, base_validity_checks, build_suffix, validate_deep_detail, validate_repair, Analysis,
-    FileType, Need, PdfEofMode, Status, ValidatedRepair, Validation, ValidationCheck,
+    analyze_with_limits, base_validity_checks, build_suffix, validate_deep_detail, validate_repair,
+    Analysis, FileType, Need, PdfEofMode, Status, ValidatedRepair, Validation, ValidationCheck,
     ValidationDetail, ValidationLimits, ValidationMode, Validity,
 };
 use crate::util::{
@@ -846,6 +846,15 @@ pub struct Warning {
     pub code: String,
     /// Human-readable message.
     pub message: String,
+    /// Detected file type when the warning concerns one candidate (H-25).
+    #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
+    pub file_type: Option<FileType>,
+    /// Source offset of the candidate when applicable (H-25).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub offset: Option<u64>,
+    /// Candidate size when applicable (H-25).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub size: Option<u64>,
 }
 
 impl Warning {
@@ -854,6 +863,26 @@ impl Warning {
         Self {
             code: code.to_string(),
             message: message.into(),
+            file_type: None,
+            offset: None,
+            size: None,
+        }
+    }
+
+    /// A warning about one specific truncated candidate (H-25).
+    pub fn for_candidate(
+        code: &str,
+        message: impl Into<String>,
+        file_type: FileType,
+        offset: u64,
+        size: u64,
+    ) -> Self {
+        Self {
+            code: code.to_string(),
+            message: message.into(),
+            file_type: Some(file_type),
+            offset: Some(offset),
+            size: Some(size),
         }
     }
 
@@ -879,6 +908,7 @@ impl Warning {
                 | "TIME_LIMIT"
                 | "FRAGMENT_TIME_LIMIT"
                 | "OUTPUT_LIMIT"
+                | "TRUNCATED_TOO_LARGE"
                 | "CANDIDATE_PANIC"
         )
     }
@@ -1213,7 +1243,11 @@ enum CarveOutcome {
         score: u8,
     },
     NotComplete,
-    TooLargeTruncated(u64),
+    TooLargeTruncated {
+        offset: u64,
+        kind: FileType,
+        size: u64,
+    },
 }
 
 /// Inputs describing what to scan and where to write carved files.
@@ -2218,19 +2252,20 @@ fn prepare_analysis(
     }
     let mut tail_trimmed_bytes = 0;
     if !analysis.complete {
-        let trimmed = trim_zero_tail(&prefix[..analysis.end]);
+        let (trimmed, notes) = trim_incomplete_tail(&prefix[..analysis.end]);
         if trimmed < analysis.end {
             tail_trimmed_bytes = (analysis.end - trimmed) as u64;
-            analysis.notes.push(format!(
-                "trimmed {} trailing zero byte(s)",
-                analysis.end - trimmed
-            ));
+            analysis.notes.extend(notes);
             analysis.end = trimmed;
         }
     }
     let end = analysis.end;
     if !analysis.complete && (end as u64) > opts.max_truncated_size {
-        return Err(CarveOutcome::TooLargeTruncated(end as u64));
+        return Err(CarveOutcome::TooLargeTruncated {
+            offset: cand.offset,
+            kind: cand.kind,
+            size: end as u64,
+        });
     }
     if analysis.score < opts.min_score {
         return Err(CarveOutcome::LowScore {
@@ -2586,6 +2621,9 @@ fn carve_one_with_scratch(
     let mut buf_len = initial_len;
     let work_limit = effective_max_work(opts);
     let mut work = WorkCounter::new(work_limit);
+    // H-25: structural truncation detection may inflate a bounded IDAT/Flate
+    // prefix, so it shares the same decode budget as deep validation.
+    let limits = ValidationLimits::new(opts.max_validator_memory.min(budget.limit()));
 
     loop {
         if stop.check() {
@@ -2607,7 +2645,13 @@ fn carve_one_with_scratch(
             ));
         }
         test_panic_probe(cand.offset, "analyze");
-        match analyze(cand.kind, &scratch[..read_len], at_limit, opts.pdf_eof) {
+        match analyze_with_limits(
+            cand.kind,
+            &scratch[..read_len],
+            at_limit,
+            opts.pdf_eof,
+            limits,
+        ) {
             Need::Analyzed(mut analysis) => {
                 let tail_trimmed_bytes =
                     match prepare_analysis(cand, &scratch[..read_len], &mut analysis, opts) {
@@ -2617,7 +2661,6 @@ fn carve_one_with_scratch(
                 let end = analysis.end;
                 // Validator scratch is bounded by its own flag and, for this
                 // scan, can never raise the shared working-memory ceiling.
-                let limits = ValidationLimits::new(opts.max_validator_memory.min(budget.limit()));
                 let repair_attempted = opts.repair && !analysis.complete;
                 let mut repair = match attempt_repair(
                     cand,
@@ -2699,6 +2742,47 @@ fn trim_zero_tail(data: &[u8]) -> usize {
     }
     // Keep a short floor so an all-zero candidate does not become empty.
     end.max(16.min(data.len()))
+}
+
+/// H-25: trim one repeated byte from the end of an incomplete candidate.
+/// Zero trimming keeps its historical behaviour. A long `0xFF` run (a fill
+/// pattern, never entropy-coded data because a literal FF is stuffed as FF 00)
+/// is trimmed only at the very end, never before a marker or inside entropy
+/// data. The zero trim runs first so trailing zero padding cannot hide an
+/// adjacent FF run; a short stuffed FF 00 is left alone.
+const MIN_FF_TAIL_RUN: usize = 512;
+
+fn trailing_ff_run(data: &[u8], end: usize) -> usize {
+    let mut start = end;
+    while start > 0 && data.get(start - 1) == Some(&0xFF) {
+        start -= 1;
+    }
+    end - start
+}
+
+fn trim_incomplete_tail(data: &[u8]) -> (usize, Vec<String>) {
+    let mut notes = Vec::new();
+    let zero_end = trim_zero_tail(data);
+    if zero_end < data.len() {
+        notes.push(format!(
+            "trimmed {} trailing zero byte(s)",
+            data.len() - zero_end
+        ));
+    }
+    let mut end = zero_end;
+    let run = trailing_ff_run(data, end);
+    if run >= MIN_FF_TAIL_RUN {
+        let floor = 16.min(data.len());
+        let trimmed_end = end.saturating_sub(run).max(floor);
+        if trimmed_end < end {
+            notes.push(format!(
+                "trimmed {} trailing 0xFF byte(s)",
+                end - trimmed_end
+            ));
+            end = trimmed_end;
+        }
+    }
+    (end, notes)
 }
 
 // ---------------------------------------------------------------------------
@@ -3231,6 +3315,7 @@ fn deep_validate_head(
     }
     let work_limit = effective_max_work(opts);
     let mut work = WorkCounter::new(work_limit);
+    let limits = ValidationLimits::new(opts.max_validator_memory.min(budget.limit()));
     let mut buf_len = hard_limit.min(64 * 1024);
     let Ok(mut guard) = BudgetGuard::reserve(budget, buf_len, "deep-validating a B-06 head") else {
         return Ok(head_probe_skipped_budget(cand.offset, buf_len));
@@ -3258,11 +3343,12 @@ fn deep_validate_head(
         }
         let at_limit = buf_len >= hard_limit;
         test_panic_probe(cand.offset, "bgc_head_analyze");
-        match analyze(
+        match analyze_with_limits(
             cand.kind,
             &bytes[..buf_len as usize],
             at_limit,
             opts.pdf_eof,
+            limits,
         ) {
             Need::Reject(_) => return Ok(head_probe_miss()),
             Need::More => {
@@ -3455,6 +3541,7 @@ fn try_fragment_join(
     };
     let work_limit = effective_max_work(opts);
     let mut work = WorkCounter::new(work_limit);
+    let limits = ValidationLimits::new(opts.max_validator_memory.min(budget.limit()));
     if !work.add(total) {
         return Ok(join_work_limit(
             cand,
@@ -3474,7 +3561,9 @@ fn try_fragment_join(
     )
     .with_context(|| format!("cannot read B-06 tail at {}", join.tail_start))?;
 
-    let Need::Analyzed(analysis) = analyze(cand.kind, &bytes, true, opts.pdf_eof) else {
+    let Need::Analyzed(analysis) =
+        analyze_with_limits(cand.kind, &bytes, true, opts.pdf_eof, limits)
+    else {
         return Ok(join_none());
     };
     let Some((end, used_tail)) =
@@ -4116,11 +4205,22 @@ fn collect_outcomes(
                     eprintln!("[-] truncated file skipped (--complete-only)");
                 }
             }
-            CarveOutcome::TooLargeTruncated(size) => {
+            CarveOutcome::TooLargeTruncated { offset, kind, size } => {
                 stats.too_large_truncated += 1;
+                warnings.push(Warning::for_candidate(
+                    "TRUNCATED_TOO_LARGE",
+                    format!(
+                        "truncated {} at byte {offset} is {size} byte(s), exceeding --max-truncated-size {}",
+                        kind.label(),
+                        opts.max_truncated_size
+                    ),
+                    kind,
+                    offset,
+                    size,
+                ));
                 if opts.verbose {
                     eprintln!(
-                        "[-] truncated file {size} exceeds --max-truncated-size {}",
+                        "[-] truncated file {size} at byte {offset} exceeds --max-truncated-size {}",
                         opts.max_truncated_size
                     );
                 }
@@ -4424,8 +4524,10 @@ fn validity_reason_code(data: &CarvedData) -> String {
             .validation_checks
             .iter()
             .find(|check| check.ok == Some(false))
-            .map(|check| format!("failed_check:{}", check.name))
-            .unwrap_or_else(|| "integrity_check_failed".into()),
+            .map_or_else(
+                || "integrity_check_failed".into(),
+                |check| format!("failed_check:{}", check.name),
+            ),
         Validity::Partial => "truncated_prefix".into(),
         Validity::Repaired => "repair_revalidated".into(),
     }
