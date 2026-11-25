@@ -47,9 +47,13 @@ pub fn analyze_with_limits(data: &[u8], at_limit: bool, limits: ValidationLimits
                     } else {
                         None
                     };
-                if let Some((end, from_pending)) =
-                    png_inflate_end(data, &progress.idat_ranges, pending, limits)
-                {
+                if let Some((end, from_pending)) = png_inflate_end(
+                    data,
+                    &progress.idat_ranges,
+                    pending,
+                    png_row_len(&progress),
+                    limits,
+                ) {
                     let end = end.min(data.len());
                     if from_pending && end > analysis.end {
                         analysis.notes.push(format!(
@@ -212,6 +216,8 @@ fn apply_ihdr(chunk: &PngChunk<'_>, progress: &mut PngProgress) -> Result<(), Ne
     progress.width = width;
     progress.height = height;
     progress.color_type = ct;
+    progress.bit_depth = depth;
+    progress.interlace = interlace;
     if width == 0 || height == 0 {
         return Err(Need::Reject("PNG has zero dimensions".into()));
     }
@@ -270,6 +276,26 @@ fn png_finished(progress: &PngProgress, chunks: u32) -> Need {
     })
 }
 
+/// Byte length of one unfiltered scanline, used to stop a truncated IDAT at
+/// the last row whose PNG filter byte is valid. Adam7 has a different row
+/// layout, so it falls back to the plain inflate-prefix rule.
+fn png_row_len(p: &PngProgress) -> Option<usize> {
+    if p.interlace != 0 || p.bit_depth == 0 {
+        return None;
+    }
+    let channels = match p.color_type {
+        0 | 3 => 1,
+        2 => 3,
+        4 => 2,
+        6 => 4,
+        _ => return None,
+    };
+    let bits = (p.width as u64)
+        .checked_mul(channels)?
+        .checked_mul(p.bit_depth as u64)?;
+    usize::try_from(bits.div_ceil(8)).ok()?.checked_add(1)
+}
+
 /// Map a bounded zlib-prefix decision back to a byte offset in the PNG.
 /// `pending` is the payload start of an IDAT chunk cut by the carve boundary.
 /// The boolean in the result says whether the decision came from that chunk.
@@ -277,6 +303,7 @@ fn png_inflate_end(
     data: &[u8],
     ranges: &[(usize, usize)],
     pending: Option<usize>,
+    row_len: Option<usize>,
     limits: ValidationLimits,
 ) -> Option<(usize, bool)> {
     let mut all = ranges.to_vec();
@@ -289,7 +316,8 @@ fn png_inflate_end(
         .iter()
         .map(|(start, end)| data.get(*start..*end))
         .collect::<Option<Vec<_>>>()?;
-    let (index, consumed) = super::zlib_prefix(&slices, limits.max_validator_memory)?;
+    let (index, consumed) =
+        super::zlib_prefix_valid_rows(&slices, limits.max_validator_memory, row_len)?;
     let (start, payload_end) = all.get(index)?;
     let is_pending = index >= ranges.len();
     // A complete zlib stream ending exactly at an IDAT payload boundary still
@@ -315,6 +343,8 @@ struct PngProgress {
     width: u32,
     height: u32,
     color_type: u8,
+    bit_depth: u8,
+    interlace: u8,
     crc_failed: bool,
     checks: Vec<ValidationCheck>,
     validated_prefix: u64,

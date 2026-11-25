@@ -76,6 +76,8 @@ struct Scan {
     report: Value,
     out_dir: std::path::PathBuf,
     exit: Option<i32>,
+    // Keep the temp directory alive until the assertions have read the output.
+    _dir: tempfile::TempDir,
 }
 
 fn scan(image: &[u8], kind: &str, extra: &[&str]) -> Scan {
@@ -108,11 +110,11 @@ fn scan(image: &[u8], kind: &str, extra: &[&str]) -> Scan {
         .output()
         .unwrap();
     let report: Value = serde_json::from_slice(&fs::read(&report_path).unwrap()).unwrap();
-    let _keep_dir = dir.keep();
     Scan {
         report,
         out_dir: out,
         exit: proc.status.code(),
+        _dir: dir,
     }
 }
 

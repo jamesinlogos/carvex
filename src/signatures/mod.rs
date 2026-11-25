@@ -476,6 +476,103 @@ pub fn analyze_with_limits(
 /// decision is reached, at the last byte accepted from the last slice. That
 /// last case is the cut point for a truncated stream. `None` only means that
 /// no bytes were supplied. No complete image is materialized.
+/// Like [`zlib_prefix`], but for PNG scanlines. `row_len` is the unfiltered
+/// scanline length from IHDR: the last row whose leading filter byte is valid
+/// (0–4) is a much tighter cut boundary than the byte where an inflate error
+/// finally occurs in arbitrary padding. Output is streamed in row-sized
+/// chunks; no complete image is materialized.
+pub(crate) fn zlib_prefix_valid_rows(
+    slices: &[&[u8]],
+    max_decoded: u64,
+    row_len: Option<usize>,
+) -> Option<(usize, usize)> {
+    let Some(row_len) = row_len.filter(|n| *n > 0) else {
+        return zlib_prefix(slices, max_decoded);
+    };
+    let mut ends = Vec::with_capacity(slices.len());
+    let mut total = 0usize;
+    for slice in slices {
+        total = total.checked_add(slice.len())?;
+        ends.push(total);
+    }
+    if total == 0 {
+        return None;
+    }
+    let map_consumed = |global: usize| -> Option<(usize, usize)> {
+        for (index, end) in ends.iter().enumerate() {
+            if global <= *end {
+                let before = if index == 0 { 0 } else { *ends.get(index - 1)? };
+                return Some((index, global.saturating_sub(before)));
+            }
+        }
+        Some((slices.len() - 1, slices.last().map_or(0, |s| s.len())))
+    };
+
+    let mut inflater = Decompress::new(true);
+    let buffer_len = row_len.min(64 * 1024);
+    let mut out = vec![0u8; buffer_len];
+    let mut produced = 0u64;
+    let mut row_pos = 0usize;
+    let mut filter = 0u8;
+    let mut last_valid_row = 0usize;
+    let mut consumed_total = 0usize;
+
+    'outer: for original in slices {
+        let mut input = *original;
+        while !input.is_empty() {
+            // Feed the inflater in small pieces. flate2 has no `unconsumed_tail`
+            // accessor, so a large input slice lets zlib buffer bytes beyond
+            // the last completed scanline; that lookahead would be mistaken for
+            // verified image data when mapping the row boundary back to a file
+            // offset. 64 bytes bounds the error well inside the 4 KiB grace.
+            let step = input.len().min(64);
+            let piece = input.get(..step).unwrap_or(input);
+            let before_in = inflater.total_in();
+            let before_out = inflater.total_out();
+            let result = inflater.decompress(piece, &mut out, FlushDecompress::None);
+            let consumed = usize::try_from(inflater.total_in().saturating_sub(before_in))
+                .unwrap_or(usize::MAX)
+                .min(piece.len());
+            let written = usize::try_from(inflater.total_out().saturating_sub(before_out))
+                .unwrap_or(usize::MAX)
+                .min(out.len());
+            consumed_total = consumed_total.saturating_add(consumed);
+            produced = produced.saturating_add(written as u64);
+            let chunk = out.get(..written).unwrap_or(&[]);
+            for byte in chunk {
+                if row_pos == 0 {
+                    filter = *byte;
+                }
+                row_pos += 1;
+                if row_pos == row_len {
+                    if filter <= 4 {
+                        last_valid_row = usize::try_from(inflater.total_in())
+                            .unwrap_or(consumed_total)
+                            .min(consumed_total);
+                    }
+                    row_pos = 0;
+                }
+            }
+            match result {
+                Ok(status) => {
+                    if produced > max_decoded
+                        || status == InflateStatus::StreamEnd
+                        || (consumed == 0 && written == 0)
+                    {
+                        break 'outer;
+                    }
+                    input = input.get(consumed..).unwrap_or(&[]);
+                }
+                Err(_) => break 'outer,
+            }
+        }
+    }
+    if last_valid_row > 0 {
+        return map_consumed(last_valid_row);
+    }
+    map_consumed(consumed_total)
+}
+
 pub(crate) fn zlib_prefix(slices: &[&[u8]], max_decoded: u64) -> Option<(usize, usize)> {
     if slices.is_empty() {
         return None;

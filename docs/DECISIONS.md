@@ -1372,16 +1372,22 @@ decision, and the consequences.
   outright, and a 48 MiB `0xFF` run pushed the candidate over
   `--max-truncated-size` with no warning.
 - **Decision:** for an incomplete candidate, end at the last byte the parser
-  can prove. JPEG ends at the first invalid continuation once SOF is present
-  (SOF+SOS prove a real scan; after SOF but before SOS a segment end is still
-  the boundary), and a trailing `0xFF` run is never entropy data because a
-  literal FF is stuffed as `FF 00`. PNG ends at the last byte a bounded zlib
-  prefix inflates, including a cut IDAT payload; CRC-failing complete chunks
-  remain `suspect` (D-67/Q4) and are not silently promoted. PDF ends after the
-  last complete top-level `endobj` (keeping its own line terminator), or at a
-  bounded Flate prefix; with no complete object only the header/object header
-  is kept. A generic O(tail) trim removes trailing zeros and `0xFF` runs of at
-  least 512 bytes. `tail_trimmed_bytes` records the removed bytes.
+  can prove. JPEG ends at the first invalid continuation once SOF is present.
+  Between entropy scans a real DHT/DQT/DNL/DRI/SOS marker is resumed only when
+  its payload is structurally valid; a random `FF xx` ends the file there.
+  Requiring the whole remainder to parse to EOI was rejected because it wrongly
+  cut progressive JPEGs at their first intermediate marker when trailing
+  padding was present. A trailing `0xFF` run is never entropy data because a
+  literal FF is stuffed as `FF 00`. PNG ends at the last IDAT byte whose
+  inflated scanline has a valid filter byte; inflation is bounded by the
+  validator budget and fed in 64-byte pieces so zlib lookahead is not claimed
+  as verified data. CRC-failing complete chunks remain `suspect` (D-67/Q4)
+  and are not silently promoted. PDF ends after the last complete top-level
+  `endobj` (keeping its own line terminator), or at the bounded Flate or
+  `DCTDecode` prefix of an open stream; with no complete object only the
+  header/object header is kept. Long zero/FF fill is left to the generic
+  O(tail) trimmer so zero-padded rows stay byte-identical. `tail_trimmed_bytes`
+  records the removed bytes.
 - **Warning shape:** `TRUNCATED_TOO_LARGE` is a structured warning with `type`,
   `offset` and `size`, is in the exit-3 set, and keeps the existing stat. All
   other warnings keep their two-field shape via `skip_serializing_if`.

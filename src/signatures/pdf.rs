@@ -1,5 +1,5 @@
 #![deny(clippy::indexing_slicing, clippy::unwrap_used, clippy::expect_used)]
-use super::{Analysis, Need, PdfEofMode, ValidationLimits};
+use super::{jpeg, Analysis, Need, PdfEofMode, ValidationLimits};
 
 const EOF_SUFFIX: &[u8] = b"\n%%EOF\n";
 
@@ -340,12 +340,27 @@ fn conservative_truncated_end(
     }
 
     let mut bound_note = None;
-    if let Some((stream_start, stream)) = last_open_flate_stream(prefix, search_end) {
-        if let Some((_, consumed)) = super::zlib_prefix(&[stream], limits.max_validator_memory) {
+    if let Some((stream_start, stream, filter)) = last_open_stream(prefix, search_end) {
+        let consumed = match filter {
+            StreamFilter::Flate => super::zlib_prefix(&[stream], limits.max_validator_memory)
+                .map(|(_, consumed)| consumed),
+            // A large-scan PDF commonly embeds a JPEG (DCTDecode). Its own
+            // marker structure gives a much tighter cut boundary than the
+            // declared /Length, which would swallow the padding.
+            StreamFilter::Dct => match jpeg::analyze(stream, true) {
+                Need::Analyzed(analysis) if !analysis.complete => Some(analysis.end),
+                _ => None,
+            },
+            StreamFilter::Other => None,
+        };
+        if let Some(consumed) = consumed {
             let stream_end = stream_start.saturating_add(consumed).min(search_end);
             if stream_end > end {
                 end = stream_end;
-                bound_note = Some("end set to last inflatable FlateDecode stream byte".to_string());
+                bound_note = Some(format!(
+                    "end set to last verifiable {} stream byte",
+                    filter.label()
+                ));
             }
         }
     }
@@ -365,10 +380,26 @@ fn conservative_truncated_end(
     (end, bound_note)
 }
 
-/// Last `stream` keyword that has no `endstream` after it and whose object
-/// dictionary declares `FlateDecode`. Returns the payload start and the bounded
-/// slice ending at `search_end`.
-fn last_open_flate_stream(prefix: &[u8], search_end: usize) -> Option<(usize, &[u8])> {
+#[derive(Clone, Copy)]
+enum StreamFilter {
+    Flate,
+    Dct,
+    Other,
+}
+
+impl StreamFilter {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Flate => "FlateDecode",
+            Self::Dct => "DCTDecode",
+            Self::Other => "stream",
+        }
+    }
+}
+
+/// Last `stream` keyword that has no `endstream` after it. Returns the payload
+/// start, the bounded slice ending at `search_end` and its declared filter.
+fn last_open_stream(prefix: &[u8], search_end: usize) -> Option<(usize, &[u8], StreamFilter)> {
     let mut found = None;
     for pos in memchr::memmem::find_iter(prefix, b"stream") {
         if pos >= 3 && prefix.get(pos - 3..pos) == Some(b"end".as_slice()) {
@@ -380,9 +411,13 @@ fn last_open_flate_stream(prefix: &[u8], search_end: usize) -> Option<(usize, &[
         }
         let dict_start = pos.saturating_sub(512);
         let dict = prefix.get(dict_start..pos).unwrap_or(&[]);
-        if memchr::memmem::find(dict, b"/FlateDecode").is_none() {
-            continue;
-        }
+        let filter = if memchr::memmem::find(dict, b"/FlateDecode").is_some() {
+            StreamFilter::Flate
+        } else if memchr::memmem::find(dict, b"/DCTDecode").is_some() {
+            StreamFilter::Dct
+        } else {
+            StreamFilter::Other
+        };
         if memchr::memmem::find(prefix.get(after..search_end).unwrap_or(&[]), b"endstream")
             .is_some()
         {
@@ -395,7 +430,7 @@ fn last_open_flate_stream(prefix: &[u8], search_end: usize) -> Option<(usize, &[
         if prefix.get(start) == Some(&b'\n') {
             start += 1;
         }
-        found = Some((start, prefix.get(start..search_end).unwrap_or(&[])));
+        found = Some((start, prefix.get(start..search_end).unwrap_or(&[]), filter));
     }
     found
 }

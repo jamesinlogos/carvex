@@ -104,21 +104,31 @@ New tests: tests/regress_tail_padding.rs (9 fixtures = 3 per format,
         tests/properties.rs::truncated_carve_end_is_bounded_for_random_cut_and_padding
         (512 proptest cases) + png_prefix_analysis_respects_the_decode_budget.
 Change details: incomplete candidates end at the last verified byte. JPEG
-        truncates at the first invalid continuation after SOF and never claims
-        a trailing FF run; PNG stops at the last inflatable IDAT byte with a
-        bounded zlib prefix (including a cut/pending IDAT); PDF stops after the
-        last complete top-level object (one line terminator) or the bounded
-        Flate prefix, never at the buffer end. A generic O(tail) trim removes
-        trailing zeros and FF runs ≥512 B. `tail_trimmed_bytes` records the
-        removed bytes. TRUNCATED_TOO_LARGE now warns with code/type/offset/size
-        and counts toward exit 3; the stat is retained.
+        truncates at the first invalid continuation after SOF: between entropy
+        scans a real DHT/DQT/DNL/DRI/SOS marker is accepted only with a
+        structurally valid payload, while a random `FF xx` ends the file; a
+        trailing FF run is never entropy data. PNG stops at the last IDAT byte
+        whose inflated scanline has a valid filter byte; the inflater is fed in
+        64-byte pieces so zlib lookahead cannot be mistaken for verified data.
+        PDF stops after the last complete top-level object (one line
+        terminator) or the bounded Flate/DCTDecode prefix of an open stream,
+        never at the buffer end. A generic O(tail) trim removes trailing zeros
+        and FF runs ≥512 B. `tail_trimmed_bytes` records the removed bytes.
+        TRUNCATED_TOO_LARGE now warns with code/type/offset/size and counts
+        toward exit 3; the stat is retained.
 Gate: cargo fmt --all -- --check, cargo check --all-targets --locked,
-        cargo clippy --all-targets --all-features --locked -- -D warnings and
-        cargo test --all-features --locked are green (all tests, including the
-        new 512-case property and 5 tail tests). Heavy gates still pending
-        after commit: build --release, review_repro, A.2, golden/perf, G9.
-Measurement: no benchmark artifact or frozen binary changed. Focused matrix
-        run: 5 tests pass; property suite: 7 tests pass with 512 cases.
+        cargo clippy --all-targets --all-features --locked -- -D warnings,
+        cargo test --all-features --locked and cargo build --release --locked
+        are green (all tests, including the new 512-case property and 5 tail
+        tests). `review_repro.py --assert --xfail` is 34 scenarios, 0 failures,
+        5 SKIPs, 0 XPASS. Golden/perf/G9 still pending after commit.
+Measurement: no benchmark artifact or frozen binary changed. Appendix A.2
+        S-TAIL on the frozen corpus with fresh output dirs: JPEG zeros/random/
+        FF = 212,468 / 212,892 / 212,468 B (cut 212,468); PNG = 839,272 /
+        839,609 / 839,272 B (cut 839,272); PDF = 374,172 / 374,596 / 374,172 B
+        (cut 374,172); 48 MiB JPEG rows and S-TAIL-NEIGH with 0/4,096-byte gaps
+        all within bounds and both files recovered. Focused matrix: 5 tests
+        pass; property suite: 7 tests pass with 512 cases.
 A.2 regression guard: `review_repro.py` X14 initially showed
         `sha256_original=None` because the conservative PDF end cut off the
         zero fill before the generic trimmer could reproduce the exact S-REPAIR
@@ -127,9 +137,10 @@ A.2 regression guard: `review_repro.py` X14 initially showed
         end. `review_repro.py --assert --xfail` is back to 34 scenarios,
         0 failures, 5 SKIPs, 0 XPASS.
 Residual risk / next: ASCII/random padding is bounded by the structural end,
-        not by a content hash; a cut before the first complete object keeps
-        only the header/object header. Verify the A.2 S-TAIL/S-TAIL-NEIGH
-        scenarios on the frozen corpus without changing the benchmark inputs.
+        not by a content hash; a cut inside a PDF stream with an unknown filter
+        keeps only the last complete object. The frozen A.2 table now passes;
+        continue with H-17/Q4, H-23 and H-22 re-checks and the benchmark report
+        finalisation.
 ```
 
 ### Gate at time of writing — **GATE GREEN (2026-11-20, historical)**

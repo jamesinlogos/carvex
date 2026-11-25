@@ -114,6 +114,91 @@ enum EntropyStep {
     Fail(Need),
 }
 
+/// Validate the payload of a table/scan marker found between entropy scans.
+/// Payloads here exclude the two length bytes. Random padding can supply a
+/// plausible marker byte and length, but almost never a structurally valid
+/// DHT/DQT/SOS payload, so validating them keeps random `FF xx` sequences from
+/// being mistaken for the rest of a progressive JPEG.
+fn plausible_segment_payload(marker: u8, payload: &[u8]) -> bool {
+    match marker {
+        0xC4 => {
+            // DHT: class/id byte, 16 code-count bytes, then exactly that many
+            // Huffman value bytes.
+            let Some((&id, counts)) = payload.split_first() else {
+                return false;
+            };
+            if id >> 4 > 1 || id & 0x0F > 3 || counts.len() < 16 {
+                return false;
+            }
+            let Some(counts) = counts.get(..16) else {
+                return false;
+            };
+            let symbols: usize = counts.iter().map(|n| *n as usize).sum();
+            symbols <= 256 && payload.len() == 17usize.saturating_add(symbols)
+        }
+        0xDB => {
+            // DQT: precision/id byte plus 64 (8-bit) or 128 (16-bit) values.
+            let Some((&id, values)) = payload.split_first() else {
+                return false;
+            };
+            if id >> 4 > 1 || id & 0x0F > 3 {
+                return false;
+            }
+            values.len() == if id >> 4 == 0 { 64 } else { 128 }
+        }
+        0xDA => {
+            // SOS: component count Ns, Ns selector pairs, Ss, Se, Ah/Al.
+            let Some((&ns, rest)) = payload.split_first() else {
+                return false;
+            };
+            (1..=4).contains(&ns)
+                && rest.len() == usize::from(ns).saturating_mul(2).saturating_add(3)
+        }
+        0xDC => payload.len() >= 2,
+        0xDD => payload.len() == 2,
+        _ => false,
+    }
+}
+
+/// A marker encountered between entropy scans is accepted only when it is a
+/// structurally valid table/scan marker. Random padding can contain an `FF xx`
+/// that resembles a segment header; validating the payload makes that rare.
+/// The *following* scan is parsed by the normal loop, so an invalid continuation
+/// still ends the candidate at the first bad `FF`, while a real progressive
+/// JPEG keeps all of its intermediate DHT/DQT/SOS markers.
+fn valid_interscan_marker(data: &[u8], mut pos: usize) -> bool {
+    if data.get(pos) != Some(&0xFF) {
+        return false;
+    }
+    while data.get(pos) == Some(&0xFF) {
+        pos += 1;
+    }
+    let Some(&marker) = data.get(pos) else {
+        return false;
+    };
+    pos += 1;
+    if !matches!(marker, 0xC4 | 0xDA | 0xDB | 0xDC | 0xDD) {
+        return false;
+    }
+    let Some(seg_len) = be16(data, pos) else {
+        return false;
+    };
+    let seg_len = seg_len as usize;
+    if seg_len < 2 {
+        return false;
+    }
+    let Some(seg_end) = pos.checked_add(seg_len) else {
+        return false;
+    };
+    if seg_end > data.len() {
+        return false;
+    }
+    let Some(payload) = data.get(pos.saturating_add(2)..seg_end) else {
+        return false;
+    };
+    plausible_segment_payload(marker, payload)
+}
+
 fn scan_entropy(
     data: &[u8],
     mut pos: usize,
@@ -156,7 +241,21 @@ fn scan_entropy(
                 }
                 return EntropyStep::Complete(progress.complete(q + 2));
             }
-            _ => return EntropyStep::Resume(q),
+            _ => {
+                if valid_interscan_marker(data, q) {
+                    return EntropyStep::Resume(q);
+                }
+                // Back up over FF fill bytes: the cut begins at the first FF.
+                let mut fill_start = q;
+                while fill_start > pos && data.get(fill_start.saturating_sub(1)) == Some(&0xFF) {
+                    fill_start -= 1;
+                }
+                return EntropyStep::Fail(progress.truncated(
+                    fill_start,
+                    at_limit,
+                    "invalid continuation after SOS",
+                ));
+            }
         }
     }
 }
@@ -1072,7 +1171,9 @@ mod tests {
         let sos = [3u8, 1, 0, 2, 0x11, 3, 0x11, 0, 63, 0];
         d.extend(seg(0xDA, &sos));
         d.extend_from_slice(&[1, 2, 3]);
-        d.extend(seg(0xC4, &[0, 0]));
+        // H-25: a real DHT has a class/id byte, 16 count bytes and exactly
+        // that many symbol bytes. An empty table is a valid minimal fixture.
+        d.extend(seg(0xC4, &[0u8; 17]));
         d.extend(seg(0xDA, &sos));
         d.extend_from_slice(&[4, 5, 6]);
         d.extend_from_slice(EOI);
