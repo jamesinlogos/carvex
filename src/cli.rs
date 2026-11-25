@@ -161,6 +161,9 @@ struct ScanArgs {
     /// Only write files whose footer was found, not verified (see validity)
     #[arg(long)]
     complete_only: bool,
+    /// Only write files whose authoritative validity is verified
+    #[arg(long)]
+    verified_only: bool,
     /// PDF %%EOF selection strategy
     #[arg(long, value_enum, default_value_t = PdfEofMode::Smart)]
     pdf_eof: PdfEofMode,
@@ -762,6 +765,7 @@ fn build_scan_options(
         min_score: args.min_score,
         repair: args.repair,
         complete_only: args.complete_only,
+        verified_only: args.verified_only,
         pdf_eof: args.pdf_eof,
         dedupe_hashes: args.dedupe_hashes,
         suppress_nested: !args.keep_nested,

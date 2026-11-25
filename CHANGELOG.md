@@ -6,7 +6,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-_No unreleased changes recorded yet._
+### Added
+
+- H-01: report `validity_reason`, `tail_trimmed_bytes`, `aligned`, `nested_in`,
+  `sha256_output` and `tool_info.rustc`; new `--verified-only` filter with
+  `stats.skipped_verified_only`. Report schema and CSV prefix stay compatible.
+
+### Fixed
+
+- H-01: `--verbose` prints each carved-file line exactly once and honours
+  `--quiet` (the duplicate pre-write line is gone).
 
 ## [0.3.1] — 2026-11-23
 

@@ -45,6 +45,7 @@ fn strip_v2_fields(value: &mut serde_json::Value) {
     }
     if let Some(stats) = obj.get_mut("stats").and_then(|v| v.as_object_mut()) {
         stats.remove("internal_errors");
+        stats.remove("skipped_verified_only");
         stats.remove("too_large_truncated");
         stats.remove("trimmed_tail");
     }
@@ -56,6 +57,11 @@ fn strip_v2_fields(value: &mut serde_json::Value) {
             for key in [
                 "validation",
                 "validity",
+                "validity_reason",
+                "tail_trimmed_bytes",
+                "aligned",
+                "nested_in",
+                "sha256_output",
                 "validated_bytes",
                 "checks",
                 "fragment_checks",

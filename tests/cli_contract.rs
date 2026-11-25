@@ -74,6 +74,11 @@ fn successful_raw_scan_returns_zero_and_leaves_the_source_untouched() {
     for file in report["files"].as_array().unwrap() {
         assert!(file["validation"].is_string());
         assert_eq!(file["validity"], "structural");
+        assert_eq!(file["validity_reason"], "structure_only");
+        assert!(file["tail_trimmed_bytes"].is_number());
+        assert!(file["aligned"].is_boolean());
+        assert!(file["nested_in"].is_null());
+        assert!(file["sha256_output"].is_null());
         assert!(file["checks"].is_array());
         assert!(file["validated_bytes"].is_number());
         assert!(file["lba"].is_number());
@@ -639,4 +644,56 @@ fn include_gaps_finishes_with_exit_zero() {
         "regions: {regions:#?}"
     );
     assert_eq!(report["options"]["include_gaps"], true);
+}
+
+#[test]
+fn verbose_prints_each_carved_file_exactly_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let image = image_file(dir.path());
+    let out = run(&[
+        "scan",
+        image.to_str().unwrap(),
+        "-o",
+        dir.path().join("out").to_str().unwrap(),
+        "--mode",
+        "raw",
+        "--no-fs",
+        "--verbose",
+        "--min-size",
+        "1",
+    ]);
+    assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr(&out));
+    let lines: Vec<_> = stderr(&out)
+        .lines()
+        .filter(|line| line.starts_with("[+] "))
+        .collect();
+    assert_eq!(lines.len(), 3, "verbose lines: {lines:#?}");
+}
+
+#[test]
+fn verified_only_withholds_structural_results() {
+    let dir = tempfile::tempdir().unwrap();
+    let image = image_file(dir.path());
+    let report_path = dir.path().join("verified-only.json");
+    let out = run(&[
+        "scan",
+        image.to_str().unwrap(),
+        "-o",
+        dir.path().join("out").to_str().unwrap(),
+        "--mode",
+        "raw",
+        "--no-fs",
+        "--quiet",
+        "--min-size",
+        "1",
+        "--verified-only",
+        "--json-report",
+        report_path.to_str().unwrap(),
+    ]);
+    assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr(&out));
+    let report: serde_json::Value =
+        serde_json::from_slice(&fs::read(&report_path).unwrap()).unwrap();
+    assert_eq!(report["files"].as_array().unwrap().len(), 0);
+    assert_eq!(report["stats"]["skipped_verified_only"], 3);
+    assert_eq!(report["options"]["verified_only"], true);
 }

@@ -44,6 +44,24 @@ Residual risk / next: after B4, run cargo build/test/clippy, scripts/review_repr
 The benchmark freeze is honoured: only source/docs were added; `dist/` and the
 frozen benchmark binary were not rebuilt or modified.
 
+```text
+Task: H-01 — validity model, honest labels, missing report fields [repo H-16]
+Change: build.rs, src/cli.rs, src/scan.rs, src/report.rs, docs/report.schema.json,
+        README.md, docs/REPORT.md, CHANGELOG.md
+New tests: verbose_prints_each_carved_file_exactly_once,
+        verified_only_withholds_structural_results; schema/field assertions
+        extended in emitted_report_matches_the_published_schema. Red before /
+        green after: pending (cannot run cargo while the frozen B4 benchmark is
+        still measuring tool timings).
+Gate: PENDING-BENCH (cargo fmt/clippy/test and G9 doc check deferred).
+Measurement: no runtime measurement yet; source-only change. Expected JSON shape
+        now includes validity_reason/tail_trimmed_bytes/aligned/nested_in/
+        sha256_output/tool_info.rustc.
+Residual risk / next: after B4, run the full gate and the A.2 S-CONTROL check;
+        confirm the D0 golden output files are byte-identical (report/console
+        changes only) and that --verbose output has one [+] line per file.
+```
+
 ### Gate at time of writing — **GATE GREEN (2026-11-20, historical)**
 
 ```text

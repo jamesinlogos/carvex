@@ -441,6 +441,8 @@ pub struct ScanOptions {
     pub repair: bool,
     /// Emit only complete files when true.
     pub complete_only: bool,
+    /// Emit only files whose authoritative validity is verified.
+    pub verified_only: bool,
     /// PDF EOF handling mode.
     pub pdf_eof: PdfEofMode,
     /// Whether to dedupe by content hash.
@@ -503,6 +505,7 @@ impl ScanOptions {
             min_score: self.min_score,
             repair: self.repair,
             complete_only: self.complete_only,
+            verified_only: self.verified_only,
             pdf_eof: self.pdf_eof.to_string(),
             dedupe_hashes: self.dedupe_hashes,
             suppress_nested: self.suppress_nested,
@@ -544,6 +547,7 @@ impl Default for ScanOptions {
             min_score: 50,
             repair: false,
             complete_only: false,
+            verified_only: false,
             pdf_eof: PdfEofMode::Smart,
             dedupe_hashes: false,
             suppress_nested: true,
@@ -717,6 +721,8 @@ pub struct ToolInfo {
     pub version: String,
     /// Source commit hash, when known.
     pub commit: String,
+    /// Rust compiler version used to build this binary.
+    pub rustc: String,
 }
 
 /// Configuration/data structure.
@@ -779,6 +785,8 @@ pub struct ReportOptions {
     pub repair: bool,
     /// Emit only complete files when true.
     pub complete_only: bool,
+    /// Emit only files whose authoritative validity is verified.
+    pub verified_only: bool,
     /// PDF EOF handling mode.
     pub pdf_eof: String,
     /// Whether to dedupe by content hash.
@@ -945,6 +953,16 @@ pub struct CarvedFile {
     pub validation: Validation,
     /// Authoritative honesty label; legacy `validation`/`status` are preserved.
     pub validity: Validity,
+    /// Short machine-readable reason for `validity`.
+    pub validity_reason: String,
+    /// Trailing zero bytes removed from a salvaged prefix.
+    pub tail_trimmed_bytes: u64,
+    /// Whether the candidate offset satisfied the effective alignment mode.
+    pub aligned: bool,
+    /// Sequence of the containing file when nested output is retained.
+    pub nested_in: Option<u64>,
+    /// Final output digest when repair changed the carved bytes.
+    pub sha256_output: Option<String>,
     /// Bytes covered by validation.
     pub validated_bytes: u64,
     /// Logical block address, when known.
@@ -999,6 +1017,8 @@ pub struct ScanStats {
     pub below_min_score: usize,
     /// Candidates skipped by complete-only mode.
     pub skipped_complete_only: usize,
+    /// Candidates skipped by verified-only mode.
+    pub skipped_verified_only: usize,
     /// Candidates rejected as too-large truncated outputs.
     pub too_large_truncated: usize,
     /// Duplicate outputs suppressed by hash.
@@ -1143,6 +1163,8 @@ struct CarvedData {
     repair_suffix: Vec<u8>,
     validation: Validation,
     validity: Validity,
+    /// Trailing zero bytes removed from the salvaged prefix.
+    tail_trimmed_bytes: u64,
     validation_notes: Vec<String>,
     /// Contiguous bytes from offset zero whose content was actually checked.
     validated_bytes: u64,
@@ -1499,7 +1521,7 @@ fn apply_unreadable_regions(
 }
 
 fn print_verbose_candidates(kept: &[CarvedData], opts: &ScanOptions) {
-    if !opts.verbose {
+    if !opts.verbose || opts.quiet {
         return;
     }
     for (idx, file) in kept.iter().enumerate() {
@@ -1618,6 +1640,7 @@ fn assemble_scan_report(
             name: "CarveX".into(),
             version: env!("CARGO_PKG_VERSION").into(),
             commit: option_env!("CARVEX_GIT_COMMIT").unwrap_or("unknown").into(),
+            rustc: env!("CARVEX_RUSTC").into(),
         },
         image: image.to_string(),
         input,
@@ -1815,6 +1838,7 @@ pub fn partial_report(
             name: "CarveX".into(),
             version: env!("CARGO_PKG_VERSION").into(),
             commit: option_env!("CARVEX_GIT_COMMIT").unwrap_or("unknown").into(),
+            rustc: env!("CARVEX_RUSTC").into(),
         },
         image: input.image.to_string(),
         input: input_info,
@@ -2181,13 +2205,15 @@ fn prepare_analysis(
     prefix: &[u8],
     analysis: &mut Analysis,
     opts: &ScanOptions,
-) -> Result<(), CarveOutcome> {
+) -> Result<u64, CarveOutcome> {
     if analysis.end == 0 || analysis.end > prefix.len() {
         return Err(CarveOutcome::Rejected("invalid carved length".into()));
     }
+    let mut tail_trimmed_bytes = 0;
     if !analysis.complete {
         let trimmed = trim_zero_tail(&prefix[..analysis.end]);
         if trimmed < analysis.end {
+            tail_trimmed_bytes = (analysis.end - trimmed) as u64;
             analysis.notes.push(format!(
                 "trimmed {} trailing zero byte(s)",
                 analysis.end - trimmed
@@ -2205,7 +2231,7 @@ fn prepare_analysis(
     if opts.complete_only && !analysis.complete {
         return Err(CarveOutcome::NotComplete);
     }
-    Ok(())
+    Ok(tail_trimmed_bytes)
 }
 
 struct RepairState {
@@ -2382,6 +2408,7 @@ fn finalize_carved(
     prefix: &[u8],
     end: usize,
     output_len: u64,
+    tail_trimmed_bytes: u64,
     opts: &ScanOptions,
 ) -> Result<CarvedData, CarveOutcome> {
     let ValidationDetail {
@@ -2428,6 +2455,7 @@ fn finalize_carved(
     let sha256 = sha256_hex_with_suffix(&prefix[..end], &repair.suffix);
     Ok(CarvedData {
         candidate: cand.clone(),
+        tail_trimmed_bytes,
         payload: PayloadSpec::Range {
             offset: cand.offset,
             len: end as u64,
@@ -2566,9 +2594,11 @@ fn carve_one_with_scratch(
         test_panic_probe(cand.offset, "analyze");
         match analyze(cand.kind, &scratch[..read_len], at_limit, opts.pdf_eof) {
             Need::Analyzed(mut analysis) => {
-                if let Err(outcome) = prepare_analysis(&scratch[..read_len], &mut analysis, opts) {
-                    return Ok(outcome);
-                }
+                let tail_trimmed_bytes =
+                    match prepare_analysis(&scratch[..read_len], &mut analysis, opts) {
+                        Ok(trimmed) => trimmed,
+                        Err(outcome) => return Ok(outcome),
+                    };
                 let end = analysis.end;
                 // Validator scratch is bounded by its own flag and, for this
                 // scan, can never raise the shared working-memory ceiling.
@@ -2628,6 +2658,7 @@ fn carve_one_with_scratch(
                     &scratch[..read_len],
                     end,
                     output_len,
+                    tail_trimmed_bytes,
                     opts,
                 ) {
                     Ok(data) => Ok(CarveOutcome::Carved(Box::new(data))),
@@ -3366,6 +3397,7 @@ fn joined_carved_data(
     validation_checks.extend(detail_checks);
     CarvedData {
         candidate: cand.clone(),
+        tail_trimmed_bytes: 0,
         payload: PayloadSpec::Join {
             fragments: fragments.clone(),
         },
@@ -4190,6 +4222,17 @@ fn postfilter(
     if opts.dedupe_hashes {
         candidates = dedupe_candidates(candidates, stats, opts);
     }
+    if opts.verified_only {
+        let before = candidates.len();
+        candidates.retain(|data| data.validity == Validity::Verified);
+        stats.skipped_verified_only += before - candidates.len();
+        if opts.verbose && before > candidates.len() {
+            eprintln!(
+                "[-] {} candidate(s) skipped (--verified-only)",
+                before - candidates.len()
+            );
+        }
+    }
     if let Some(first) = work_limited.first() {
         warnings.push(work_limit_warning(first, work_limited.len()));
     }
@@ -4319,12 +4362,34 @@ fn source_changed_warning(data: &CarvedData, rel_path: &str, digest: &str) -> Wa
     )
 }
 
+fn validity_reason_code(data: &CarvedData) -> String {
+    match data.validity {
+        Validity::Verified => "validator_passed".into(),
+        Validity::Structural => {
+            if data.validation == Validation::Decoded {
+                "decoded_without_full_proof".into()
+            } else {
+                "structure_only".into()
+            }
+        }
+        Validity::Suspect => data
+            .validation_checks
+            .iter()
+            .find(|check| check.ok == Some(false))
+            .map(|check| format!("failed_check:{}", check.name))
+            .unwrap_or_else(|| "integrity_check_failed".into()),
+        Validity::Partial => "truncated_prefix".into(),
+        Validity::Repaired => "repair_revalidated".into(),
+    }
+}
+
 fn build_carved_file(
     seq: u64,
     data: &CarvedData,
     rel_path: String,
     volumes: &[FsInfo],
     mode: ScanMode,
+    opts: &ScanOptions,
 ) -> CarvedFile {
     let mut notes = data.analysis.notes.clone();
     notes.extend(data.validation_notes.iter().cloned());
@@ -4346,6 +4411,11 @@ fn build_carved_file(
         notes,
         validation: data.validation,
         validity: data.validity,
+        validity_reason: validity_reason_code(data),
+        tail_trimmed_bytes: data.tail_trimmed_bytes,
+        aligned: aligned(data.candidate.offset, opts.align, volumes),
+        nested_in: None,
+        sha256_output: data.repaired.then(|| data.sha256.clone()),
         validated_bytes: data.validated_bytes,
         lba,
         cluster,
@@ -4451,8 +4521,8 @@ fn write_outputs(
 
         written = written.saturating_add(data.output_len);
         stats.bytes_written = stats.bytes_written.saturating_add(data.output_len);
-        let record = build_carved_file(paths.seq, data, paths.rel_path, volumes, mode);
-        if !opts.quiet && (opts.verbose || idx < 20) {
+        let record = build_carved_file(paths.seq, data, paths.rel_path, volumes, mode, opts);
+        if !opts.quiet && !opts.verbose && idx < 20 {
             eprintln!(
                 "[+] {:<4} offset={:>12} size={:>9} score={:>3} {} {}",
                 record.file_type.label(),
@@ -4605,16 +4675,18 @@ pub fn print_summary(report: &ScanReport) {
     if report.stats.below_min_size
         + report.stats.below_min_score
         + report.stats.skipped_complete_only
+        + report.stats.skipped_verified_only
         + report.stats.too_large_truncated
         + report.stats.duplicate_hashes
         + report.stats.suppressed_nested
         > 0
     {
         println!(
-            "Filtered   : min-size={} min-score={} complete-only={} too-large-truncated={} duplicate-hash={} nested={}",
+            "Filtered   : min-size={} min-score={} complete-only={} verified-only={} too-large-truncated={} duplicate-hash={} nested={}",
             report.stats.below_min_size,
             report.stats.below_min_score,
             report.stats.skipped_complete_only,
+            report.stats.skipped_verified_only,
             report.stats.too_large_truncated,
             report.stats.duplicate_hashes,
             report.stats.suppressed_nested

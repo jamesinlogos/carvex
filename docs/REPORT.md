@@ -455,7 +455,8 @@ After carving:
 
 - **`--min-size`:** discard files that are too small.
 - **`--min-score`:** discard weak structures.
-- **`--complete-only`:** discard files with no footer found.
+- **`--complete-only`:** discard files with no footer found (footer found is not a verification claim).
+- **`--verified-only`:** discard files whose authoritative `validity` is not `verified`.
 - **`--dedupe-hashes`:** keep the first record for each SHA-256.
 - **Nested suppression:** discard candidates entirely contained within a larger complete file. For example, a JPEG image embedded in a PDF, or a PDF embedded in a PDF.
 - **A candidate file is written only once** per `(offset, type)` pair.

@@ -39,12 +39,13 @@
     "tool": { "type": "string" },
     "tool_info": {
       "type": "object",
-      "required": ["name", "version", "commit"],
+      "required": ["name", "version", "commit", "rustc"],
       "additionalProperties": false,
       "properties": {
         "name": { "type": "string" },
         "version": { "type": "string" },
-        "commit": { "type": "string" }
+        "commit": { "type": "string" },
+        "rustc": { "type": "string", "description": "Rust compiler version used to build the binary" }
       }
     },
     "image": { "type": "string" },
@@ -169,7 +170,7 @@
       "required": [
         "types", "mode", "min_size", "max_size", "max_truncated_size",
         "max_memory", "max_decode_bytes", "chunk_size", "threads", "min_score", "repair",
-        "complete_only", "pdf_eof", "dedupe_hashes", "suppress_nested",
+        "complete_only", "verified_only", "pdf_eof", "dedupe_hashes", "suppress_nested",
         "validate", "align", "partition", "include_gaps",
         "max_candidates", "max_work_per_candidate", "max_output", "time_budget_ms",
         "max_regions"
@@ -189,6 +190,7 @@
         "min_score": { "type": "integer", "minimum": 0, "maximum": 100 },
         "repair": { "type": "boolean" },
         "complete_only": { "type": "boolean" },
+        "verified_only": { "type": "boolean", "description": "Only emit files whose authoritative validity is verified" },
         "pdf_eof": { "enum": ["first", "last", "smart"] },
         "dedupe_hashes": { "type": "boolean" },
         "suppress_nested": { "type": "boolean" },
@@ -274,7 +276,7 @@
       "type": "object",
       "required": [
         "candidates", "carved", "internal_errors", "rejected", "below_min_size", "below_min_score",
-        "skipped_complete_only", "too_large_truncated", "duplicate_hashes",
+        "skipped_complete_only", "skipped_verified_only", "too_large_truncated", "duplicate_hashes",
         "suppressed_nested", "truncated", "repaired", "bytes_written",
         "extents", "bytes_in_extents"
       ],
@@ -287,6 +289,7 @@
         "below_min_size": { "type": "integer", "minimum": 0 },
         "below_min_score": { "type": "integer", "minimum": 0 },
         "skipped_complete_only": { "type": "integer", "minimum": 0 },
+        "skipped_verified_only": { "type": "integer", "minimum": 0, "description": "Candidates withheld by --verified-only" },
         "too_large_truncated": { "type": "integer", "minimum": 0 },
         "duplicate_hashes": { "type": "integer", "minimum": 0 },
         "suppressed_nested": { "type": "integer", "minimum": 0 },
@@ -302,7 +305,8 @@
       "required": [
         "seq", "type", "offset", "size", "carved_size", "sha256", "status",
         "score", "width", "height", "repaired", "path", "notes", "validation",
-        "validity", "validated_bytes", "checks", "lba", "cluster",
+        "validity", "validity_reason", "tail_trimmed_bytes", "aligned", "nested_in",
+        "sha256_output", "validated_bytes", "checks", "lba", "cluster",
         "partition_index", "extent_id", "allocated", "source", "fragments"
       ],
       "additionalProperties": false,
@@ -322,6 +326,11 @@
         "notes": { "type": "array", "items": { "type": "string" } },
         "validation": { "enum": ["structure", "decoded", "partial", "unverified"] },
         "validity": { "enum": ["verified", "structural", "suspect", "partial", "repaired"], "description": "Authoritative honesty label; legacy validation/status keep their historical meaning" },
+        "validity_reason": { "type": "string", "description": "Short machine-readable reason for the validity label" },
+        "tail_trimmed_bytes": { "type": "integer", "minimum": 0, "description": "Trailing zero bytes removed from a salvaged prefix" },
+        "aligned": { "type": "boolean", "description": "Whether the candidate offset satisfied the effective alignment mode" },
+        "nested_in": { "type": ["integer", "null"], "minimum": 1, "description": "Sequence of the containing output when nested files are retained" },
+        "sha256_output": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$", "description": "Final output digest when repair changed the carved bytes" },
         "validated_bytes": { "type": "integer", "minimum": 0, "description": "Bytes verified contiguously from offset zero; 0 when no content bytes were checked" },
         "lba": { "type": "integer", "minimum": 0 },
         "cluster": { "type": ["integer", "null"], "minimum": 0 },

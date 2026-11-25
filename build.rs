@@ -9,6 +9,20 @@ fn main() {
         .or_else(git_commit)
         .unwrap_or_else(|| "unknown".into());
     println!("cargo:rustc-env=CARVEX_GIT_COMMIT={commit}");
+    println!("cargo:rustc-env=CARVEX_RUSTC={}", rustc_version());
+}
+
+fn rustc_version() -> String {
+    let rustc = std::env::var("RUSTC").unwrap_or_else(|_| "rustc".into());
+    Command::new(rustc)
+        .arg("--version")
+        .output()
+        .ok()
+        .filter(|out| out.status.success())
+        .and_then(|out| String::from_utf8(out.stdout).ok())
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| "unknown".into())
 }
 
 fn env_commit() -> Option<String> {

@@ -141,6 +141,7 @@ Main options:
 | `--min-score <MIN_SCORE>` | `50` | Minimum structural validation score (0-100) |
 | `--repair` | `off` | Rebuild a truncated footer (PDF xref/trailer, JPEG EOI, PNG IEND) and revalidate before labelling repaired |
 | `--complete-only` | `off` | Only write files whose footer was found, not verified (see validity) |
+| `--verified-only` | `off` | Only write files whose authoritative `validity` is `verified` |
 | `--pdf-eof <PDF_EOF>` | `smart` | PDF %%EOF selection strategy |
 | `--dedupe-hashes` | `off` | Drop later files with an identical SHA-256 |
 | `--keep-nested` | `off` | Keep images/PDFs embedded inside a complete carved container |

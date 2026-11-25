@@ -58,6 +58,7 @@ pub fn scan_options(types: Vec<FileType>, mode: ScanMode) -> ScanOptions {
         min_score: 50,
         repair: false,
         complete_only: false,
+        verified_only: false,
         pdf_eof: PdfEofMode::Smart,
         dedupe_hashes: false,
         suppress_nested: true,
