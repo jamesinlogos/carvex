@@ -139,9 +139,9 @@ Main options:
 | `--chunk-size <CHUNK_SIZE>` | `4M` | Read chunk size for parallel scanning |
 | `--threads <THREADS>` | `0` | Worker threads (0 = number of CPUs) |
 | `--min-score <MIN_SCORE>` | `50` | Minimum structural validation score (0-100) |
-| `--repair` | `off` | Rebuild a truncated footer (PDF, JPEG or PNG) and label `repaired` only if revalidation passes; mid-stream cuts stay `partial` |
+| `--repair` | `off` | Rebuild a truncated footer (PDF, JPEG or PNG) and label repaired only if revalidation passes; mid-stream cuts stay partial |
 | `--complete-only` | `off` | Only write files whose footer was found, not verified (see validity) |
-| `--verified-only` | `off` | Only write files whose authoritative `validity` is `verified` |
+| `--verified-only` | `off` | Only write files whose authoritative validity is verified |
 | `--pdf-eof <PDF_EOF>` | `smart` | PDF %%EOF selection strategy |
 | `--dedupe-hashes` | `off` | Drop later files with an identical SHA-256 |
 | `--keep-nested` | `off` | Keep images/PDFs embedded inside a complete carved container |
