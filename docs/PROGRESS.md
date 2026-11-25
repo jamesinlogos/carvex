@@ -96,7 +96,8 @@ Residual risk / next: after B4 run cargo test and re-check the A.2 S-REPAIR
 ```text
 Task: H-25 — Truncated-file end (harness-ab725a6; distinct from repo H-25)
 Change: src/scan.rs, src/signatures/{jpeg,png,pdf,mod}.rs,
-        docs/report.schema.json, docs/DECISIONS.md (D-70)
+        docs/report.schema.json, docs/DECISIONS.md (D-70),
+        README.md (G9 generated flag table)
 New tests: tests/regress_tail_padding.rs (9 fixtures = 3 per format,
         10 cut fractions, {zeros, 0xFF, seeded random, ASCII} ×
         {4 KiB, 1 MiB}, plus 48 MiB JPEG FF padding, neighbour recovery,
@@ -120,8 +121,11 @@ Gate: cargo fmt --all -- --check, cargo check --all-targets --locked,
         cargo clippy --all-targets --all-features --locked -- -D warnings,
         cargo test --all-features --locked and cargo build --release --locked
         are green (all tests, including the new 512-case property and 5 tail
-        tests). `review_repro.py --assert --xfail` is 34 scenarios, 0 failures,
-        5 SKIPs, 0 XPASS. Golden/perf/G9 still pending after commit.
+        tests). Post-commit `review_repro.py --assert --xfail` is 34 scenarios,
+        0 failures, 5 SKIPs, 0 XPASS. `scripts/golden.py` is GOLDEN GREEN,
+        `scripts/perf_gate.py` is PERF GREEN (the already-xfailed rand64m
+        baseline timing is the only REGRESSION line), and
+        `bench/render_docs.py --check` plus `scripts/check_status.py` are green.
 Measurement: no benchmark artifact or frozen binary changed. Appendix A.2
         S-TAIL on the frozen corpus with fresh output dirs: JPEG zeros/random/
         FF = 212,468 / 212,892 / 212,468 B (cut 212,468); PNG = 839,272 /
