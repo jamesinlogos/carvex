@@ -77,6 +77,22 @@ Residual risk / next: after B4 run cargo test (including the new red test) and
         --min-score, update this test together with that decision.
 ```
 
+```text
+Task: H-04 — --repair labels unreadable files repaired [repo H-21]
+Change: src/cli.rs (--help), README.md, docs/REPORT.md, docs/DECISIONS.md
+        (D-68), CHANGELOG.md
+New tests: mid_stream_png_and_jpeg_repair_stays_partial (S-REPAIR-style 60 %
+        PNG/JPEG rows; repaired=false, validity=partial, bytes unchanged).
+Gate: PENDING-BENCH (cargo test/gate deferred while B4 measures timings).
+Decision: §9 Q11 answered by the user on 2026-11-25 — document all three
+        formats (PDF, PNG, JPEG) as supported footer repairs, not PDF-only.
+        Footer-only PNG/JPEG repairs already revalidate (existing green test).
+Measurement: none yet; docs and tests only. No score, threshold, output byte
+        or benchmark value changed.
+Residual risk / next: after B4 run cargo test and re-check the A.2 S-REPAIR
+        rows (PDF repaired, PNG/JPEG partial) as regression guards.
+```
+
 ### Gate at time of writing — **GATE GREEN (2026-11-20, historical)**
 
 ```text

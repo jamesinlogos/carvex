@@ -165,6 +165,43 @@ fn unvalidatable_pdf_repair_stays_truncated_and_unchanged() {
 }
 
 #[test]
+fn mid_stream_png_and_jpeg_repair_stays_partial() {
+    // §9 Q11 (user decision 2026-11-25): PDF, PNG and JPEG footer repair are
+    // supported, but a cut through the payload is not a footer repair. Pin the
+    // S-REPAIR-style 60 % rows: honest partial, no bytes changed, no repair
+    // hash, and a failed `repair` check.
+    let jpeg_full = JPEG_1X1;
+    let jpeg = &jpeg_full[..jpeg_full.len() * 3 / 5];
+    let (jpeg_file, jpeg_carved) = scan_repaired(jpeg, "jpeg");
+    assert_eq!(jpeg_carved, jpeg, "failed repair must not alter bytes");
+    assert_eq!(jpeg_file["status"], "truncated");
+    assert_eq!(jpeg_file["validity"], "partial");
+    assert_eq!(jpeg_file["repaired"], false);
+    assert!(jpeg_file["sha256_original"].is_null());
+    assert!(jpeg_file["notes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|note| note.as_str() == Some("repair attempted, not validated")));
+    assert_eq!(check(&jpeg_file, "repair").unwrap()["ok"], false);
+
+    let png_full = png_1x1();
+    let png = &png_full[..png_full.len() * 3 / 5];
+    let (png_file, png_carved) = scan_repaired(png, "png");
+    assert_eq!(png_carved, png, "failed repair must not alter bytes");
+    assert_eq!(png_file["status"], "truncated");
+    assert_eq!(png_file["validity"], "partial");
+    assert_eq!(png_file["repaired"], false);
+    assert!(png_file["sha256_original"].is_null());
+    assert!(png_file["notes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|note| note.as_str() == Some("repair attempted, not validated")));
+    assert_eq!(check(&png_file, "repair").unwrap()["ok"], false);
+}
+
+#[test]
 fn jpeg_and_png_footer_repairs_are_revalidated() {
     let jpeg = &JPEG_1X1[..JPEG_1X1.len() - 2];
     let (jpeg_file, jpeg_carved) = scan_repaired(jpeg, "jpeg");

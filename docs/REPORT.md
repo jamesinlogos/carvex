@@ -481,6 +481,10 @@ revalidates the complete result:
   or `/Type /Catalog`, rebuild a bounded classic xref table and trailer with
   `startxref` pointing at the rebuilt table, then append `%%EOF`.
 
+The supported repair formats are PDF, PNG and JPEG. In each case the rebuilt
+bytes are a footer; a cut through the payload (for example at 60 % of a PNG or
+JPEG) cannot be recovered by footer reconstruction and stays `partial`.
+
 Only a result that passes revalidation is labelled `repaired`. For PDF this
 means the H-19 structural validator passes even in default `structure` mode; a
 bare `%%EOF` without a resolvable xref/catalog is not sufficient. Revalidation

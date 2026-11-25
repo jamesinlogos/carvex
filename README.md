@@ -139,7 +139,7 @@ Main options:
 | `--chunk-size <CHUNK_SIZE>` | `4M` | Read chunk size for parallel scanning |
 | `--threads <THREADS>` | `0` | Worker threads (0 = number of CPUs) |
 | `--min-score <MIN_SCORE>` | `50` | Minimum structural validation score (0-100) |
-| `--repair` | `off` | Rebuild a truncated footer (PDF xref/trailer, JPEG EOI, PNG IEND) and revalidate before labelling repaired |
+| `--repair` | `off` | Rebuild a truncated footer (PDF, JPEG or PNG) and label `repaired` only if revalidation passes; mid-stream cuts stay `partial` |
 | `--complete-only` | `off` | Only write files whose footer was found, not verified (see validity) |
 | `--verified-only` | `off` | Only write files whose authoritative `validity` is `verified` |
 | `--pdf-eof <PDF_EOF>` | `smart` | PDF %%EOF selection strategy |
@@ -316,8 +316,11 @@ PDF. The result is marked `repaired` only if it passes revalidation; otherwise
 the original bytes are written with `status=truncated`, `validity=partial` and
 the note `repair attempted, not validated`. A successful repair records
 `sha256_original` (the bytes read) alongside `sha256` (the bytes written), and
-never counts as an exact recovery. The official benchmark does **not** enable
-this option.
+never counts as an exact recovery. All three formats (PDF, PNG, JPEG) are
+supported, but only when the missing bytes are a footer that can be rebuilt and
+revalidated; a cut through the payload (for example at 60 % of a PNG or JPEG)
+normally stays `partial` rather than claiming a successful repair. The official
+benchmark does **not** enable this option.
 
 ### 5. Nested file removal
 

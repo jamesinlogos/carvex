@@ -1337,3 +1337,29 @@ decision, and the consequences.
   (cases 940, 1131, 2006) were all gradient_noise low-contrast/flat boundary
   splices; edge/variance pixel-domain signals showed no clean separation.
   Clean-control and upper-bound acceptance criteria remain unmet.
+
+## D-68. `--repair` supports PDF, PNG and JPEG footers (harness §9 Q11)
+
+- **Context:** the honesty fix stopped labelling 60 %-cut PNG/JPEG files
+  `repaired`, but footer-only PNG/JPEG repairs still pass decode revalidation
+  (`tests/repair_validation.rs`). Harness §9 Q11 offered "PDF only" versus a
+  decode-proven PNG/JPEG repair.
+- **User decision (2026-11-25):** document all three formats as supported.
+  `--help`, README and REPORT now state that only a rebuilt footer that passes
+  revalidation is labelled `repaired`; a cut through the payload stays
+  `partial`. No output bytes, thresholds or benchmark results change.
+- **Regression pin:** `mid_stream_png_and_jpeg_repair_stays_partial` covers the
+  S-REPAIR-style 60 % rows for both formats; the existing footer-repair test
+  covers the successful PNG/JPEG cases.
+
+## D-69. Low-score drops emit `BELOW_MIN_SCORE` (harness H-02)
+
+- **Context:** with `--validate decode`, three bad PNG IDAT CRCs score 35,
+  below the default `--min-score 50`; the candidate was discarded with only a
+  stats counter as evidence.
+- **Decision:** aggregate withheld candidates into one `BELOW_MIN_SCORE`
+  warning carrying the count and first offsets. The code is intentionally not
+  in `Warning::incomplete()`, so the run still exits 0 and `--min-score`
+  semantics are unchanged. Whether `suspect` files should be exempt from the
+  threshold remains open (§9 Q3); the repository already emits CRC-bad PNGs as
+  `suspect` when they pass the threshold.

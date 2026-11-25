@@ -20,6 +20,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `BELOW_MIN_SCORE` warning with the count and first offsets, instead of being
   silently discarded. The warning is not an incomplete-run condition and the
   default emission policy is unchanged.
+- H-04: document PDF, PNG and JPEG footer repair (§9 Q11 user decision) and pin
+  that mid-stream PNG/JPEG cuts stay `partial` with unchanged bytes.
 
 ## [0.3.1] — 2026-11-23
 
