@@ -1,25 +1,48 @@
 # Implementation progress (CarveX 0.3.1; frozen benchmark figures remain 0.1.0/0.2.0)
 
-> Last updated: 2026-11-23. Every status below is verified by the command
-> recorded with it; items that could not be run due to missing tools are marked
-> `SKIPPED`, with no guessed results. IDs follow the consolidated guide §6
-> (A-01…A-15, B-01…B-11, C-01…C-09, D-01…D-03); old findings F-01…F-21 are
-> cross-referenced in `docs/REVIEW_RESPONSE.md`.
+> Last updated: 2026-11-25 (H0 preparation for `docs/harness-ab725a6.md`;
+> historical gate rows below are dated records). Every status below is verified
+> by the command recorded with it; items that could not be run due to missing
+> tools are marked `SKIPPED`, with no guessed results. IDs follow the
+> consolidated guide §6 (A-01…A-15, B-01…B-11, C-01…C-09, D-01…D-03); old
+> findings F-01…F-21 are cross-referenced in `docs/REVIEW_RESPONSE.md`.
 
 ## Environment
 
 | Component | Value |
 |---|---|
-| Date | 2026-11-23 (R2 docs update; earlier gate rows below are dated historical records) |
+| Date | 2026-11-25 (H0 preparation for `docs/harness-ab725a6.md`; earlier rows below are dated historical records) |
 | OS | Linux x86_64 (Kali), running in a container |
-| carvex | source `main` at `749ee7a` (0.3.1, post-release refactor); `dist/` binaries rebuilt from `be4217f` (Linux glibc, Windows GNU) and `DIST OK`; latest archived green CI `45332545060` (27/27) |
-| rustc / cargo | 1.100.0 (0ef1bc386 2026-11-09) / 1.100.0 |
+| carvex | source `ab725a6674b6` (0.3.1); `dist/carvex-linux-x86_64` rebuilt from `be4217f7e2b4`, SHA-256 `558c2df2fe87faca033935b031973048370e9c6b59c547f56d3d764a8f356e72`; latest archived green CI `45332545060` (27/27) |
+| rustc / cargo | 1.100.0 (0ef1bc386 2026-11-09) / 1.100.0 (pinned toolchain installed; no `RUSTUP_TOOLCHAIN` override needed) |
 | MSRV | 1.85.0, installed via rustup; `cargo +1.85 check --locked` passes |
-| Python | 3.13.12; Pillow available |
+| Python | 3.13.12; Pillow 12.2.0; pypdf 6.9.2 |
 | Audit tools | `cargo-audit-audit 0.23.0`, `cargo-deny 0.21.0` |
 | Benchmark tools | foremost, scalpel, photorec, mkfs.vfat, mkfs.exfat, mkntfs, mcopy, ntfs-3g, blkls, fls, istat, tsk_recover, parted, losetup, mount, mtools, 7z |
-| Validation tools | `actionlint 1.7.12`, `cargo-fuzz 0.13.2` with `nightly 1.102.0-nightly`, `cargo-llvm-cov 0.9.1` |
-| Missing | `qpdf`, `pdftoppm`, `ewfacquire`, `ewfexport`, `qemu-img`, a real Windows runner (Wine 10.0 available for packaged `.exe`) |
+| Validation tools | `actionlint 1.7.12`, `cargo-fuzz 0.13.2` with `nightly 1.102.0-nightly`, `cargo-llvm-cov 0.9.1`; `qpdf 12.4.2`, `ewfacquire`/`ewfexport`/`ewfverify` 20140816-2+b2 now installed |
+| Missing | `pdftoppm`, `qemu-img`, a real Windows runner (Wine 10.0 available for packaged `.exe`) |
+
+### H0 preparation — `harness-ab725a6` (2026-11-25, in progress)
+
+```text
+Task: H0 — baseline and safety net (docs/harness-ab725a6.md §5)
+Change: docs/harness-ab725a6.md (copy of the supplied harness); scripts/fn_len.py
+        (Appendix C.2); tests/fixtures/fixtures.py (Appendix C.1)
+New tests: none yet; both new Python files pass py_compile; fixture builders
+        are not executed yet because the frozen B4 benchmark is still running.
+Gate: PENDING-BENCH (CPU-heavy build/test/A.2 re-measurement deferred until B4
+        finishes; no heavy work is run concurrently with the benchmark).
+Measurement: scripts/fn_len.py src --limit 120 → exactly the 4 expected raw-line
+        findings (136/134/129/125), exit 1 as documented in A.2 / H-22.
+        git rev-parse HEAD = ab725a6674b6322b304557df8ade52acf309bb54,
+        Cargo.toml version = 0.3.1, dist SHA-256 unchanged.
+Residual risk / next: after B4, run cargo build/test/clippy, scripts/review_repro.py
+        --assert --xfail, and the A.2 scenario checks; any qualitative mismatch
+        triggers §9 Q9 (STOP-AND-ASK). Verify (do not re-freeze) golden/perf baselines.
+```
+
+The benchmark freeze is honoured: only source/docs were added; `dist/` and the
+frozen benchmark binary were not rebuilt or modified.
 
 ### Gate at time of writing — **GATE GREEN (2026-11-20, historical)**
 
