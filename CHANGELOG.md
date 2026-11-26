@@ -44,6 +44,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   R2-03/D-67/H-18 Wilson upper-bound target is still unmet (0.0022), so repo
   H-18 remains PARTIAL; no default, threshold or benchmark figure changed.
 
+### Changed
+
+- Prebuilt Linux and Windows binaries were rebuilt from `43dcf59bb01b` so the
+  committed `dist/` artifacts include the H-09 fix. Both report
+  `tool_info.commit = 43dcf59bb01b`; `dist/SHA256SUMS`, `dist/README.md` and the
+  environment note in `docs/PROGRESS.md` were refreshed. No source behaviour
+  changed in this rebuild.
+
 ## [0.3.1] — 2026-11-23
 
 ### Added

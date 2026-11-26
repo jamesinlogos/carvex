@@ -13,7 +13,7 @@
 |---|---|
 | Date | 2026-11-25 (H0 preparation for `docs/harness-ab725a6.md`; earlier rows below are dated historical records) |
 | OS | Linux x86_64 (Kali), running in a container |
-| carvex | source `ab725a6674b6` (0.3.1); `dist/carvex-linux-x86_64` rebuilt from `be4217f7e2b4`, SHA-256 `558c2df2fe87faca033935b031973048370e9c6b59c547f56d3d764a8f356e72`; latest archived green CI `45332545060` (27/27) |
+| carvex | source `43dcf59bb01b` (0.3.1); `dist/carvex-linux-x86_64` rebuilt from the same commit, SHA-256 `918616cf0eb512f5d69dd8b747d278e32a742571e499c658bf9acf8eb2645840` (Windows: `fd94127ed1c20cac65b473fdc07ef9575feaa9e6d8310680267b4ed18b0fbb7d`); latest archived green CI `45332545060` (27/27, earlier commit), CI at `43dcf59bb01b` pending |
 | rustc / cargo | 1.100.0 (0ef1bc386 2026-11-09) / 1.100.0 (pinned toolchain installed; no `RUSTUP_TOOLCHAIN` override needed) |
 | MSRV | 1.85.0, installed via rustup; `cargo +1.85 check --locked` passes |
 | Python | 3.13.12; Pillow 12.2.0; pypdf 6.9.2 |
