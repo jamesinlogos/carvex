@@ -169,10 +169,10 @@ jobs:
       - name: Gate failure detail
         if: failure() && steps.gate.outcome == 'failure'
         run: |
-          { grep -E '^(FAIL|XPASS|GATE FAILED|GATE INCOMPLETE|PERF FAIL|DIST STALE)|scenario\(s\)' gate.log || true; } \
+          { grep -E '^(FAIL|XPASS|GATE FAILED|GATE INCOMPLETE|PERF FAIL|DIST STALE|G9 FAIL|G9 DIFF)|scenario\(s\)' gate.log || true; } \
             | tail -n 10 \
             | sed -E 's/\x1B\[[0-9;]*[A-Za-z]//g' \
-            | cut -c1-200 \
+            | cut -c1-500 \
             | while IFS= read -r line; do echo "::error::$line"; done
 
   review-repro:

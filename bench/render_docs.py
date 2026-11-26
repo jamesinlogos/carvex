@@ -176,6 +176,21 @@ def replace_block(text: str, start_marker: str, end_marker: str, block: str) -> 
     return text[:start] + block + text[end + len(end_marker):]
 
 
+def report_diff(what: str, actual: str, expected: str) -> None:
+    print(f"G9 FAIL: README {what} does not match generated output")
+    a_lines = actual.splitlines()
+    e_lines = expected.splitlines()
+    for index in range(max(len(a_lines), len(e_lines))):
+        actual_line = a_lines[index] if index < len(a_lines) else "<missing>"
+        expected_line = e_lines[index] if index < len(e_lines) else "<missing>"
+        if actual_line != expected_line:
+            print(
+                f"G9 DIFF {what} line {index + 1}: "
+                f"README={actual_line!r} expected={expected_line!r}"
+            )
+            break
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--check", action="store_true", help="fail if README is stale")
@@ -200,15 +215,11 @@ def main() -> int:
 
     actual_flags = text[text.find(START):text.find(END) + len(END)]
     if actual_flags != flags:
-        print("G9 FAIL: README flag table does not match carvex scan --help")
-        print(f"expected block in {readme}:")
-        print(flags)
+        report_diff("flag table", actual_flags, flags)
         return 1
     actual_tests = text[text.find(TEST_START):text.find(TEST_END) + len(TEST_END)]
     if actual_tests != tests:
-        print("G9 FAIL: README test count does not match cargo test --list")
-        print(f"expected block in {readme}:")
-        print(tests)
+        report_diff("test count", actual_tests, tests)
         return 1
     options = len(parse_scan_help(subprocess.run(
         [str(args.carvex.resolve()), "scan", "--help"],
