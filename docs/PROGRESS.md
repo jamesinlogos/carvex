@@ -221,6 +221,34 @@ Residual risk / next: ASCII/random padding is bounded by the structural end,
         finalisation.
 ```
 
+```text
+Task: H-09 reopen — JPEG deep validation (external /home/kali/harness.md; repo H-18)
+Change: scripts/jpeg_splice_property.py (--assert-max-rate),
+        tests/jpeg_unsupported_validation.rs,
+        tests/fixtures/jpeg_progressive_160x120.jpg,
+        docs/baseline/jpeg_splice_h09_reopen.txt,
+        docs/harness-ab725a6.md (H-09 closure notes), docs/PROGRESS.md,
+        docs/REVIEW_RESPONSE.md, docs/DECISIONS.md, CHANGELOG.md,
+        README.md (generated test count)
+New tests: progressive_jpeg_is_unsupported_not_decoded — an SOF2 fixture is
+        `validation=unverified`, `validity=structural`, with note
+        "JPEG strict scan unsupported for this variant; content not checked".
+Gate: green (cargo fmt --all -- --check, cargo clippy --all-targets
+        --all-features --locked -- -D warnings, cargo test --all-features
+        --locked, scripts/review_repro.py --carvex target/release/carvex
+        --assert --xfail scripts/repro_xfail.txt, scripts/golden.py,
+        scripts/perf_gate.py, G9 and status).
+Measurement: 4,000-pair deterministic eval on the dev release build accepted
+        3/4,000 splices: rate 0.0008, Wilson 95% [0.0003, 0.0022]. The external
+        harness criterion is the point estimate <= 0.1%, so the assertion
+        command exits 0. The three residuals remain gradient_noise
+        low-contrast/flat boundary splices (cases 940, 1131, 2006).
+Residual risk / next: repo H-18/R2-03/D-67 uses the stricter Wilson upper
+        bound <= 0.1%; upper 0.0022 still fails it, so repo H-18 remains
+        PARTIAL. No default validation, threshold, score, benchmark figure or
+        frozen artifact changed.
+```
+
 ### Gate at time of writing — **GATE GREEN (2026-11-20, historical)**
 
 ```text
@@ -421,7 +449,7 @@ Windows**.
 | H-15 | MED | 2026-11-22 source / 0.2.0 and 0.3.0 `dist/`; 2026-11-23 R2-02 | CLOSED (R2-02 scratch reuse; shipped 0.3.1 glibc dist passes X23/R5) | 1c28e2e, 25b50d0 | scripts/review_repro.py X23,R5; src/scan.rs | R2-02 reuses per-worker scratch buffers in count/scan/carve (ADR-H15/D-66), preserving budget drop-before-reserve. 0.3.0 musl dist baseline: X23 2.80s vs 1.26s (2.22x), R5 5.50s. 0.3.1 musl build measured but not shipped (X23 2.452s vs 1t 1.048s, 2.34x; R5 5.020s). Shipped 0.3.1 Linux glibc (`carvex-linux-x86_64`, min GLIBC 2.34): X23 default 0.158s vs 1t 0.565s (0.28x), R5 0.310s. |
 | H-16 | CRIT | 2026-11-22 source | CLOSED | 3f47e51 | tests/validity_model.rs; tests/cli_contract.rs; scripts/review_repro.py X10–X14/X24 | Red test proved `validity` was absent and default `complete/structure/100` rows had no "content not checked" text. Added authoritative `validity` + `checks[]`; scores and emission unchanged. |
 | H-17 | HIGH | 2026-11-22 source | CLOSED | 905c9c0 | tests/png_crc_validity.rs; src/signatures/png.rs; scripts/review_repro.py X10 | Bad PNG CRC is now `validation=partial`/`validity=suspect` in structure and decode modes, with a `chunk_crc` check naming type/offset; decode `validated_bytes` stops at the last good chunk. |
-| H-18 | HIGH | 2026-11-22 source; 2026-11-23 R2-03 | PARTIAL (R2-03 check added; eval upper bound above 0.1%; accepted for 0.3.1, option A 2026-11-23) | 01ea6b3, pending | src/signatures/jpeg.rs; src/signatures/mod.rs; scripts/review_repro.py X12 | R2-03 adds conservative baseline content-continuity check (D-67, supersedes D-45 disclosure). D-67-style clean control 1000: 0 suspects (re-confirmed 2026-11-23). Dev splices 0/499 verified. Eval 2/3997 verified, Wilson 95% upper 0.182% (D-67). Re-measurement 2026-11-24 on current binary: 3/4000 verified, Wilson 95% upper 0.22%; residuals all gradient_noise low-contrast/flat boundary splices (cases 940,1131,2006) with no separating pixel-domain edge/variance signal. Aggressive prototype not promoted to default; no measured config met clean-control and <=0.1% upper bound. User accepted PARTIAL for 0.3.1 release. |
+| H-18 | HIGH | 2026-11-22 source; 2026-11-23 R2-03 | PARTIAL (R2-03 check added; eval upper bound above 0.1%; accepted for 0.3.1, option A 2026-11-23) | 01ea6b3, pending | src/signatures/jpeg.rs; src/signatures/mod.rs; scripts/review_repro.py X12 | R2-03 adds conservative baseline content-continuity check (D-67, supersedes D-45 disclosure). D-67-style clean control 1000: 0 suspects (re-confirmed 2026-11-23). Dev splices 0/499 verified. Eval 2/3997 verified, Wilson 95% upper 0.182% (D-67). Re-measurement 2026-11-24 on current binary: 3/4000 verified, Wilson 95% upper 0.22%; residuals all gradient_noise low-contrast/flat boundary splices (cases 940,1131,2006) with no separating pixel-domain edge/variance signal. Aggressive prototype not promoted to default; no measured config met clean-control and <=0.1% upper bound. User accepted PARTIAL for 0.3.1 release. External H-09 reopen re-measured 3/4000 on 2026-11-26: point estimate 0.0008 meets the external harness <=0.1% rule, but the Wilson upper bound 0.0022 still fails repo R2-03/D-67, so this row remains PARTIAL. |
 | H-19 | HIGH | 2026-11-22 source | CLOSED | cb591a3 | tests/pdf_structure_validation.rs; tests/fragment_recovery.rs; tests/scan_integration.rs; scripts/review_repro.py X11 | Stage 1 removed the false Decoded label; stage 2 adds bounded classic/xref-stream/ObjStm/trailer/catalog/length checking. Clean PDFs are `decoded`/`verified`; mismatches are `partial`/`suspect`. R2-08 (2026-11-23): six `qpdf --check` X11 controls SKIPPED (`qpdf` not installed). |
 | H-20 | MED | 2026-11-21 source | CLOSED | cee916a | scripts/review_repro.py X13 | Trim trailing CR/LF/whitespace/NUL before %%EOF check; EOL variants now identical. |
 | H-21 | HIGH | 2026-11-22 source | CLOSED | 3b0c15c | tests/repair_validation.rs; scripts/review_repro.py X14 | Red tests proved the static footer produced an invalid PDF labelled `repaired` with no `sha256_original`. Every repair is now revalidated before `repaired`; `sha256_original` is emitted whenever output bytes change. |

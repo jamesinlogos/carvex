@@ -1349,7 +1349,15 @@ decision, and the consequences.
   classes): 3/4000 verified, Wilson 95% upper 0.22%. Accepted residuals
   (cases 940, 1131, 2006) were all gradient_noise low-contrast/flat boundary
   splices; edge/variance pixel-domain signals showed no clean separation.
-  Clean-control and upper-bound acceptance criteria remain unmet.
+  The clean-control criterion is met; the upper-bound criterion remains unmet.
+- **External H-09 reopen (2026-11-26):** the authority file
+  `/home/kali/harness.md` scopes H-09 to the point-estimate accepted fraction
+  (`<= 0.1%`) plus static confirmation of the unsupported-variant fall-through,
+  which is weaker than R2-03/D-67's Wilson upper-bound rule. Re-measurement on
+  HEAD `0f3522a` gave 3/4,000 = 0.0008 (upper 0.0022); the assertion passes the
+  external rule and `tests/jpeg_unsupported_validation.rs` pins progressive
+  JPEGs to `unverified`. This does not change D-67 acceptance: repo H-18 stays
+  PARTIAL. Evidence: `docs/baseline/jpeg_splice_h09_reopen.txt`.
 
 ## D-68. `--repair` supports PDF, PNG and JPEG footers (harness §9 Q11)
 

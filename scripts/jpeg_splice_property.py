@@ -103,6 +103,11 @@ def main() -> None:
     parser.add_argument("--corpus", type=Path, default=Path("bench/corpus"))
     parser.add_argument("--pairs", type=int, default=1000)
     parser.add_argument("--workdir", type=Path)
+    parser.add_argument(
+        "--assert-max-rate",
+        type=float,
+        help="exit 1 when the accepted splice fraction exceeds this value",
+    )
     args = parser.parse_args()
 
     rng = random.Random(70612)  # fixed for reproducibility
@@ -148,6 +153,11 @@ def main() -> None:
         print(f"{key}: {k}/{n} rate={k / n:.4f} wilson95=[{clo:.4f},{chi:.4f}]")
     if temp:
         temp.cleanup()
+    if args.assert_max_rate is not None and accepted / args.pairs > args.assert_max_rate:
+        raise SystemExit(
+            f"H-09 assertion failed: {accepted}/{args.pairs} "
+            f"exceeds --assert-max-rate {args.assert_max_rate}"
+        )
 
 
 if __name__ == "__main__":

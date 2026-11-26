@@ -1,0 +1,33 @@
+H-09 reopen: JPEG splice re-measurement (external /home/kali/harness.md)
+=====================================================================
+
+Command: python3 scripts/jpeg_splice_property.py --carvex target/release/carvex --corpus bench/corpus --pairs 4000 --workdir target/h09-assert --assert-max-rate 0.001
+
+Binary: carvex 0.3.1 built from working tree at base HEAD 0f3522a plus the
+H-09 changes recorded in this commit; measured file: target/release/carvex
+
+UTC 2026-11-26T02:09:33Z
+
+accepted case 940: gradient_noise_35_baseline.jpg <- gradient_noise_41_baseline.jpg, cut=39424
+accepted case 1131: gradient_noise_07_baseline.jpg <- gradient_noise_10_baseline.jpg, cut=106496
+accepted case 2006: gradient_noise_21_baseline.jpg <- gradient_noise_09_baseline.jpg, cut=30208
+pairs=4000 accepted=3 rate=0.0008
+wilson95=[0.0003,0.0022]
+gradient: 3/1323 rate=0.0023 wilson95=[0.0008,0.0066]
+noise: 0/1336 rate=0.0000 wilson95=[0.0000,0.0029]
+photo: 0/1341 rate=0.0000 wilson95=[0.0000,0.0029]
+Assertion result: PASS (exit 0) at --assert-max-rate 0.001.
+
+Static confirmation (H-09 remaining work item 2)
+------------------------------------------------
+Command: cargo test --test jpeg_unsupported_validation
+Test: progressive_jpeg_is_unsupported_not_decoded
+Result: 1 passed; 0 failed. A progressive JPEG (SOF2) now reports
+validation=unverified, validity=structural, with note
+"JPEG strict scan unsupported for this variant; content not checked".
+The ab725a6 `None -> decoded` fall-through does not reproduce on this HEAD.
+
+Scope note: the external /home/kali/harness.md acceptance is
+`verified fraction <= 0.1%` (point estimate). This run is 0.0008 <= 0.001.
+The repository's stricter R2-03/D-67 Wilson upper-bound target (<=0.1%)
+remains unmet (upper 0.0022) and repo H-18 stays PARTIAL.

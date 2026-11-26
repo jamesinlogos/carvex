@@ -11,6 +11,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - H-01: report `validity_reason`, `tail_trimmed_bytes`, `aligned`, `nested_in`,
   `sha256_output` and `tool_info.rustc`; new `--verified-only` filter with
   `stats.skipped_verified_only`. Report schema and CSV prefix stay compatible.
+- H-09 reopen: `scripts/jpeg_splice_property.py --assert-max-rate` fails a
+  splice-acceptance run when the measured point estimate exceeds a supplied
+  bound. The optional assertion does not change the default measurement.
 
 ### Fixed
 
@@ -32,6 +35,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   favour of local stage/parameter structs. A pure refactor with no test edits;
   golden output is byte-identical, G8 is green and clippy reports no line-count
   findings.
+- H-09 reopen (external `/home/kali/harness.md`): re-measured 3/4,000 accepted
+  baseline JPEG splices (rate 0.0008), meeting that harness's point-estimate
+  `<= 0.1%` rule, and pinned progressive JPEGs to `unverified` rather than
+  letting an unsupported strict-scan result fall through to `decoded`. Evidence:
+  `docs/baseline/jpeg_splice_h09_reopen.txt` and
+  `tests/jpeg_unsupported_validation.rs`. The repository's stricter
+  R2-03/D-67/H-18 Wilson upper-bound target is still unmet (0.0022), so repo
+  H-18 remains PARTIAL; no default, threshold or benchmark figure changed.
 
 ## [0.3.1] — 2026-11-23
 
