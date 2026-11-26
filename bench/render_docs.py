@@ -13,6 +13,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -26,6 +27,7 @@ ROOT = Path(__file__).resolve().parent.parent
 OPTION_RE = re.compile(r"^\s{2,6}(?:-(\w),\s+)?(--[\w-]+)(?:\s+<([^>]+)>)?\s*$")
 DEFAULT_RE = re.compile(r"\[default:\s*([^\]]+)\]")
 ALIAS_RE = re.compile(r"\[alias:\s*([^\]]+)\]")
+ANSI_RE = re.compile(r"\x1B\[[0-9;]*[A-Za-z]")
 
 
 def parse_scan_help(text: str) -> list[dict[str, str]]:
@@ -131,7 +133,8 @@ def parse_test_list(text: str) -> tuple[int, list[tuple[str, int]]]:
     """Count registered tests per binary from `cargo test -- --list` output."""
     counts: dict[str, int] = {}
     current = ""
-    for raw in text.splitlines():
+    for line in text.splitlines():
+        raw = ANSI_RE.sub("", line)
         running = RUNNING_RE.match(raw)
         if running:
             path = running.group(1)
@@ -150,6 +153,10 @@ def parse_test_list(text: str) -> tuple[int, list[tuple[str, int]]]:
 
 
 def generated_test_block() -> tuple[str, int]:
+    # CI exports CARGO_TERM_COLOR=always; cargo's "Running ..." lines then
+    # contain ANSI colour codes and the test-list parser cannot see them.
+    env = dict(os.environ)
+    env["CARGO_TERM_COLOR"] = "never"
     result = subprocess.run(
         ["cargo", "test", "--all-features", "--locked", "--", "--list"],
         cwd=ROOT,
@@ -157,6 +164,7 @@ def generated_test_block() -> tuple[str, int]:
         stdout=subprocess.PIPE,
         text=True,
         stderr=subprocess.STDOUT,
+        env=env,
     )
     total, groups = parse_test_list(result.stdout)
     breakdown = " + ".join(

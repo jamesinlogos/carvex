@@ -43,6 +43,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `tests/jpeg_unsupported_validation.rs`. The repository's stricter
   R2-03/D-67/H-18 Wilson upper-bound target is still unmet (0.0022), so repo
   H-18 remains PARTIAL; no default, threshold or benchmark figure changed.
+- G9 documentation check: `bench/render_docs.py` now disables cargo colour and
+  strips ANSI codes when parsing `cargo test -- --list`, so CI's global
+  `CARGO_TERM_COLOR=always` no longer hides the test-count lines. CI failure
+  annotations also report the first differing generated line.
 
 ### Changed
 
