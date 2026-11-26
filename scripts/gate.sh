@@ -11,6 +11,10 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
+# Keep the failing command visible in CI annotations even when the command's
+# own output does not start with FAIL/XPASS (cargo, Python checks, perf, dist).
+trap 'rc=$?; echo "GATE FAILED at line $LINENO: $BASH_COMMAND"; exit "$rc"' ERR
+
 echo "== cargo fmt =="
 cargo fmt --all -- --check
 

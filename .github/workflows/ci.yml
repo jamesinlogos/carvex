@@ -169,7 +169,7 @@ jobs:
       - name: Gate failure detail
         if: failure() && steps.gate.outcome == 'failure'
         run: |
-          { grep -E '^(FAIL|XPASS)|scenario\(s\)' gate.log || true; } \
+          { grep -E '^(FAIL|XPASS|GATE FAILED|GATE INCOMPLETE|PERF FAIL|DIST STALE)|scenario\(s\)' gate.log || true; } \
             | tail -n 10 \
             | sed -E 's/\x1B\[[0-9;]*[A-Za-z]//g' \
             | cut -c1-200 \
