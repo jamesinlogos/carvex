@@ -1613,3 +1613,19 @@ decision, and the consequences.
 - **Consequences:** no other format, entropy class or metadata source gains a
   join oracle. Allocated clusters are never read in unallocated/auto mode;
   schema 1 strips `join`/`join_alternatives` and CSV columns are unchanged.
+
+## D-78. H-33 coverage work remains design-only
+
+- **Context:** external harness §7.4 lists H-33 (exFAT/FAT12/16 and ZIP/OOXML,
+  guide B-03/B-10) as NEW and **[NOT PROTOTYPED]**. No fixture image, ZIP/OOXML
+  corpus, independent validator or decompression-cap test was run in Phase H5.
+- **Decision:** no H-33 production source change is promoted. The external design
+  sketch is retained as a future experiment only; B-03 and B-10 remain
+  unimplemented and no recall number is claimed.
+- **Evidence:** external harness §7.4; the H-33 record and Phase H5 report in
+  `docs/PROGRESS.md`.
+- **Consequences:** no parser, CLI flag, report field, fuzz target, fixture or
+  `dist/` rebuild is added for H-33. A later proposal needs per-filesystem
+  fixtures where a deleted JPEG is carved exactly, `regions[]` tiling, no
+  FAT32/NTFS or golden D0 regression, plus independent OOXML content-type
+  validation and ZIP-bomb caps.

@@ -14,7 +14,7 @@
 |---|---|
 | Date | 2026-11-27 (H-04 closure and current-HEAD CI verification; earlier rows below are dated historical records) |
 | OS | Linux x86_64 (Kali), running in a container |
-| carvex | source `3c69432647b1` (H-30 implementation plus H-27/H-28/H-29, 0.3.1); local release binary built from that commit, SHA-256 `d10b9e8327b872f2be149a831376f5de628058fa3be001cbefe1a52f546d16ab`; H-30 acceptance `bench/results/h30_png_crc.txt` is 200/200 exact with 0 false `verified`; `dist/carvex-linux-x86_64` rebuilt from `1189cabe09dd`, SHA-256 `e740b20d560ab782803770cc194a369c09e5da50c21c4c476886ec54ed8e5011` (Windows: `62389a550f38072ba6ece7d31f2efbafe16d59557772b05c993cb9e32522bc6b`), `CI=true scripts/check_dist.sh` = DIST OK. H-30 CI run `45955915197` at the dist commit completed success (30/30, full release gate and 16 fuzz targets); the pre-rebuild run `45955602852` failed only at the release gate with stale `dist/`. H-28/H-29 CI run `45945194205` completed success (30/30); earlier H-27 CI runs `45936082042`, `45930050947` and `45935128607` archived in `bench/results/`; final docs-only H-30 CI PENDING |
+| carvex | source `3c69432647b1` (H-30 implementation plus H-27/H-28/H-29, 0.3.1); local release binary built from that commit, SHA-256 `d10b9e8327b872f2be149a831376f5de628058fa3be001cbefe1a52f546d16ab`; H-30 acceptance `bench/results/h30_png_crc.txt` is 200/200 exact with 0 false `verified`; `dist/carvex-linux-x86_64` rebuilt from `1189cabe09dd`, SHA-256 `e740b20d560ab782803770cc194a369c09e5da50c21c4c476886ec54ed8e5011` (Windows: `62389a550f38072ba6ece7d31f2efbafe16d59557772b05c993cb9e32522bc6b`), `CI=true scripts/check_dist.sh` = DIST OK. H-30 CI run `45955915197` at the dist commit completed success (30/30, full release gate and 16 fuzz targets); the pre-rebuild run `45955602852` failed only at the release gate with stale `dist/`. H-28/H-29 CI run `45945194205` completed success (30/30); earlier H-27 CI runs `45936082042`, `45930050947` and `45935128607` archived in `bench/results/`; final docs-only H-30 CI `45962680798` completed success (30/30) |
 | rustc / cargo | 1.100.0 (0ef1bc386 2026-11-09) / 1.100.0 (pinned toolchain installed; no `RUSTUP_TOOLCHAIN` override needed) |
 | MSRV | 1.85.0, installed via rustup; `cargo +1.85 check --locked` passes |
 | Python | 3.13.12; Pillow 12.2.0; pypdf 6.9.2 |
@@ -186,8 +186,8 @@ Gate: cargo fmt, clippy --all-targets -- -D warnings, targeted
       the implementation commit (GATE GREEN, G9 = 190 tests); source and
       acceptance commits are pushed, the packaged dist/ binaries are rebuilt
       and `CI=true scripts/check_dist.sh` is DIST OK; remote CI run
-      `45955915197` at the dist commit completed success (30/30), with the
-      final docs-only confirmation still PENDING.
+      `45955915197` at the dist commit completed success (30/30), and the
+      final docs-only confirmation `45962680798` completed success (30/30).
 Measurement: bench/results/h30_png_crc.txt, regenerated from the clean 3c69432
         release binary, records 100/100 exact joins for each of the random-gap
         and other-PNG-interior-gap kinds, Wilson 95% [0.963, 1.000] for both,
@@ -229,6 +229,30 @@ Decision: D-76 — neither prototype authorizes a production join method. Xref
       Wilson bounds and zero false `verified` results for each gap kind.
 Residual risk / next: H-31 and H-32 remain experimental records only; H-30 is
       the next production item.
+```
+
+### Part T H-33 — exFAT/FAT12/16 and ZIP/OOXML coverage (design only, 2026-11-27)
+
+```text
+Task: review the external H-33 coverage proposal (guide B-03 and B-10) and decide
+      whether any production promotion is authorized.
+Commit: none in production source; this docs-only record adds D-78.
+Change: docs/PROGRESS.md and docs/DECISIONS.md only. No parser, CLI flag, report
+        field, fuzz target, fixture or dist rebuild was added.
+New tests: none. The item remains [NOT PROTOTYPED] exactly as in external
+       harness §7.4; no fixture image, ZIP/OOXML corpus or red test was run.
+Measurement: none claimed. B-03/B-10 stay unimplemented; no exFAT, FAT12/16,
+       ZIP or OOXML recall number is reported. The external design sketch
+       (exFAT boot region/allocation bitmap/entry sets, 12-bit FAT entries,
+       ZIP local headers + EOCD with per-entry CRC-32, independent `zipfile`
+       validation and decompression caps) is retained only for a future
+       accepted experiment.
+Decision: D-78 — H-33 stays prototype/design-only. Promotion needs per-filesystem
+       fixture images with a deleted JPEG carved exactly, `regions[]` tiling, no
+       FAT32/NTFS or golden D0 regression, plus an independent OOXML content-type
+       check and ZIP-bomb caps.
+Residual risk / next: no real exFAT/FAT12/16 volume, ZIP/OOXML corpus, or ZIP-bomb
+       control was measured here; Phase H5 closes without this capability.
 ```
 
 ### H0 preparation — `harness-ab725a6` (2026-11-25, in progress)
@@ -1598,4 +1622,81 @@ Residual risk / next: pedantic stage 2 (numeric casts) and stage 3 (API
 
 ## Decisions
 
-See `docs/DECISIONS.md` (D-01…D-62).
+See `docs/DECISIONS.md` (D-01…D-78).
+
+## Phase H5 end-of-phase report (2026-11-27)
+
+External harness §10 requires the following for the Part T phase.
+
+### 1. Items done in the phase
+
+| Item | commit | red test names | gates | measurement before → after |
+|---|---|---|---|---|
+| H-27 free-space stream | `b0255c5` | `tests/free_stream.rs` live-island exact, physical-fragment property, dead-island no false `verified`, default-flag-absent; fuzz target `free_stream` | targeted 3/3 green; local full gate green; CI `45936082042` 28/28 | default and `--fragment-recovery` 0/40 live-island exact → 80/80 exact (40 JPEG + 40 PNG), Wilson 95% [0.954, 1.000]; 80 dead-island trials with 0 false `verified` |
+| H-28/H-29 FAT/NTFS metadata | `941fee9` (portability `d9bdc8e`, evidence `afc4fab`) | `tests/metadata.rs` 22 tests: deleted FAT SHA/size, LFN checksum binding, bad-checksum name drop, reallocated cluster, resident and negative-delta NTFS records, fixup mismatch, bounds and unchanged default output | full `scripts/gate.sh` GATE GREEN; CI `45945194205` 30/30 | B-01 unimplemented → 100/100 exact FAT32 trials (JPEG 33/33, PNG 23/23, PDF 44/44), Wilson 95% [0.963, 1.000], and 10/10 exact `mkntfs` NTFS trials, Wilson 95% [0.722, 1.000] |
+| H-30 PNG CRC bifragment join | `3c69432` (evidence `1189cab`, dist `a66d32a`, CI archive `f11c568`) | `tests/fragment_recovery.rs` 11 tests: random and other-PNG interiors, ≥3 colour types, intact/missing-tail/header-gap/live controls, ambiguity; `fuzz_fragment_join` | full gate GATE GREEN, G9 190 tests; CI `45955915197` 30/30; docs-only `45962680798` 30/30 | CarveX 0/30 and 0/30 on the prototype layouts → 100/100 random-gap and 100/100 other-PNG-interior exact, Wilson 95% [0.963, 1.000] both, 0 false `verified`, 0 control failures |
+| H-31 PDF xref / H-32 JPEG seam | no production commit (D-76 recorded in `3c69432`) | none promoted; prototypes remain in `bench/results/h31_pdf_xref_prototype.txt` and `bench/results/h32_jpeg_join_experiment.txt` | gate unchanged; no production source touched | design/experiment only: 100/100 random vs 39/100 other-PDF with 61 false accepts; 12/100 random vs 0/100 other-JPEG with 19/22 false accepts; no production recall claim |
+| H-33 exFAT/FAT12/16 + ZIP/OOXML | no production commit (D-78, docs only) | none; **[NOT PROTOTYPED]** | no gate change; golden D0 and `dist/` untouched | no before/after number claimed; B-03/B-10 remain unimplemented |
+
+### 2. Gate output
+
+The complete local gate for the H-28/H-29 tree is archived in
+`bench/results/gate_h28_h29_final.log` and ends with:
+
+```text
+34 scenario(s), 0 failure(s), 2 SKIP(s), 0 XPASS
+PASS golden unallocated all-deleted_fat32        TP=30/30 FP=0 FN=0
+PASS golden unallocated all-deleted_ntfs         TP=30/30 FP=0 FN=0
+PASS golden unallocated mixed_fat32              TP=20/20 FP=0 FN=0
+PASS golden unallocated mixed_ntfs               TP=20/20 FP=0 FN=0
+PASS golden raw         all-deleted_fat32        TP=30/30 kept=0/0 unknown_fp=0 FN=0
+PASS golden raw         all-deleted_ntfs         TP=30/30 kept=0/0 unknown_fp=0 FN=0
+PASS golden raw         mixed_fat32              TP=20/20 kept=10/10 unknown_fp=0 FN=0
+PASS golden raw         mixed_ntfs               TP=20/20 kept=10/10 unknown_fp=0 FN=0
+SKIPPED check_dist (stale dist allowed outside CI; R2-10 rebuild required)
+GATE GREEN
+```
+
+For H-30, targeted `fragment_recovery` 11/11 and the full gate were green as
+recorded in the H-30 task block; CI run `45955915197` at the dist commit and the
+final docs-only run `45962680798` both completed success (30/30). The interrupted
+local `gate_h30_phase_h5_final.log` was removed and is not evidence.
+
+`PENDING-CI`: none.
+
+### 3. `scripts/repro_xfail.txt`
+
+The file contains only its two comment lines:
+
+```text
+# Known-failing review scenarios (one ID per line).
+# Phase 0: X scenarios below reproduced on 0.3.0-dev baseline; remove when fixed.
+```
+
+No scenario ID is listed, so no scenario of a finished phase is xfailed.
+
+### 4. Open questions and deviations
+
+Open §9 questions: Q5, Q8 and Q9 remain STOP-AND-ASK and were not reached in H5.
+Q1–Q4, Q6, Q7 and Q10 were answered by the repository; Q11 and Q12 were answered
+by the user on 2026-11-25 and 2026-11-27. Deviations logged in `docs/DECISIONS.md`:
+D-74 (H-27 is a one-volume complement), D-75 (metadata is evidence, never a
+`verified` shortcut), D-76 (H-31/H-32 not promoted), D-77 (bounded H-30 exception
+to D-71) and D-78 (H-33 design-only). No benchmark metric definition or threshold
+was changed.
+
+### 5. Residual risk
+
+- H-27 supports only forward, ascending-LBA fragments; backward joins, dead
+  islands and the cost of the extra free-space pass outside opt-in use were not
+  measured.
+- H-28/H-29 assume contiguous FAT chains and do not support NTFS
+  `$ATTRIBUTE_LIST`, extension, compressed or encrypted records; B-01 remains
+  PARTIAL for FAT32/NTFS only.
+- H-30 covers two forward cluster-aligned fragments with the head cut inside a
+  PNG chunk; chunk-boundary breaks, backward fragments, metadata joins and other
+  formats were not measured.
+- H-31/H-32 were not promoted: their prototype numbers come from synthetic
+  trials and no real-volume recall or false-accept rate was measured here.
+- H-33 has no exFAT/FAT12/16 fixture, ZIP/OOXML corpus, independent `zipfile`
+  check or ZIP-bomb control; no coverage or safety number is claimed.
