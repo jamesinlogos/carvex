@@ -1,0 +1,17 @@
+H-32 JPEG join experiment (no production source changed)
+commit: d2671e2f494b1d3d6e4e0a559f69cc5d3db35373
+binary (not used by experiment): target/release/carvex (340171ff2886deca97641a84223e747244287f781cd59e3a54b7897489a22d37)
+corpus: bench/corpus (d3550a0320b9de6762e5f4bfd4015a865271e17c8aba948877d681ee5b92f543)
+Pillow: 12.2.0
+seed: 32012026, cluster: 4096, max gap: 8, margin: 0.90, N=100 per gap kind
+baseline JPEGs: jpeg_01_baseline_640x480.jpg, jpeg_02_large_1280x960.jpg, jpeg_04_grayscale_512x512.jpg, jpeg_05_low_quality_1024x768.jpg, jpeg_06_portrait_480x800.jpg, jpeg_07_cmyk_600x600.jpg, jpeg_08_exif_thumb_900x700.jpg
+restart intervals: jpeg_01_baseline_640x480.jpg=0, jpeg_02_large_1280x960.jpg=0, jpeg_04_grayscale_512x512.jpg=0, jpeg_05_low_quality_1024x768.jpg=0, jpeg_06_portrait_480x800.jpg=0, jpeg_07_cmyk_600x600.jpg=0, jpeg_08_exif_thumb_900x700.jpg=0
+
+== gap = random: exact 12/100 = 12.0%, Wilson95 (0.07, 0.198)
+   false accepted 19/100, no-margin 69/100, X1 tail hits 1227, decoded candidates 778, 103.5s total
+
+== gap = other JPEG interior: exact 0/100 = 0.0%, Wilson95 (0.0, 0.037)
+   false accepted 22/100, no-margin 78/100, X1 tail hits 2357, decoded candidates 2315, 313.8s total
+
+H-09 baseline: 3 of 4,000 synthetic pairs accepted in decode mode (Wilson 95% upper bound 0.22%).
+No fixed recall target. Flat/gradient content remains a known weakness; no production claim is made here.

@@ -1,0 +1,15 @@
+JPEG baseline entropy clusters               accepted  572/572  
+JPEG progressive entropy clusters            accepted  123/141  
+PNG corpus clusters                          accepted    0/2293 
+PDF pdf_01_image_1page.pdf         DCT=True  accepted   37/38   
+PDF pdf_02_image_3pages.pdf        DCT=True  accepted   87/90   
+PDF pdf_03_text_2pages.pdf         DCT=False accepted    0/1    
+PDF pdf_04_incremental.pdf         DCT=False accepted    0/1    
+PDF pdf_05_large_scan.pdf          DCT=True  accepted  151/152  
+PDF pdf_06_text_3pages.pdf         DCT=False accepted    0/3    
+PDF pdf_07_mixed_4pages.pdf        DCT=True  accepted  111/115  
+PDF pdf_08_small_text.pdf          DCT=False accepted    0/1    
+PDF pdf_09_text_long.pdf           DCT=False accepted    0/5    
+PDF pdf_10_image_portrait.pdf      DCT=True  accepted   42/43   
+random bytes 8 MiB                           accepted    0/2047 
+zeros 1 MiB                                  accepted    0/255  

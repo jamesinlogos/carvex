@@ -1,0 +1,15 @@
+H-31 PDF xref prototype (design evidence; no production source changed)
+commit: d2671e2f494b1d3d6e4e0a559f69cc5d3db35373
+binary (not used by prototype): target/release/carvex (340171ff2886deca97641a84223e747244287f781cd59e3a54b7897489a22d37)
+corpus: bench/corpus (d3550a0320b9de6762e5f4bfd4015a865271e17c8aba948877d681ee5b92f543)
+qpdf: qpdf version 12.4.2
+seed: 31012026, cluster: 4096, max gap: 8 clusters, N=100 per gap kind
+PDFs: pdf_01_image_1page.pdf, pdf_02_image_3pages.pdf, pdf_05_large_scan.pdf, pdf_07_mixed_4pages.pdf, pdf_10_image_portrait.pdf
+
+== gap = random: unique+correct 100/100 = 100.0%, Wilson95 (0.963, 1.0)
+   false accepted 0/100; ambiguous 0/100; mean candidates 609.6; 155.5s total
+
+== gap = other PDF interior: unique+correct 39/100 = 39.0%, Wilson95 (0.3, 0.488)
+   false accepted 61/100; ambiguous 0/100; mean candidates 394.6; 92.9s total
+
+ACCEPTANCE=SEE-DESIGN-REVIEW

@@ -1,0 +1,13 @@
+H-33 filesystem/ZIP prototype (no production source changed)
+commit: d2671e2f494b1d3d6e4e0a559f69cc5d3db35373
+binary: target/release/carvex (340171ff2886deca97641a84223e747244287f781cd59e3a54b7897489a22d37)
+corpus: bench/corpus (d3550a0320b9de6762e5f4bfd4015a865271e17c8aba948877d681ee5b92f543)
+JPEG: jpeg_01_baseline_640x480.jpg (bcb5d9ba912bcb967740bf8a7f1fa38e7682343258b67278fbc8fab791a9d3d1)
+fat12  deleted JPEG exact rows: 1
+fat16  deleted JPEG exact rows: 1
+exfat  deleted JPEG exact rows: 1
+plain ZIP/OOXML exact: PASS (2 entries checked, 12288 uncompressed bytes)
+docx  ZIP/OOXML exact: PASS (2 entries checked, 299 uncompressed bytes)
+xlsx  ZIP/OOXML exact: PASS (2 entries checked, 293 uncompressed bytes)
+pptx  ZIP/OOXML exact: PASS (2 entries checked, 301 uncompressed bytes)
+bomb declaration: 1 entries, 67108864 uncompressed bytes (production cap must reject)

@@ -38,3 +38,24 @@ CRC oracle, gap = other PNG interior: unique+correct 200/200  Wilson95 (0.981, 1
 CarveX --fragment-recovery, gap = random            : exact 0/30  Wilson95 (0, 0.114)
 CarveX --fragment-recovery, gap = other PNG interior: exact 0/30  Wilson95 (0, 0.114)
 
+
+Additional Part T prototypes (2026-11-27, commit d2671e2f494b1d3d6e4e0a559f69cc5d3db35373)
+All results below are synthetic fixtures built from the frozen bench/corpus.
+
+$ python3 -I scripts/part_t/h31_pdf_xref.py target/release/carvex bench/corpus target/part-t/evidence/h31 100
+gap = random:             unique+correct 100/100, Wilson95 (0.963, 1.000), false accepted 0/100
+gap = other PDF interior: unique+correct  39/100, Wilson95 (0.300, 0.488), false accepted 61/100
+Decision: xref offsets alone are not a unique oracle for other-PDF-interior gaps;
+H-31 stays design-only with no production source change.
+
+$ python3 -I scripts/part_t/h32_jpeg_join.py target/release/carvex bench/corpus target/part-t/evidence/h32 100
+gap = random:             exact 12/100, Wilson95 (0.070, 0.198), false accepted 19/100
+gap = other JPEG interior: exact  0/100, Wilson95 (0.000, 0.037), false accepted 22/100
+X1 prefilter reproduced: 572/572 baseline entropy clusters; 0/2293 PNG, 0/2047 random, 0/255 zero clusters.
+Decision: seam continuity plus margin is insufficiently reliable; H-32 stays an
+experiment with no production source change and no verified joins.
+
+$ python3 -I scripts/part_t/h33_fs_zip.py target/release/carvex bench/corpus target/part-t/evidence/h33-v2
+fat12/fat16/exFAT deleted JPEG: raw-mode exact 1/1 each (production FS parsing still required).
+plain/docx/xlsx/pptx ZIP carved by EOCD and validated with zipfile: exact 4/4.
+Bomb declaration: 1 entry, 67,108,864 uncompressed bytes; production cap mandatory.
