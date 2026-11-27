@@ -51,6 +51,20 @@ Residual risk / next: H-04 item 0 (structure-mode JPEG repair label), then the
       Q12 crop implementation; Part T starts only when H1-H4 are green.
 ```
 
+```text
+Task: H-04 item 0 — no `repaired` label from a structural proof [repo H-21]
+Change: src/signatures/repair.rs, src/scan.rs, docs/DECISIONS.md (D-72),
+        docs/REPORT.md, CHANGELOG.md
+New tests: jpeg_mid_stream_repair_structure_mode_stays_partial (red before /
+        green after: yes; 30/60/90 % cuts of bench/corpus JPEG)
+Gate: green for targeted repair tests; full gate pending end-of-phase
+Measurement: before: 60 % cut = `repaired`/`repaired`, 116,427 B; after:
+        `truncated`/`partial`, 116,425 B, bytes unchanged.
+Residual risk / next: Q12 crop recovery remains unimplemented; the test uses
+        report labels rather than a Rust pixel oracle, while the external
+        harness's Pillow/first-differing-row oracle is recorded in D-72.
+```
+
 ### H0 preparation — `harness-ab725a6` (2026-11-25, in progress)
 
 ```text

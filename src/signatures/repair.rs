@@ -10,7 +10,7 @@
 
 use super::{
     jpeg::EOI, png::IEND_SUFFIX, validate_deep_detail, Analysis, FileType, Need, PdfEofMode,
-    Validation, ValidationDetail, ValidationLimits, ValidationMode,
+    Validation, ValidationDetail, ValidationLimits,
 };
 use std::collections::HashMap;
 
@@ -48,7 +48,6 @@ pub(crate) fn validate(
     kind: FileType,
     data: &[u8],
     limits: ValidationLimits,
-    mode: ValidationMode,
     pdf_mode: PdfEofMode,
 ) -> Result<ValidatedRepair, String> {
     let analysis = match super::analyze(kind, data, true, pdf_mode) {
@@ -63,25 +62,12 @@ pub(crate) fn validate(
         Need::More => return Err("repaired file still needs more bytes".into()),
         Need::Reject(reason) => return Err(format!("repaired file rejected: {reason}")),
     };
-    // PDF needs the structural xref/catalog checks even in default mode,
-    // because a bare `%%EOF` is exactly the false repair this finding fixes.
-    let detail = if mode == ValidationMode::Decode || kind == FileType::Pdf {
-        validate_deep_detail(kind, data, &analysis, limits)
-    } else {
-        ValidationDetail::new(Validation::Structure, Vec::new())
-    };
-    let accepted = match kind {
-        FileType::Pdf => detail.validation == Validation::Decoded,
-        FileType::Jpeg | FileType::Png if mode == ValidationMode::Decode => {
-            // Progressive/unsupported variants are `Unverified` when intact;
-            // only a hard decode failure is a failed repair.
-            matches!(
-                detail.validation,
-                Validation::Decoded | Validation::Unverified
-            )
-        }
-        FileType::Jpeg | FileType::Png => true,
-    };
+    // External harness H-04 item 0: a repair changes output bytes, so both
+    // validation modes require the same deep proof. `Unverified` is not a
+    // proof: a mid-stream JPEG can decode with grey MCU rows invented by the
+    // decoder, and the structural parser cannot see that.
+    let detail = validate_deep_detail(kind, data, &analysis, limits);
+    let accepted = detail.validation == Validation::Decoded;
     if !accepted {
         return Err(format!(
             "repaired file revalidated as {:?}",

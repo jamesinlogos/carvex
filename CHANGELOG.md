@@ -19,9 +19,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
-- H-04 item 0 (xfail test added): mid-stream JPEG cuts must not be labelled
-  `repaired` in default `--validate structure` mode on the strength of a
-  structural proof; the acceptance test is ignored until the fix lands.
+- H-04 item 0: `--repair` now runs the deep validator in both
+  `--validate structure` and `--validate decode` modes and rejects
+  `Unverified`. A JPEG cut mid-scan stays `truncated`/`partial` with its bytes
+  unchanged instead of being labelled `repaired` on a structural proof.
 - H-01: `--verbose` prints each carved-file line exactly once and honours
   `--quiet` (the duplicate pre-write line is gone).
 - H-02: candidates withheld by `--min-score` now produce a single aggregate

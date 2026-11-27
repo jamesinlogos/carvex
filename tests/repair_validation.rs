@@ -212,7 +212,6 @@ fn mid_stream_png_and_jpeg_repair_stays_partial() {
 }
 
 #[test]
-#[ignore = "H-04 xfail"]
 fn jpeg_mid_stream_repair_structure_mode_stays_partial() {
     // External harness H-04 item 0: a decoded proof is mandatory in both
     // validation modes. Appending EOI to a mid-scan cut lets Pillow draw grey

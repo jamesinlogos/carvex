@@ -1449,3 +1449,26 @@ decision, and the consequences.
 - **Documentation:** `scan --help` and the README now name the supported gap
   classes; the harness A.2 row carries the closure note. No test result,
   report value or output byte from the frozen benchmark changed.
+
+## D-72. Repairs require a deep proof in both validation modes (external H-04 item 0)
+
+- **Context:** the external harness revision for `f5bda4a` re-measured the
+  S-REPAIR rows and found a remaining over-claim: a JPEG cut mid-scan was
+  labelled `repaired`/`repaired` in default `--validate structure` mode after
+  appending EOI. Pillow could open the result, but rows ≥ 271 of 480 were grey
+  decoder fill; the structural parser could not distinguish those invented
+  pixels from recovered content. The acceptance test uses the full
+  `jpeg_01_baseline_640x480.jpg` corpus file cut at 30/60/90 %.
+- **Decision:** a repair changes output bytes, so both `--validate structure`
+  and `--validate decode` now run the same deep validator on the rebuilt
+  bytes. `Validation::Decoded` is the only accepted outcome;
+  `Validation::Unverified` is not a proof. A failed repair keeps the carved
+  prefix byte-identical, stays `truncated`/`partial`, and records
+  `repair attempted, not validated`. This narrows D-68's footer-repair
+  acceptance but does not change any default scan path.
+- **Evidence:** `tests/repair_validation.rs::jpeg_mid_stream_repair_structure_mode_stays_partial`
+  was red before the fix (the 60 % cut was reported `repaired`) and green
+  after it. The footer controls and the PDF repair rows remain green.
+- **Residual:** this decision removes the false label but does not recover
+  mid-stream PNG/JPEG cuts; the crop design of external H-04 items 1–7 is
+  tracked separately under Q12.

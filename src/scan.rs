@@ -2378,7 +2378,6 @@ fn attempt_repair(ctx: RepairAttempt<'_>) -> Result<RepairState, CarveOutcome> {
                                     cand.kind,
                                     &rebuilt,
                                     limits,
-                                    opts.validate,
                                     opts.pdf_eof,
                                 ) {
                                     Ok(ValidatedRepair {

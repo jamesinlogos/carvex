@@ -485,10 +485,12 @@ The supported repair formats are PDF, PNG and JPEG. In each case the rebuilt
 bytes are a footer; a cut through the payload (for example at 60 % of a PNG or
 JPEG) cannot be recovered by footer reconstruction and stays `partial`.
 
-Only a result that passes revalidation is labelled `repaired`. For PDF this
-means the H-19 structural validator passes even in default `structure` mode; a
-bare `%%EOF` without a resolvable xref/catalog is not sufficient. Revalidation
-does not change the original score or `carved_size`. If it fails, no suffix is
+Only a result that passes revalidation is labelled `repaired`. Every rebuilt
+file is deep-validated in both `--validate` modes; `Unverified` is not accepted
+as a proof. For PDF this means the H-19 structural validator passes even in
+default `structure` mode; a bare `%%EOF` without a resolvable xref/catalog is
+not sufficient. Revalidation does not change the original score or
+`carved_size`. If it fails, no suffix is
 written: the row remains `truncated`/`partial`, its bytes are unchanged, and it
 carries the note `repair attempted, not validated` plus a failed `repair` check.
 A successful repair emits `sha256_original`, the hash of the bytes read from

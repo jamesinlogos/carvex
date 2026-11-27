@@ -556,7 +556,7 @@ cargo test
 ```
 
 <!-- BEGIN GENERATED TEST COUNT -->
-The current suite has 148 tests (43 unit + 15 `cli_contract` + 7 `evidence_formats` + 6 `fragment_recovery` + 8 `fs_detect` + 2 `jpeg_frame_budget` + 1 `jpeg_unsupported_validation` + 4 `memory_budget` + 3 `panic_containment` + 8 `pdf_structure_validation` + 3 `png_crc_validity` + 4 `png_decode_budget` + 2 `png_validator_budget` + 7 `properties` + 3 `region_coverage` + 4 `regress_e01_safety` + 5 `regress_tail_padding` + 1 `regress_task_plan` + 4 `regress_vmdk_safety` + 4 `repair_validation` + 6 `scan_integration` + 1 `validity_model` + 3 `volume_parse_errors` + 4 `work_budgets`).
+The current suite has 149 tests (43 unit + 15 `cli_contract` + 7 `evidence_formats` + 6 `fragment_recovery` + 8 `fs_detect` + 2 `jpeg_frame_budget` + 1 `jpeg_unsupported_validation` + 4 `memory_budget` + 3 `panic_containment` + 8 `pdf_structure_validation` + 3 `png_crc_validity` + 4 `png_decode_budget` + 2 `png_validator_budget` + 7 `properties` + 3 `region_coverage` + 4 `regress_e01_safety` + 5 `regress_tail_padding` + 1 `regress_task_plan` + 4 `regress_vmdk_safety` + 5 `repair_validation` + 6 `scan_integration` + 1 `validity_model` + 3 `volume_parse_errors` + 4 `work_budgets`).
 <!-- END GENERATED TEST COUNT -->
 Run the full G0-G9 release gate with `bash scripts/gate.sh`: it also runs G7
 golden hashes, G8 performance checks against committed baselines, a generated
