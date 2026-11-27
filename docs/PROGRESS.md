@@ -14,7 +14,7 @@
 |---|---|
 | Date | 2026-11-27 (H-04 closure and current-HEAD CI verification; earlier rows below are dated historical records) |
 | OS | Linux x86_64 (Kali), running in a container |
-| carvex | source `3c69432647b1` (H-30 implementation plus H-27/H-28/H-29, 0.3.1); local release binary built from that commit, SHA-256 `d10b9e8327b872f2be149a831376f5de628058fa3be001cbefe1a52f546d16ab`; H-30 acceptance `bench/results/h30_png_crc.txt` is 200/200 exact with 0 false `verified`; packaged `dist/` binaries are still from `d9bdc8e4a6b9` pending the H-30 rebuild. H-28/H-29 CI run `45945194205` completed success (30/30, including the full release gate and 16 fuzz targets); earlier H-27 CI runs `45936082042`, `45930050947` and `45935128607` archived in `bench/results/` |
+| carvex | source `3c69432647b1` (H-30 implementation plus H-27/H-28/H-29, 0.3.1); local release binary built from that commit, SHA-256 `d10b9e8327b872f2be149a831376f5de628058fa3be001cbefe1a52f546d16ab`; H-30 acceptance `bench/results/h30_png_crc.txt` is 200/200 exact with 0 false `verified`; `dist/carvex-linux-x86_64` rebuilt from `1189cabe09dd`, SHA-256 `e740b20d560ab782803770cc194a369c09e5da50c21c4c476886ec54ed8e5011` (Windows: `62389a550f38072ba6ece7d31f2efbafe16d59557772b05c993cb9e32522bc6b`), `CI=true scripts/check_dist.sh` = DIST OK. H-28/H-29 CI run `45945194205` completed success (30/30, including the full release gate and 16 fuzz targets); earlier H-27 CI runs `45936082042`, `45930050947` and `45935128607` archived in `bench/results/`; H-30 CI PENDING |
 | rustc / cargo | 1.100.0 (0ef1bc386 2026-11-09) / 1.100.0 (pinned toolchain installed; no `RUSTUP_TOOLCHAIN` override needed) |
 | MSRV | 1.85.0, installed via rustup; `cargo +1.85 check --locked` passes |
 | Python | 3.13.12; Pillow 12.2.0; pypdf 6.9.2 |
@@ -183,8 +183,9 @@ New tests: tests/fragment_recovery.rs (11 tests total): interior gaps filled
         schema fields. Default, golden and CSV output are unchanged.
 Gate: cargo fmt, clippy --all-targets -- -D warnings, targeted
       fragment_recovery 11/11 and the full scripts/gate.sh all green before
-      this commit (GATE GREEN, G9 = 190 tests); remote CI PENDING until the
-      source and rebuilt dist/ commits are pushed.
+      the implementation commit (GATE GREEN, G9 = 190 tests); source and
+      acceptance commits are pushed, the packaged dist/ binaries are rebuilt
+      and `CI=true scripts/check_dist.sh` is DIST OK; remote CI PENDING.
 Measurement: bench/results/h30_png_crc.txt, regenerated from the clean 3c69432
         release binary, records 100/100 exact joins for each of the random-gap
         and other-PNG-interior-gap kinds, Wilson 95% [0.963, 1.000] for both,
@@ -201,7 +202,8 @@ Residual risk / next: the assumption remains two forward, cluster-aligned
         fragments with the head cut inside a PNG chunk; breaks on chunk
         boundaries keep the earlier header-walk behaviour. Other formats,
         backwards fragments and metadata joins are not covered. The packaged
-        dist/ binaries still need the H-30 rebuild; H-31/H-32 remain deferred.
+        dist/ binaries were rebuilt in bench/results/h30_dist_rebuild.txt;
+        H-31/H-32 remain deferred.
 ```
 
 ### Part T H-31/H-32 — prototype deferral (new capability, 2026-11-27)

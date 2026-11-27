@@ -1,0 +1,35 @@
+Part T H-30 packaged dist rebuild
+commit: 1189cabe09dda28d78867e463e2f43912774744c
+source changes: H-30 opt-in PNG chunk-CRC joins in --fragment-recovery
+                (src/scan.rs, src/signatures/png.rs, src/cli.rs, src/report.rs,
+                docs/report.schema.json, docs/REPORT.md, tests, fuzz helper);
+                this commit is documentation/evidence only after 3c69432647b1,
+                so source, Cargo.toml, Cargo.lock and build.rs are unchanged.
+rustc/cargo: 1.100.0
+targets: x86_64-unknown-linux-gnu, x86_64-pc-windows-gnu
+
+Build commands:
+  CARGO_NET_OFFLINE=true cargo build --release --locked --target x86_64-unknown-linux-gnu
+  CARGO_NET_OFFLINE=true cargo build --release --locked --target x86_64-pc-windows-gnu
+  cp target/x86_64-unknown-linux-gnu/release/carvex dist/carvex-linux-x86_64
+  cp target/x86_64-pc-windows-gnu/release/carvex.exe dist/carvex-windows-x86_64.exe
+  strip dist/carvex-linux-x86_64
+  strip dist/carvex-windows-x86_64.exe
+  (cd dist && sha256sum carvex-linux-x86_64 carvex-windows-x86_64.exe > SHA256SUMS)
+
+SHA-256:
+  e740b20d560ab782803770cc194a369c09e5da50c21c4c476886ec54ed8e5011  carvex-linux-x86_64
+  62389a550f38072ba6ece7d31f2efbafe16d59557772b05c993cb9e32522bc6b  carvex-windows-x86_64.exe
+
+Execution evidence:
+  Linux --version: carvex 0.3.1
+  Linux scan bench/images/mixed_fat32.img: 20 files, tool_info.commit=1189cabe09dd
+  Windows --version under Wine: carvex 0.3.1
+  Windows scan bench/images/mixed_fat32.img under Wine: 20 files, tool_info.commit=1189cabe09dd
+  CI=true bash scripts/check_dist.sh: DIST OK version=0.3.1
+
+CI context:
+  the source and acceptance commits were pushed before this rebuild, so the
+  first H-30 CI run is expected to fail only at check_dist.sh; this rebuild
+  supplies current packaged binaries. Final CI confirmation is recorded in
+  docs/PROGRESS.md.
