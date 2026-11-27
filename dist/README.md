@@ -1,10 +1,10 @@
 # CarveX 0.3.1 prebuilt binaries
 
-These binaries were rebuilt from current `main` after the H-04 crop-repair
-implementation, build commit `1307adcaadb68f137e7e5c5151e4b7bd74cef46a`
+These binaries were rebuilt from current `main` after the Part T H-27
+free-space-stream implementation, build commit `77b9cc7210fe1ed9c36056bdcede8d2364a24e7a`
 (descendant of release tag `v0.3.1` at
 `d5be769b93c5a9989cd53a69d7d662c10eb13996`). Both report `carvex 0.3.1` and
-write `tool_info.commit = 1307adcaadb6` in schema-2 reports.
+write `tool_info.commit = 77b9cc7210fe` in schema-2 reports.
 
 | File | Platform | Notes |
 |---|---|---|
@@ -23,18 +23,18 @@ dependency was added; remedy is the glibc-linked Linux binary (R2-02).
 
 ## Build environment
 
-- Date: 2026-11-26
+- Date: 2026-11-27
 - Host: Linux x86_64 (Kali container)
 - Rust toolchain: rustup 1.100.0-x86_64-unknown-linux-gnu (per `rust-toolchain.toml`)
 - Targets: `x86_64-unknown-linux-gnu`, `x86_64-pc-windows-gnu`
 - Windows linker: `/usr/bin/x86_64-w64-mingw32-gcc`
 - Wine: `/usr/bin/wine` (wine64 not installed; PE32+ executed via wine)
-- Source: `main` at `1307adcaadb68f137e7e5c5151e4b7bd74cef46a`
+- Source: `main` at `77b9cc7210fe1ed9c36056bdcede8d2364a24e7a`
 
 ## Build commands
 
 ```bash
-# from repository root at 1307adca
+# from repository root at 77b9cc7
 CARGO_NET_OFFLINE=true cargo build --release --locked --target x86_64-unknown-linux-gnu
 CARGO_NET_OFFLINE=true cargo build --release --locked --target x86_64-pc-windows-gnu
 cp target/x86_64-unknown-linux-gnu/release/carvex dist/carvex-linux-x86_64
@@ -47,8 +47,8 @@ strip dist/carvex-windows-x86_64.exe
 ## Checksums
 
 ```text
-63d0ce0415255c933301e1ab35383a89b93e31d15cab29a3bb5d55d4b50a5e2d  carvex-linux-x86_64
-7e05e9bf5f528b4dc102ae452100761d0e44844cdddb11e15b6efe747e71738b  carvex-windows-x86_64.exe
+dfa1d24f2d1fe40bf35e197fd46b36a0635ee6d2beba8b65f5e4eda4d6a4933a  carvex-linux-x86_64
+4fef571c7cd0bc3b2aa46a0e4110238e67232d8a2edc183784c2329e15228e5f  carvex-windows-x86_64.exe
 ```
 
 ## Execution evidence
@@ -59,13 +59,13 @@ The exact files in this directory were executed before commit.
 
 - `--version`: `carvex 0.3.1`
 - `info bench/images/mixed_fat32.img`: identified FAT32 (62.0 MiB), volume CARVEXFAT
-- `scan bench/images/mixed_fat32.img -o <tmp>/out --force --json-report <tmp>/report.json`: carved 20 files; report `tool_info.version=0.3.1`, `tool_info.commit=1307adcaadb6`
+- `scan bench/images/mixed_fat32.img -o <tmp>/out --force --json-report <tmp>/report.json`: carved 20 files; report `tool_info.version=0.3.1`, `tool_info.commit=77b9cc7210fe`
 
 ### Windows (PE32+, Wine)
 
 - `wine carvex-windows-x86_64.exe --version`: `carvex 0.3.1`
 - `wine carvex-windows-x86_64.exe info Z:/home/kali/carvex/bench/images/mixed_fat32.img`: identified FAT32 (62.0 MiB), volume CARVEXFAT
-- `wine carvex-windows-x86_64.exe scan ... --json-report ...`: carved 20 files; report `tool_info.version=0.3.1`, `tool_info.commit=1307adcaadb6`
+- `wine carvex-windows-x86_64.exe scan ... --json-report ...`: carved 20 files; report `tool_info.version=0.3.1`, `tool_info.commit=77b9cc7210fe`
 
 ## X23 / R5 / G8 (shipped Linux glibc binary)
 

@@ -1,0 +1,29 @@
+Part T H-27 packaged dist rebuild
+commit: 77b9cc7210fe1ed9c36056bdcede8d2364a24e7a
+source changes: H-27 free-space stream (src/cli.rs, src/scan.rs, src/image/free_stream.rs, src/io.rs, src/util.rs)
+rustc/cargo: 1.100.0
+targets: x86_64-unknown-linux-gnu, x86_64-pc-windows-gnu
+
+Build commands:
+  CARGO_NET_OFFLINE=true cargo build --release --locked --target x86_64-unknown-linux-gnu
+  CARGO_NET_OFFLINE=true cargo build --release --locked --target x86_64-pc-windows-gnu
+  cp target/x86_64-unknown-linux-gnu/release/carvex dist/carvex-linux-x86_64
+  cp target/x86_64-pc-windows-gnu/release/carvex.exe dist/carvex-windows-x86_64.exe
+  strip dist/carvex-linux-x86_64
+  strip dist/carvex-windows-x86_64.exe
+  (cd dist && sha256sum carvex-linux-x86_64 carvex-windows-x86_64.exe > SHA256SUMS)
+
+SHA-256:
+  dfa1d24f2d1fe40bf35e197fd46b36a0635ee6d2beba8b65f5e4eda4d6a4933a  carvex-linux-x86_64
+  4fef571c7cd0bc3b2aa46a0e4110238e67232d8a2edc183784c2329e15228e5f  carvex-windows-x86_64.exe
+
+Execution evidence:
+  Linux --version: carvex 0.3.1
+  Linux scan bench/images/mixed_fat32.img: 20 files, tool_info.commit=77b9cc7210fe
+  Windows --version under Wine: carvex 0.3.1
+  Windows scan bench/images/mixed_fat32.img under Wine: 20 files, tool_info.commit=77b9cc7210fe
+  CI=true bash scripts/check_dist.sh: DIST OK version=0.3.1
+
+CI context:
+  run 45935128607 at 42d5310 failed only because dist still reported 1307adcaadb6;
+  the other 27 jobs passed, including the new free_stream fuzz target.
