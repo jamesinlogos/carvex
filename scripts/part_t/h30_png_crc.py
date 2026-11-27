@@ -28,7 +28,7 @@ from fat32_img import build_fat32
 CARVEX, CORPUS, W = sys.argv[1], sys.argv[2], sys.argv[3]
 N = int(sys.argv[4]) if len(sys.argv) > 4 else 100
 CL = 4096
-TOTAL_SECTORS = 131072
+TOTAL_SECTORS = 8192
 START_CLUSTER = 100
 SEED = 302026
 os.makedirs(W, exist_ok=True)
@@ -104,6 +104,15 @@ def scan(tag, image, mode='unallocated'):
     return json.load(open(report)).get('files', []), elapsed, result.returncode
 
 
+def cleanup(tag):
+    """Remove one trial's fixture so 200 trials do not consume gigabytes."""
+    for path in (os.path.join(W, tag + '.img'),
+                 os.path.join(W, 'report-' + tag + '.json')):
+        if os.path.exists(path):
+            os.remove(path)
+    shutil.rmtree(os.path.join(W, 'out-' + tag), ignore_errors=True)
+
+
 commit = subprocess.check_output(
     ['git', '-C', os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
      'rev-parse', 'HEAD'], text=True).strip()
@@ -123,7 +132,9 @@ for kind in ('random', 'other PNG interior'):
     for i in range(N):
         name, data, clusters, split, gap, island = layout(kind, rnd)
         image = build_image(data, clusters, split, gap, island)
-        files, elapsed, _ = scan('{}-{}'.format(kind.split()[0], i), image)
+        tag = '{}-{}'.format(kind.split()[0], i)
+        files, elapsed, _ = scan(tag, image)
+        cleanup(tag)
         elapsed_total += elapsed
         exact += any(
             f.get('sha256') == sha(data) and f.get('validity') == 'verified'
@@ -151,7 +162,8 @@ intact, _, _ = scan('control-intact', build_fat32(
         list(range(START_CLUSTER, START_CLUSTER + clusters)))], deleted=['F.PNG'])[0])
 control_failures += sum(1 for f in intact if f.get('source') == 'bgc')
 missing_runs = list(range(START_CLUSTER, START_CLUSTER + split))
-missing_image, _ = build_fat32(total_sectors=TOTAL_SECTORS, files=[('F.PNG', data, missing_runs)], deleted=['F.PNG'])
+missing_data = data[:len(missing_runs) * CL]
+missing_image, _ = build_fat32(total_sectors=TOTAL_SECTORS, files=[('F.PNG', missing_data, missing_runs)], deleted=['F.PNG'])
 missing, _, _ = scan('control-missing-tail', missing_image)
 control_failures += sum(1 for f in missing if f.get('source') == 'bgc' and f.get('validity') == 'verified')
 

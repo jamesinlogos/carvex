@@ -1,0 +1,16 @@
+H-30 production --fragment-recovery acceptance
+commit: afc4fab3a3a2966fdeeb57defc3f1ecd706d0b80
+binary: target/release/carvex (3c8b7f298acf1ac7453afdd066ac0741adaa911832430f7494efe5167d572744)
+corpus: bench/corpus (d3550a0320b9de6762e5f4bfd4015a865271e17c8aba948877d681ee5b92f543)
+seed: 302026, cluster: 4096, N=100 per gap kind, gap 1..16 clusters
+PNGs: png_01_rgba_640x480.png, png_02_rgb_800x600.png, png_03_grayscale_512x512.png, png_04_palette_600x400.png, png_06_large_1200x800.png, png_07_small_200x150.png, png_08_interlaced_700x500.png, png_09_alpha_1024x768.png, png_10_palette_320x240.png
+
+== gap = random: exact 6 / 100 = 6.0%, Wilson95 (0.028, 0.125)
+   false verified 0/100; mean scan 0.075s
+
+== gap = other PNG interior: exact 5 / 100 = 5.0%, Wilson95 (0.022, 0.112)
+   false verified 0/100; mean scan 0.077s
+
+controls: failures=0 (intact/missing/header-gap/live-unallocated)
+TOTAL exact 11 / 200 ; false verified 0 ; controls 0
+ACCEPTANCE=FAIL
