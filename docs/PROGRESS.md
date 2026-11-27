@@ -14,7 +14,7 @@
 |---|---|
 | Date | 2026-11-27 (H-04 closure and current-HEAD CI verification; earlier rows below are dated historical records) |
 | OS | Linux x86_64 (Kali), running in a container |
-| carvex | source `d9bdc8e4a6b9` (H-28/H-29 implementation plus visible non-Linux mkntfs skips, 0.3.1); `dist/carvex-linux-x86_64` rebuilt from `d9bdc8e4a6b9`, SHA-256 `46af14732bee91da90b0fd3b7ba62fdb0e8d94c89ee9a23fb2d8d23c157b409a` (Windows: `1eae6a5aea2e67bab224f56168734a7dc913cf2ae713de7014bb2fc11dad932b`); H-28/H-29 CI run `45945194205` completed success (30/30, including the full release gate and 16 fuzz targets); earlier H-27 CI runs `45936082042`, `45930050947` and `45935128607` archived in `bench/results/` |
+| carvex | source `3c69432647b1` (H-30 implementation plus H-27/H-28/H-29, 0.3.1); local release binary built from that commit, SHA-256 `d10b9e8327b872f2be149a831376f5de628058fa3be001cbefe1a52f546d16ab`; H-30 acceptance `bench/results/h30_png_crc.txt` is 200/200 exact with 0 false `verified`; packaged `dist/` binaries are still from `d9bdc8e4a6b9` pending the H-30 rebuild. H-28/H-29 CI run `45945194205` completed success (30/30, including the full release gate and 16 fuzz targets); earlier H-27 CI runs `45936082042`, `45930050947` and `45935128607` archived in `bench/results/` |
 | rustc / cargo | 1.100.0 (0ef1bc386 2026-11-09) / 1.100.0 (pinned toolchain installed; no `RUSTUP_TOOLCHAIN` override needed) |
 | MSRV | 1.85.0, installed via rustup; `cargo +1.85 check --locked` passes |
 | Python | 3.13.12; Pillow 12.2.0; pypdf 6.9.2 |
@@ -168,8 +168,8 @@ Residual risk / next: FAT chains are assumed contiguous and NTFS
 
 ```text
 Task: Part T H-30 — opt-in PNG chunk-CRC oracle for --fragment-recovery
-Commit: implementation commit follows this tree; the acceptance fixture fix
-        and its red baseline are already recorded in 60f4c21.
+Commit: 3c69432 (implementation and documentation); the acceptance fixture
+        fix and its red baseline are already recorded in 60f4c21.
 Change: src/scan.rs, src/signatures/png.rs, src/cli.rs, src/report.rs,
         docs/report.schema.json, docs/REPORT.md, docs/DECISIONS.md (D-77),
         CHANGELOG.md, README.md, fuzz/fuzz_targets/fuzz_fragment_join.rs,
@@ -185,12 +185,13 @@ Gate: cargo fmt, clippy --all-targets -- -D warnings, targeted
       fragment_recovery 11/11 and the full scripts/gate.sh all green before
       this commit (GATE GREEN, G9 = 190 tests); remote CI PENDING until the
       source and rebuilt dist/ commits are pushed.
-Measurement: the pre-commit release binary produced 100/100 exact joins for
-        each of the random-gap and other-PNG-interior-gap kinds, Wilson 95%
-        [0.963, 1.000] for both, 0 false `verified`, 0 control failures and
-        mean 0.088 s per scan under --frag-time-limit 5000. The final
-        post-commit evidence will be archived in
-        bench/results/h30_png_crc.txt and added to EVIDENCE.sha256.
+Measurement: bench/results/h30_png_crc.txt, regenerated from the clean 3c69432
+        release binary, records 100/100 exact joins for each of the random-gap
+        and other-PNG-interior-gap kinds, Wilson 95% [0.963, 1.000] for both,
+        0 false `verified`, 0 control failures and mean 0.088–0.090 s per scan
+        under --frag-time-limit 5000. The corpus manifest SHA-256 is
+        d3550a0320b9de6762e5f4bfd4015a865271e17c8aba948877d681ee5b92f543;
+        the file is included in EVIDENCE.sha256.
 Decision: D-77 records a bounded exception to D-71: the CRC-32 proposes
         candidates only, deep decode validation is authoritative, a unique
         (cut, gap) remains `verified` with additive `join` provenance, and
