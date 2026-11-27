@@ -95,6 +95,7 @@ Residual risk / next: none. Q12 was confirmed by the user on 2026-11-27, the
 
 ```text
 Task: Part T H-27 — join free clusters across allocated islands (opt-in)
+Commit: b0255c5 (implementation), evidence regenerated from this tree.
 Change: src/image/free_stream.rs, src/cli.rs, src/scan.rs, src/io.rs,
         src/util.rs, docs/report.schema.json, docs/REPORT.md, CHANGELOG.md,
         README.md, fuzz/fuzz_targets/free_stream.rs, fuzz/Cargo.toml,
@@ -103,10 +104,12 @@ Change: src/image/free_stream.rs, src/cli.rs, src/scan.rs, src/io.rs,
 New tests: tests/free_stream.rs (live island exact + physical fragment
         property, dead island no false verified, default flag absent);
         fuzz target `free_stream` keeps the extents/offset translator panic-free.
-Gate: targeted tests green (3/3); full CI-env gate pending end-of-H27.
+Gate: targeted tests green (3/3); full CI-env gate green at this tree
+        (14 fuzz targets x 60 s, repro 0 failures, golden/smoke/DIST OK,
+        G9 50 options / 163 tests).
 Measurement: 80 live-island trials (40 JPEG + 40 PNG) exact 80/80, Wilson 95%
         [0.954, 1.000]; 80 dead-island trials with 0 false `verified`;
-        recorded in bench/results/h27_free_stream.txt after this commit.
+        recorded in bench/results/h27_free_stream.txt from the b0255c5 tree.
 Decision: D-74 records that H-27 is a complement to B-06/H-30/H-32, uses one
         volume only, and never claims recovery when a dead island is present.
 Residual risk / next: only ascending-LBA fragments are supported; the second

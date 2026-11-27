@@ -1,8 +1,8 @@
 H-27 production --free-stream acceptance
-commit: c8f80acfb1147becb5bd5b65e6261c1baf7949b6
-binary: target/release/carvex (75db744bc1122997bc9f708c9952952ee930301c3350bbc017a2744427be07ee)
+commit: b0255c572fd74fdd93833f38730d392a985017d2
+binary: target/release/carvex (340171ff2886deca97641a84223e747244287f781cd59e3a54b7897489a22d37)
 corpus: bench/corpus (d3550a0320b9de6762e5f4bfd4015a865271e17c8aba948877d681ee5b92f543)
-workdir: target/part-t/evidence/h27
+workdir: target/part-t/evidence/h27-final
 synthetic FAT32 images: 8192 sectors, 987 clusters, seed 2026, gap 1..8 clusters
 jpeg corpus: jpeg_01_baseline_640x480.jpg, jpeg_02_large_1280x960.jpg, jpeg_04_grayscale_512x512.jpg, jpeg_05_low_quality_1024x768.jpg, jpeg_06_portrait_480x800.jpg, jpeg_08_exif_thumb_900x700.jpg
 png corpus: png_01_rgba_640x480.png, png_02_rgb_800x600.png, png_03_grayscale_512x512.png, png_04_palette_600x400.png, png_06_large_1200x800.png, png_07_small_200x150.png, png_09_alpha_1024x768.png, png_10_palette_320x240.png
@@ -10,12 +10,12 @@ png corpus: png_01_rgba_640x480.png, png_02_rgb_800x600.png, png_03_grayscale_51
 == jpeg live-island exactness: N=40
    exact 40 / 40 = 100.0%  Wilson95 (0.912, 1.000)
 == jpeg dead-island false verified: 0 / 40 trials affected
-== jpeg cost: default mean 0.019s, free-stream mean 0.098s, extra 0.079s (415.4%)
+== jpeg cost: default mean 0.020s, free-stream mean 0.104s, extra 0.084s (430.0%)
 
 == png live-island exactness: N=40
    exact 40 / 40 = 100.0%  Wilson95 (0.912, 1.000)
 == png dead-island false verified: 0 / 40 trials affected
-== png cost: default mean 0.021s, free-stream mean 0.039s, extra 0.018s (88.7%)
+== png cost: default mean 0.023s, free-stream mean 0.043s, extra 0.020s (84.5%)
 
 == TOTAL live-island exactness: 80 / 80 = 100.0%  Wilson95 (0.954, 1.000)
 == TOTAL dead-island false verified: 0 / 80 trials affected
