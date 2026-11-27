@@ -1537,3 +1537,54 @@ decision, and the consequences.
   a `FREE_STREAM` warning are added; accepted rows use `source="free-stream"`
   with physical `fragments[]`. H-27 complements, and does not replace, B-06 and
   the PNG/JPEG content-oracle items H-30/H-32.
+
+## D-75. H-28/H-29 metadata is opt-in evidence, never a validity shortcut
+
+- **Context:** deleted FAT directory entries and NTFS MFT records can supply a
+  name, a start extent or an exact runlist, but a deleted entry proves neither
+  that the data survived nor that a reused record still belongs to the same
+  file.
+- **Decision:** one `--metadata` flag enables both parsers. FAT entries require
+  a plausible data-area cluster, bounded size and a signature match; LFN names
+  are bound by the checksum of the original 8.3 name and a mismatch drops only
+  the name. Live subdirectories and bounded deleted directories are traversed.
+  NTFS records require `FILE`, a clear in-use bit, a plausible sequence/parent,
+  valid fixups and in-volume runlists. `$ATTRIBUTE_LIST`, extension records,
+  compressed or encrypted data, sparse/zero tails and overwritten clusters are
+  reported as unsupported or partial. Metadata never sets `verified`; the deep
+  validator still does. Rows that match an existing carved row by offset and
+  exact size are annotated, not duplicated. Output filenames never use
+  recovered names. All normal CLI filters and `--max-memory`,
+  `--max-candidates`, `--max-output` and `--time-budget` bound the pass;
+  `--verified-only --metadata` writes no rows. A zero time budget is unlimited.
+- **Evidence:** `tests/metadata.rs` (22 tests, including a 10,000-case runlist
+  round-trip property, fixup/hostile-record paths, deleted/out-of-order LFN
+  slots and checksum failure, live-subdirectory traversal, reallocated FAT
+  cluster, CLI filters/bounds, manifest coverage and unchanged default output)
+  and `bench/results/h28_h29_metadata.txt` (100/100 FAT exact, Wilson lower
+  0.963; 10/10 NTFS exact, Wilson lower 0.722). New fuzz targets `fat32_dir`
+  and `ntfs_deleted_mft` cover both parsers.
+- **Consequences:** default reports, schema-1 output, CSV header, golden D0 and
+  frozen benchmark metrics stay byte-identical. Only `options.metadata` and
+  additive per-file fields appear when the flag is enabled; B-01 is now
+  PARTIAL (FAT32/NTFS only; no exFAT metadata).
+
+## D-76. H-31/H-32 prototypes do not authorize production promotion
+
+- **Context:** the classic-xref PDF prototype recovered 100/100 random-gap
+  trials but only 39/100 other-PDF-interior trials, with 61 false accepts
+  (Wilson 95% [0.300, 0.488]). The JPEG seam experiment recovered 12/100
+  random-gap and 0/100 other-JPEG-interior trials, with 19 and 22 false accepts;
+  the X1 prefilter itself remained 572/572 on baseline JPEG clusters but 0/2293
+  PNG, 0/2047 random and 0/255 zero clusters.
+- **Decision:** no H-31 or H-32 production source change is promoted. Xref
+  offsets alone are not a unique oracle for another PDF's interior, and seam
+  continuity with a margin is insufficiently reliable for JPEG. The archived
+  scripts and evidence remain design/experiment records only.
+- **Evidence:** `bench/results/h31_pdf_xref_prototype.txt`,
+  `bench/results/h32_jpeg_join_experiment.txt`,
+  `bench/results/x1_cluster_rule_current.txt` and the summary appended to
+  `bench/results/part_t_prototypes.txt`.
+- **Consequences:** no new join method, report field or fuzz target is added for
+  H-31/H-32. Any later production proposal needs a new accepted experiment
+  with n, Wilson bounds and zero false `verified` results for each gap kind.

@@ -158,6 +158,7 @@ Main options:
 | `--max-frag-candidates <MAX_FRAG_CANDIDATES>` | `1024` | Maximum candidate joins evaluated by B-06 |
 | `--frag-time-limit <FRAG_TIME_LIMIT>` | `5000` | Wall-clock budget for B-06, in milliseconds |
 | `--free-stream` | `off` | H-27: add a second pass over one volume's free-space stream (concatenated free extents). Only ascending-LBA fragments are recovered; allocated clusters are never read. Requires exactly one selected volume and filesystem detection |
+| `--metadata` | `off` | H-28/H-29: recover deleted FAT32 directory entries and NTFS MFT records. Requires filesystem detection and at least one selected volume |
 | `--offset <OFFSET>` | `off` | Force the volume boot-sector offset (bytes, suffix K/M/G allowed) |
 | `--no-fs` | `off` | Skip filesystem detection (raw scanning only) |
 | `--hash-image` | `off` | Hash the complete source image (streaming, can be slow) |
@@ -569,7 +570,7 @@ cargo test
 ```
 
 <!-- BEGIN GENERATED TEST COUNT -->
-The current suite has 163 tests (44 unit + 15 `cli_contract` + 7 `evidence_formats` + 6 `fragment_recovery` + 3 `free_stream` + 8 `fs_detect` + 2 `jpeg_frame_budget` + 1 `jpeg_unsupported_validation` + 4 `memory_budget` + 3 `panic_containment` + 8 `pdf_structure_validation` + 3 `png_crc_validity` + 4 `png_decode_budget` + 2 `png_validator_budget` + 7 `properties` + 3 `region_coverage` + 4 `regress_e01_safety` + 10 `regress_repair_images` + 5 `regress_tail_padding` + 1 `regress_task_plan` + 4 `regress_vmdk_safety` + 5 `repair_validation` + 6 `scan_integration` + 1 `validity_model` + 3 `volume_parse_errors` + 4 `work_budgets`).
+The current suite has 185 tests (44 unit + 15 `cli_contract` + 7 `evidence_formats` + 6 `fragment_recovery` + 3 `free_stream` + 8 `fs_detect` + 2 `jpeg_frame_budget` + 1 `jpeg_unsupported_validation` + 4 `memory_budget` + 22 `metadata` + 3 `panic_containment` + 8 `pdf_structure_validation` + 3 `png_crc_validity` + 4 `png_decode_budget` + 2 `png_validator_budget` + 7 `properties` + 3 `region_coverage` + 4 `regress_e01_safety` + 10 `regress_repair_images` + 5 `regress_tail_padding` + 1 `regress_task_plan` + 4 `regress_vmdk_safety` + 5 `repair_validation` + 6 `scan_integration` + 1 `validity_model` + 3 `volume_parse_errors` + 4 `work_budgets`).
 <!-- END GENERATED TEST COUNT -->
 Run the full G0-G9 release gate with `bash scripts/gate.sh`: it also runs G7
 golden hashes, G8 performance checks against committed baselines, a generated

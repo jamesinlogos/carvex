@@ -12,7 +12,7 @@ if [ "$#" -gt 0 ]; then
 else
     TARGETS=(jpeg png pdf fat32_boot ntfs_boot ntfs_mft partition_table
              fuzz_e01 fuzz_vhd fuzz_vmdk fuzz_split_names fuzz_open_image
-             fuzz_fragment_join free_stream)
+             fuzz_fragment_join free_stream fat32_dir ntfs_deleted_mft)
 fi
 LOG_DIR="$ROOT/bench/results/fuzz"
 mkdir -p "$LOG_DIR"

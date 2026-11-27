@@ -110,4 +110,18 @@ test = false
 doc = false
 bench = false
 
+[[bin]]
+name = "fat32_dir"
+path = "fuzz_targets/fat32_dir.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ntfs_deleted_mft"
+path = "fuzz_targets/ntfs_deleted_mft.rs"
+test = false
+doc = false
+bench = false
+
 [workspace]

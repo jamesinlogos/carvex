@@ -1,8 +1,13 @@
 #![deny(clippy::indexing_slicing, clippy::unwrap_used, clippy::expect_used)]
-use super::{FsInfo, FsKind, VolumeCtx};
+use super::{
+    sanitize_name, DeletedEntry, FsInfo, FsKind, MetadataLimits, MetadataPiece, MetadataPieceKind,
+    VolumeCtx,
+};
+use crate::io::ImageSource;
+use crate::signatures::FileType;
 use crate::util::Extent;
 use anyhow::{bail, Context, Result};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 const FAT_BAD: u32 = 0x0FFF_FFF7;
 
@@ -272,6 +277,401 @@ pub fn parse(ctx: &VolumeCtx<'_>, boot: &[u8]) -> Result<FsInfo> {
         label: Some(label),
         details,
     })
+}
+
+fn le16_at(buf: &[u8], off: usize) -> u16 {
+    u16::from_le_bytes([
+        buf.get(off).copied().unwrap_or(0),
+        buf.get(off.saturating_add(1)).copied().unwrap_or(0),
+    ])
+}
+
+fn le32_at(buf: &[u8], off: usize) -> u32 {
+    u32::from_le_bytes([
+        buf.get(off).copied().unwrap_or(0),
+        buf.get(off.saturating_add(1)).copied().unwrap_or(0),
+        buf.get(off.saturating_add(2)).copied().unwrap_or(0),
+        buf.get(off.saturating_add(3)).copied().unwrap_or(0),
+    ])
+}
+
+fn fat_value(fat: &[u8], cluster: u64) -> Option<u32> {
+    let index = usize::try_from(cluster).ok()?.checked_mul(4)?;
+    let end = index.checked_add(4)?;
+    let bytes: [u8; 4] = fat.get(index..end)?.try_into().ok()?;
+    Some(u32::from_le_bytes(bytes) & 0x0FFF_FFFF)
+}
+
+fn dos_datetime(date: u16, time: u16) -> Option<String> {
+    let year = 1980u32.saturating_add((date >> 9) as u32);
+    let month = (date >> 5) & 0x0F;
+    let day = date & 0x1F;
+    let hour = (time >> 11) & 0x1F;
+    let minute = (time >> 5) & 0x3F;
+    let second = (time & 0x1F).saturating_mul(2);
+    if !(1..=12).contains(&month)
+        || !(1..=31).contains(&day)
+        || hour > 23
+        || minute > 59
+        || second > 59
+    {
+        return None;
+    }
+    Some(format!(
+        "{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}Z"
+    ))
+}
+
+fn lfn_checksum(short: &[u8]) -> u8 {
+    let mut sum = 0u8;
+    for byte in short.iter().take(11) {
+        sum = sum.rotate_left(1).wrapping_add(*byte);
+    }
+    sum
+}
+
+/// Legal first bytes of an 8.3 name at the moment it was deleted.
+///
+/// `0xE5` is the deletion marker itself and `0x00` marks an empty slot.
+/// Restricting the brute-force inversion to this set keeps a corrupted LFN
+/// checksum from being "explained" by an impossible short-name byte.
+fn plausible_short_first(byte: u8) -> bool {
+    byte.is_ascii_uppercase()
+        || byte.is_ascii_lowercase()
+        || byte.is_ascii_digit()
+        || matches!(
+            byte,
+            b'$' | b'%' | b'\'' | b'-' | b'_' | b'@' | b'~' | b'`' | b'{' | b'}'
+        )
+        || byte >= 0x80
+}
+
+/// Recover the original 8.3 name from the bytes left after deletion.
+///
+/// FAT replaces byte 0 with `0xE5` but keeps the other ten bytes. The LFN
+/// checksum is over the original eleven bytes; the rotate/add checksum is
+/// invertible in byte 0, so a plausible candidate is unique when the LFN is
+/// genuine. An implausible or ambiguous candidate means the LFN is unbound.
+fn original_short_name(stored: &[u8], lfn_sum: u8) -> Option<Vec<u8>> {
+    let rest = stored.get(1..11)?;
+    if stored.first().copied() != Some(0xE5) {
+        return Some(stored.to_vec());
+    }
+    let mut found = None;
+    let mut matches = 0usize;
+    for first in 0u8..=u8::MAX {
+        if !plausible_short_first(first) {
+            continue;
+        }
+        let mut candidate = Vec::with_capacity(11);
+        candidate.push(first);
+        candidate.extend_from_slice(rest);
+        if lfn_checksum(&candidate) == lfn_sum {
+            matches = matches.saturating_add(1);
+            found = Some(candidate);
+            if matches > 1 {
+                return None;
+            }
+        }
+    }
+    found
+}
+
+/// Decode LFN slots in physical order.
+///
+/// FAT stores long-name slots in descending sequence (`0x40` marks the first,
+/// highest slot), so reversing the physical order yields the original UTF-16
+/// string. Deleted slots have byte 0 overwritten with `0xE5`, which destroys
+/// their sequence byte; physical order is the only reliable ordering left.
+fn decode_lfn(parts: &[(u8, Vec<u16>, u8)], limit: usize) -> Option<(String, u8)> {
+    let checksum = parts.last().map(|part| part.2)?;
+    let mut units = Vec::new();
+    for (_, chars, _) in parts.iter().rev() {
+        units.extend(chars.iter().copied());
+    }
+    units.retain(|u| *u != 0 && *u != 0xFFFF);
+    if units.is_empty() {
+        return None;
+    }
+    let raw = String::from_utf16_lossy(&units);
+    sanitize_name(&raw, limit).map(|name| (name, checksum))
+}
+
+fn short_display_name(raw: &[u8], limit: usize) -> Option<String> {
+    let mut base = Vec::new();
+    for byte in raw.iter().take(8) {
+        if *byte == 0 || *byte == 0x20 {
+            break;
+        }
+        base.push(if *byte == 0xE5 { b'_' } else { *byte });
+    }
+    let mut ext = Vec::new();
+    for byte in raw.iter().skip(8).take(3) {
+        if *byte == 0 || *byte == 0x20 {
+            break;
+        }
+        ext.push(*byte);
+    }
+    let stem = String::from_utf8_lossy(&base);
+    let suffix = String::from_utf8_lossy(&ext);
+    let text = if suffix.is_empty() {
+        stem.into_owned()
+    } else {
+        format!("{stem}.{suffix}")
+    };
+    sanitize_name(&text, limit)
+}
+
+fn signature_match(head: &[u8]) -> Option<&'static str> {
+    FileType::all()
+        .into_iter()
+        .find(|kind| head.starts_with(kind.header()))
+        .map(FileType::ext)
+}
+
+/// Recover deleted FAT32 directory entries. Bounded in depth, entries and bytes.
+pub fn deleted_entries(
+    ctx: &VolumeCtx<'_>,
+    boot: &[u8],
+    limits: &MetadataLimits,
+) -> Result<Vec<DeletedEntry>> {
+    let geom = parse_geometry(boot, ctx.offset, ctx.max_len)?;
+    let fat = ctx.read_vec(geom.fat_offset, geom.fat_bytes_needed as usize)?;
+    let cluster_bytes = usize::try_from(geom.cluster_size).context("FAT32: cluster too large")?;
+    let volume_end = ctx.offset.saturating_add(ctx.max_len);
+    let mut out = Vec::new();
+    let mut queue = VecDeque::from([(geom.root_cluster, 0usize, false)]);
+    let mut visited = BTreeSet::new();
+
+    while let Some((cluster, depth, deleted_chain)) = queue.pop_front() {
+        if depth > limits.max_depth
+            || out.len() >= limits.max_entries
+            || queue.len() >= limits.max_entries
+        {
+            break;
+        }
+        if cluster < 2
+            || cluster >= geom.total_clusters.saturating_add(2)
+            || !visited.insert(cluster)
+        {
+            continue;
+        }
+        let mut current = cluster;
+        let mut steps = 0usize;
+        loop {
+            if steps >= limits.max_depth.saturating_mul(16).max(16)
+                || out.len() >= limits.max_entries
+            {
+                break;
+            }
+            steps = steps.saturating_add(1);
+            let phys = geom
+                .data_start_byte
+                .checked_add(current.saturating_sub(2).saturating_mul(geom.cluster_size))
+                .context("FAT32: directory cluster offset overflow")?;
+            if phys >= volume_end {
+                break;
+            }
+            let data = ctx.read_vec(phys, cluster_bytes)?;
+            let mut lfn_parts: Vec<(u8, Vec<u16>, u8)> = Vec::new();
+
+            for (entry_index, entry) in data.chunks_exact(32).enumerate() {
+                if out.len() >= limits.max_entries {
+                    break;
+                }
+                let first = entry.first().copied().unwrap_or(0);
+                let attr = entry.get(11).copied().unwrap_or(0);
+                if attr == 0x0F {
+                    let seq = first & 0x1F;
+                    // A deleted LFN slot has no sequence byte left; its physical
+                    // position in `lfn_parts` still carries the ordering.
+                    if (first != 0xE5 && seq == 0) || lfn_parts.len() >= 32 {
+                        lfn_parts.clear();
+                        continue;
+                    }
+                    let mut chars = Vec::new();
+                    for off in [1usize, 3, 5, 7, 9, 14, 16, 18, 20, 22, 24, 28, 30] {
+                        let lo = entry.get(off).copied().unwrap_or(0);
+                        let hi = entry.get(off.saturating_add(1)).copied().unwrap_or(0);
+                        chars.push(u16::from_le_bytes([lo, hi]));
+                    }
+                    let checksum = entry.get(13).copied().unwrap_or(0);
+                    lfn_parts.push((seq, chars, checksum));
+                    continue;
+                }
+
+                let start_high = u64::from(le16_at(entry, 0x14));
+                let start_low = u64::from(le16_at(entry, 0x1A));
+                let start = (start_high << 16 | start_low) & 0x0FFF_FFFF;
+                if first != 0xE5 {
+                    // Live subdirectories are traversed too: deleted files are
+                    // often left inside a directory whose own entry is intact.
+                    if attr & 0x10 != 0
+                        && start >= 2
+                        && start < geom.total_clusters.saturating_add(2)
+                    {
+                        queue.push_back((start, depth.saturating_add(1), false));
+                    }
+                    lfn_parts.clear();
+                    continue;
+                }
+
+                // For a deleted entry byte 0 has been overwritten with 0xE5;
+                // the LFN checksum must be checked against the original name.
+                let short: Vec<u8> = entry.iter().take(11).copied().collect();
+                let is_dir = attr & 0x10 != 0;
+                let size = u64::from(le32_at(entry, 0x1C));
+
+                if is_dir && start >= 2 && start < geom.total_clusters.saturating_add(2) {
+                    queue.push_back((start, depth.saturating_add(1), true));
+                    lfn_parts.clear();
+                    continue;
+                }
+                if size < limits.min_size || size > limits.max_size || size > limits.max_bytes {
+                    lfn_parts.clear();
+                    continue;
+                }
+                if start < 2 || start >= geom.total_clusters.saturating_add(2) {
+                    lfn_parts.clear();
+                    continue;
+                }
+
+                let file_phys = geom
+                    .data_start_byte
+                    .checked_add(start.saturating_sub(2).saturating_mul(geom.cluster_size))
+                    .context("FAT32: file cluster offset overflow")?;
+                let head_len = usize::try_from(size.min(512)).unwrap_or(512);
+                let head = ctx.read_vec(file_phys, head_len).unwrap_or_default();
+                // An allocated FAT chain plus mismatching content is a guess,
+                // not evidence of recovery: never emit a partial row for it.
+                if signature_match(&head).is_none() {
+                    lfn_parts.clear();
+                    continue;
+                }
+                let fat_entry = fat_value(&fat, start);
+                let overwritten = matches!(fat_entry, Some(v) if v != 0 && v != 0x0FFF_FFFF);
+
+                let (name, mismatch, lfn_recovered) =
+                    if let Some((name, lfn_sum)) = decode_lfn(&lfn_parts, limits.max_name_bytes) {
+                        match original_short_name(&short, lfn_sum) {
+                            Some(original) if lfn_checksum(&original) == lfn_sum => {
+                                (Some(name), false, true)
+                            }
+                            _ => (
+                                short_display_name(&short, limits.max_name_bytes),
+                                true,
+                                true,
+                            ),
+                        }
+                    } else {
+                        (
+                            short_display_name(&short, limits.max_name_bytes),
+                            false,
+                            false,
+                        )
+                    };
+
+                let mut entry_out = DeletedEntry::new("fat32_dir_entry");
+                entry_out.name = name;
+                entry_out.mtime = dos_datetime(le16_at(entry, 0x18), le16_at(entry, 0x16));
+                entry_out.lfn_checksum_mismatch = mismatch;
+                entry_out.lfn_recovered = lfn_recovered;
+                entry_out.record_offset = Some(phys.saturating_add(
+                    u64::try_from(entry_index.saturating_mul(32)).unwrap_or(u64::MAX),
+                ));
+                if mismatch {
+                    entry_out.notes.push("lfn_checksum_mismatch".to_string());
+                }
+                if overwritten {
+                    entry_out.overwritten_clusters = 1;
+                    entry_out.notes.push("fat_cluster_reallocated".to_string());
+                }
+                let readable = volume_end
+                    .saturating_sub(file_phys)
+                    .min(size)
+                    .min(limits.max_bytes);
+                if readable < size {
+                    entry_out.notes.push("truncated_by_volume".to_string());
+                }
+                if readable > 0 {
+                    entry_out.pieces.push(MetadataPiece {
+                        kind: MetadataPieceKind::Physical,
+                        physical_start: Some(file_phys),
+                        volume_offset: 0,
+                        length: readable,
+                        resident_bytes: None,
+                    });
+                }
+                if !entry_out.pieces.is_empty() {
+                    out.push(entry_out);
+                }
+                lfn_parts.clear();
+            }
+
+            let next = if deleted_chain {
+                current.saturating_add(1)
+            } else {
+                match fat_value(&fat, current) {
+                    Some(value)
+                        if value >= 2
+                            && u64::from(value) < geom.total_clusters.saturating_add(2) =>
+                    {
+                        u64::from(value)
+                    }
+                    _ => 0,
+                }
+            };
+            if next < 2 || next >= geom.total_clusters.saturating_add(2) || visited.contains(&next)
+            {
+                break;
+            }
+            current = next;
+        }
+    }
+    Ok(out)
+}
+
+/// A read-only slice source used only by the fuzz harness (never by the CLI).
+#[doc(hidden)]
+pub struct SliceSource<'a> {
+    pub data: &'a [u8],
+}
+
+impl ImageSource for SliceSource<'_> {
+    fn len(&self) -> u64 {
+        self.data.len() as u64
+    }
+
+    fn read_at(&self, offset: u64, buf: &mut [u8]) -> std::io::Result<usize> {
+        let start = usize::try_from(offset).unwrap_or(usize::MAX);
+        if start >= self.data.len() {
+            return Ok(0);
+        }
+        let available = self.data.len().saturating_sub(start);
+        let n = buf.len().min(available);
+        if let (Some(dst), Some(src)) = (buf.get_mut(..n), self.data.get(start..start + n)) {
+            dst.copy_from_slice(src);
+        }
+        Ok(n)
+    }
+}
+
+/// Bounded parser entry point for the `fat32_dir` fuzz target.
+#[doc(hidden)]
+pub fn deleted_entries_fuzz(
+    boot: &[u8],
+    image: &[u8],
+    limits: &MetadataLimits,
+) -> Vec<DeletedEntry> {
+    let source = SliceSource { data: image };
+    let ctx = VolumeCtx {
+        source: &source,
+        offset: 0,
+        max_len: image.len() as u64,
+        partition_index: None,
+        partition_type: None,
+    };
+    deleted_entries(&ctx, boot, limits).unwrap_or_default()
 }
 
 #[cfg(test)]

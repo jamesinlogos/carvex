@@ -78,6 +78,12 @@ fn strip_v2_fields(value: &mut serde_json::Value) {
                 "fragments",
                 "sha256_original",
                 "alternatives",
+                "original_name",
+                "mtime",
+                "contiguous_assumed",
+                "overwritten_clusters",
+                "metadata_notes",
+                "sparse_bytes",
             ] {
                 file.remove(key);
             }

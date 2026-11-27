@@ -1,6 +1,10 @@
 #![deny(clippy::indexing_slicing, clippy::unwrap_used, clippy::expect_used)]
-use super::{FsInfo, FsKind, VolumeCtx};
+use super::{
+    fat32::SliceSource, sanitize_name, DeletedEntry, FsInfo, FsKind, MetadataLimits, MetadataPiece,
+    MetadataPieceKind, VolumeCtx,
+};
 use crate::io::{read_vec_at, ImageSource};
+use crate::signatures::FileType;
 use crate::util::Extent;
 use anyhow::{bail, Context, Result};
 use std::collections::BTreeMap;
@@ -475,6 +479,16 @@ fn pick_data(attrs: &[DataAttr]) -> Option<&DataAttr> {
     attrs.iter().find(|a| a.data_size > 0 || !a.runs.is_empty())
 }
 
+/// Bounded runlist parser entry point for regression/property tests.
+#[doc(hidden)]
+pub fn parse_runlist_public(data: &[u8]) -> Result<Vec<(u64, Option<u64>, u64)>> {
+    parse_runlist(data).map(|runs| {
+        runs.into_iter()
+            .map(|run| (run.vcn, run.lcn, run.clusters))
+            .collect()
+    })
+}
+
 fn parse_runlist(data: &[u8]) -> Result<Vec<Run>> {
     let mut out = Vec::new();
     let mut pos = 0usize;
@@ -658,6 +672,460 @@ impl NtfsCtx<'_> {
         }
         Ok(None)
     }
+}
+
+/// An attribute as needed by deleted-record recovery.
+#[derive(Debug, Clone)]
+struct DeletedAttr {
+    type_id: u32,
+    name: Option<String>,
+    flags: u16,
+    non_resident: bool,
+    resident: Option<Vec<u8>>,
+    runs: Vec<Run>,
+    data_size: u64,
+    initialized_size: u64,
+    lowest_vcn: u64,
+}
+
+fn parse_deleted_attrs(rec: &[u8], limits: &MetadataLimits) -> Result<Vec<DeletedAttr>> {
+    let first = u16_at(rec, 0x14)? as usize;
+    if first >= rec.len() {
+        bail!("NTFS: attribute offset outside record");
+    }
+    let mut pos = first;
+    let mut out = Vec::new();
+    let mut guard = 0usize;
+    while pos.checked_add(8).is_some_and(|end| end <= rec.len()) {
+        guard = guard.saturating_add(1);
+        if guard > 4096 || out.len() >= 512 {
+            break;
+        }
+        let type_id = u32_at(rec, pos)?;
+        if type_id == 0xFFFF_FFFF {
+            break;
+        }
+        let len = u32_at(rec, pos.saturating_add(4))? as usize;
+        let attr_end = pos.checked_add(len).context("NTFS: attribute overflow")?;
+        if len < 0x18 || attr_end > rec.len() {
+            bail!("NTFS: invalid attribute length {len}");
+        }
+        let non_resident = u8_at(rec, pos.saturating_add(8))? != 0;
+        let name_len = u8_at(rec, pos.saturating_add(9))? as usize;
+        let name_off = u16_at(rec, pos.saturating_add(0x0A))? as usize;
+        let flags = u16_at(rec, pos.saturating_add(0x0C))?;
+        let name = if name_len == 0 {
+            None
+        } else {
+            let bytes = name_len.saturating_mul(2);
+            let start = pos
+                .checked_add(name_off)
+                .context("NTFS: name offset overflow")?;
+            let end = start
+                .checked_add(bytes)
+                .context("NTFS: name end overflow")?;
+            if end > attr_end {
+                bail!("NTFS: attribute name outside attribute");
+            }
+            let units: Vec<u16> = rec
+                .get(start..end)
+                .context("NTFS: attribute name outside record")?
+                .chunks_exact(2)
+                .filter_map(|c| <[u8; 2]>::try_from(c).ok().map(u16::from_le_bytes))
+                .collect();
+            sanitize_name(&String::from_utf16_lossy(&units), limits.max_name_bytes)
+        };
+
+        let (resident, runs, data_size, initialized_size, lowest_vcn) = if non_resident {
+            let lowest_vcn = u64_at(rec, pos.saturating_add(0x28))?;
+            let data_size = u64_at(rec, pos.saturating_add(0x30))?;
+            let initialized_size = u64_at(rec, pos.saturating_add(0x38))?;
+            let run_off = u16_at(rec, pos.saturating_add(0x20))? as usize;
+            let start = pos
+                .checked_add(run_off)
+                .context("NTFS: runlist offset overflow")?;
+            if start > attr_end {
+                bail!("NTFS: runlist offset outside attribute");
+            }
+            let mut runs = parse_runlist(rec.get(start..attr_end).unwrap_or(&[]))?;
+            if runs.len() > limits.max_runlist_entries {
+                bail!("NTFS: runlist exceeds bound");
+            }
+            let start_vcn = u64_at(rec, pos.saturating_add(0x10))?;
+            for r in &mut runs {
+                r.vcn = r.vcn.saturating_add(start_vcn);
+            }
+            (None, runs, data_size, initialized_size, lowest_vcn)
+        } else {
+            let value_len = u32_at(rec, pos.saturating_add(0x10))? as usize;
+            let value_off = u16_at(rec, pos.saturating_add(0x14))? as usize;
+            let start = pos
+                .checked_add(value_off)
+                .context("NTFS: resident value offset overflow")?;
+            let end = start
+                .checked_add(value_len)
+                .context("NTFS: resident value end overflow")?;
+            if end > attr_end {
+                bail!("NTFS: resident value outside attribute");
+            }
+            let bytes = rec
+                .get(start..end)
+                .context("NTFS: resident value outside record")?
+                .to_vec();
+            (
+                Some(bytes),
+                Vec::new(),
+                value_len as u64,
+                value_len as u64,
+                0,
+            )
+        };
+        out.push(DeletedAttr {
+            type_id,
+            name,
+            flags,
+            non_resident,
+            resident,
+            runs,
+            data_size,
+            initialized_size,
+            lowest_vcn,
+        });
+        pos = attr_end;
+    }
+    Ok(out)
+}
+
+fn civil_from_days(days: i64) -> (i64, i64, i64) {
+    let z = days.saturating_add(719_468);
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = z - era.saturating_mul(146_097);
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_000) / 365;
+    let year = yoe.saturating_add(era.saturating_mul(400));
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = mp + if mp < 10 { 3 } else { -9 };
+    let year = year + i64::from(month <= 2);
+    (year, month, day)
+}
+
+fn filetime_iso(raw: u64) -> Option<String> {
+    if raw == 0 || raw == u64::MAX {
+        return None;
+    }
+    let unix = (raw / 10_000_000) as i64 - 11_644_473_600;
+    if unix < 0 {
+        return None;
+    }
+    let days = unix.div_euclid(86_400);
+    let secs = unix.rem_euclid(86_400);
+    let (year, month, day) = civil_from_days(days);
+    if !(1..=12).contains(&month) || !(1..=31).contains(&day) {
+        return None;
+    }
+    Some(format!(
+        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}Z",
+        secs / 3600,
+        (secs % 3600) / 60,
+        secs % 60
+    ))
+}
+
+fn ntfs_signature_match(head: &[u8]) -> Option<&'static str> {
+    FileType::all()
+        .into_iter()
+        .find(|kind| head.starts_with(kind.header()))
+        .map(FileType::ext)
+}
+
+fn read_volume_bitmap(
+    ntfs: &NtfsCtx<'_>,
+    mft_runs: &[Run],
+    geom: &NtfsGeometry,
+    limits: &MetadataLimits,
+) -> Option<Vec<u8>> {
+    let rec = ntfs.read_record(mft_runs, 6, geom.record_size).ok()?;
+    if rec.get(0..4) != Some(b"FILE") {
+        return None;
+    }
+    let attrs = parse_deleted_attrs(&rec, limits).ok()?;
+    let attr = attrs
+        .iter()
+        .find(|a| a.type_id == 0xB0 || a.type_id == 0x80)?;
+    let needed = usize::try_from(geom.total_clusters.div_ceil(8)).ok()?;
+    if needed as u64 > limits.max_work_bytes {
+        return None;
+    }
+    if let Some(bytes) = &attr.resident {
+        return bytes.get(..needed).map(<[u8]>::to_vec);
+    }
+    ntfs.read_logical(&attr.runs, 0, needed as u64).ok()
+}
+
+fn bitmap_used(bitmap: &[u8], lcn: u64) -> bool {
+    let Some(index) = lcn.checked_div(8).and_then(|v| usize::try_from(v).ok()) else {
+        return false;
+    };
+    bitmap
+        .get(index)
+        .is_some_and(|byte| (byte >> (lcn % 8)) & 1 != 0)
+}
+
+/// Recover deleted NTFS `$MFT` records, bounded by `limits`.
+pub fn deleted_entries(
+    ctx: &VolumeCtx<'_>,
+    boot: &[u8],
+    limits: &MetadataLimits,
+) -> Result<Vec<DeletedEntry>> {
+    let geom = parse_geometry(boot, ctx.offset, ctx.max_len)?;
+    let ntfs = NtfsCtx {
+        source: ctx.source,
+        volume_offset: ctx.offset,
+        volume_len: geom.volume_len,
+        cluster_size: geom.bps as u64 * geom.spc as u64,
+        bytes_per_sector: geom.bps,
+    };
+    let mut rec0 = read_vec_at(ctx.source, geom.mft_abs, geom.record_size as usize)
+        .context("NTFS: cannot read $MFT record 0")?;
+    apply_fixup(&mut rec0, geom.bps)?;
+    if rec0.get(0..4) != Some(b"FILE") {
+        bail!("NTFS: $MFT record 0 has bad signature");
+    }
+    let mft_attrs = parse_attrs(&rec0)?;
+    let mft_data = pick_data(&mft_attrs).context("NTFS: $MFT has no unnamed $DATA attribute")?;
+    let mft_runs = mft_data.runs.clone();
+    let count = mft_data
+        .data_size
+        .checked_div(geom.record_size)
+        .unwrap_or(0)
+        .min(limits.max_mft_scan_bytes / geom.record_size.max(1))
+        .min(limits.max_entries as u64);
+    let volume_end = ctx.offset.saturating_add(ctx.max_len);
+    let bitmap = read_volume_bitmap(&ntfs, &mft_runs, &geom, limits).unwrap_or_default();
+    let mut out = Vec::new();
+
+    for index in 0..count {
+        if out.len() >= limits.max_entries {
+            break;
+        }
+        let Ok(rec) = ntfs.read_record(&mft_runs, index, geom.record_size) else {
+            continue;
+        };
+        if rec.get(0..4) != Some(b"FILE") {
+            continue;
+        }
+        if u16_at(&rec, 0x10).unwrap_or(0) == 0 {
+            continue;
+        }
+        if u8_at(&rec, 0x16).unwrap_or(0) & 1 != 0 {
+            continue;
+        }
+        let Ok(attrs) = parse_deleted_attrs(&rec, limits) else {
+            continue;
+        };
+        let Some(data) = attrs.iter().find(|a| a.type_id == 0x80 && a.name.is_none()) else {
+            continue;
+        };
+        let seq = u16_at(&rec, 0x10).unwrap_or(0);
+        let record_phys = ctx
+            .offset
+            .checked_add(index.saturating_mul(geom.record_size))
+            .unwrap_or(ctx.offset);
+        let mut notes: Vec<String> = Vec::new();
+        let mut unsupported = attrs.iter().any(|a| {
+            a.type_id == 0x20
+                || (a.flags & 0x0001) != 0
+                || (a.flags & 0x4000) != 0
+                || a.lowest_vcn > 0
+        });
+        if unsupported {
+            notes.push("unsupported_mft_feature".to_string());
+        }
+        if (data.flags & 0x8000) != 0 {
+            notes.push("sparse_attribute".to_string());
+        }
+        if data.initialized_size < data.data_size {
+            notes.push("uninitialized_tail".to_string());
+        }
+
+        let std_info = attrs.iter().find(|a| a.type_id == 0x10 && !a.non_resident);
+        let mtime = std_info
+            .and_then(|a| a.resident.as_ref())
+            .and_then(|v| u64_at(v, 0x08).ok())
+            .and_then(filetime_iso);
+        let file_name = attrs.iter().find(|a| a.type_id == 0x30 && !a.non_resident);
+        let name = file_name.and_then(|a| {
+            let value = a.resident.as_ref()?;
+            let len = usize::from(u8_at(value, 0x40).ok()?);
+            let units: Vec<u16> = value
+                .get(0x42..)?
+                .chunks_exact(2)
+                .take(len)
+                .filter_map(|c| <[u8; 2]>::try_from(c).ok().map(u16::from_le_bytes))
+                .collect();
+            sanitize_name(&String::from_utf16_lossy(&units), limits.max_name_bytes)
+        });
+        if let Some(parent) = file_name
+            .and_then(|a| a.resident.as_ref())
+            .and_then(|v| u64_at(v, 0).ok())
+        {
+            let parent_seq = (parent >> 48) as u16;
+            let parent_no = parent & 0x0000_FFFF_FFFF_FFFF;
+            if parent_seq != 0 && parent_seq != seq {
+                notes.push("parent_sequence_mismatch".to_string());
+                unsupported = true;
+            }
+            if parent_no >= count && parent_no != 0 {
+                notes.push("parent_out_of_range".to_string());
+                unsupported = true;
+            }
+        }
+
+        let covered: u64 = data.runs.iter().fold(0u64, |acc, run| {
+            let offset = run.vcn.saturating_mul(ntfs.cluster_size);
+            if offset >= data.data_size {
+                return acc;
+            }
+            let length = run
+                .clusters
+                .saturating_mul(ntfs.cluster_size)
+                .min(data.data_size.saturating_sub(offset));
+            acc.saturating_add(length)
+        });
+        if covered < data.data_size {
+            notes.push("runlist_short".to_string());
+            if data.initialized_size >= data.data_size {
+                unsupported = true;
+            }
+        }
+
+        let mut entry = DeletedEntry::new("ntfs_deleted_mft");
+        entry.name = name;
+        entry.mtime = mtime;
+        entry.notes = notes;
+        entry.unsupported = unsupported;
+        entry.record_offset = Some(record_phys);
+
+        if let Some(bytes) = &data.resident {
+            if bytes.len() > limits.max_data_bytes as usize {
+                continue;
+            }
+            if ntfs_signature_match(bytes).is_none() && !unsupported {
+                continue;
+            }
+            entry.pieces.push(MetadataPiece {
+                kind: MetadataPieceKind::Resident,
+                physical_start: None,
+                volume_offset: 0,
+                length: bytes.len() as u64,
+                resident_bytes: Some(bytes.clone()),
+            });
+            out.push(entry);
+            continue;
+        }
+
+        let mut total = 0u64;
+        let mut head: Vec<u8> = Vec::new();
+        let mut bad_run = false;
+        for run in &data.runs {
+            let offset = run
+                .vcn
+                .checked_mul(ntfs.cluster_size)
+                .context("NTFS: run VCN overflow")?;
+            if offset >= data.data_size {
+                break;
+            }
+            let raw_len = run.clusters.saturating_mul(ntfs.cluster_size);
+            let length = raw_len.min(data.data_size.saturating_sub(offset));
+            if length == 0 {
+                continue;
+            }
+            total = total.saturating_add(length);
+            if total > limits.max_data_bytes {
+                entry.notes.push("truncated_by_limits".to_string());
+                entry.unsupported = true;
+                break;
+            }
+            match run.lcn {
+                Some(lcn) => {
+                    if lcn >= geom.total_clusters {
+                        bad_run = true;
+                        break;
+                    }
+                    let phys = ctx
+                        .offset
+                        .checked_add(lcn.saturating_mul(ntfs.cluster_size))
+                        .context("NTFS: run physical offset overflow")?;
+                    if phys.saturating_add(length) > volume_end {
+                        bad_run = true;
+                        break;
+                    }
+                    if bitmap_used(&bitmap, lcn) {
+                        entry.overwritten_clusters = entry.overwritten_clusters.saturating_add(1);
+                    }
+                    if head.is_empty() {
+                        let want = usize::try_from(length.min(512)).unwrap_or(512);
+                        head = read_vec_at(ctx.source, phys, want).unwrap_or_default();
+                    }
+                    entry.pieces.push(MetadataPiece {
+                        kind: MetadataPieceKind::Physical,
+                        physical_start: Some(phys),
+                        volume_offset: offset,
+                        length,
+                        resident_bytes: None,
+                    });
+                }
+                None => {
+                    entry.pieces.push(MetadataPiece {
+                        kind: MetadataPieceKind::Sparse,
+                        physical_start: None,
+                        volume_offset: offset,
+                        length,
+                        resident_bytes: None,
+                    });
+                }
+            }
+        }
+        if bad_run {
+            entry.notes.push("runlist_out_of_bounds".to_string());
+            entry.unsupported = true;
+            entry.pieces.clear();
+        }
+        if entry.overwritten_clusters > 0 {
+            entry.notes.push("bitmap_cluster_allocated".to_string());
+        }
+        if entry.pieces.is_empty() {
+            if unsupported || bad_run {
+                out.push(entry);
+            }
+            continue;
+        }
+        if ntfs_signature_match(&head).is_none() && !unsupported && entry.overwritten_clusters == 0
+        {
+            continue;
+        }
+        out.push(entry);
+    }
+    Ok(out)
+}
+
+/// Bounded parser entry point for the `ntfs_deleted_mft` fuzz target.
+#[doc(hidden)]
+pub fn deleted_entries_fuzz(
+    boot: &[u8],
+    image: &[u8],
+    limits: &MetadataLimits,
+) -> Vec<DeletedEntry> {
+    let source = SliceSource { data: image };
+    let ctx = VolumeCtx {
+        source: &source,
+        offset: 0,
+        max_len: image.len() as u64,
+        partition_index: None,
+        partition_type: None,
+    };
+    deleted_entries(&ctx, boot, limits).unwrap_or_default()
 }
 
 #[cfg(test)]

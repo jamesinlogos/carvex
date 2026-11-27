@@ -5,9 +5,9 @@ use crate::io::{
 };
 use crate::report;
 use crate::scan::{
-    self, AlignMode, Fragment, ScanContext, ScanMode, ScanOptions, ScanReport, VolumeSummary,
-    Warning, DEFAULT_FRAG_TIME_LIMIT_MS, DEFAULT_MAX_FRAG_CANDIDATES, DEFAULT_MAX_GAP_CLUSTERS,
-    DEFAULT_MAX_REGIONS, SCHEMA_VERSION,
+    self, AlignMode, Fragment, MetadataPassStats, MetadataResult, ScanContext, ScanMode,
+    ScanOptions, ScanReport, VolumeSummary, Warning, DEFAULT_FRAG_TIME_LIMIT_MS,
+    DEFAULT_MAX_FRAG_CANDIDATES, DEFAULT_MAX_GAP_CLUSTERS, DEFAULT_MAX_REGIONS, SCHEMA_VERSION,
 };
 use crate::signatures::{FileType, PdfEofMode, ValidationMode};
 use crate::util::{human_size, parse_size, Extent};
@@ -232,6 +232,10 @@ struct ScanArgs {
     /// exactly one selected volume and filesystem detection.
     #[arg(long)]
     free_stream: bool,
+    /// H-28/H-29: recover deleted FAT32 directory entries and NTFS MFT records.
+    /// Requires filesystem detection and at least one selected volume.
+    #[arg(long)]
+    metadata: bool,
     /// Force the volume boot-sector offset (bytes, suffix K/M/G allowed)
     #[arg(long, value_parser = parse_size, conflicts_with = "partition")]
     offset: Option<u64>,
@@ -445,6 +449,12 @@ fn validate_scan_args(args: &ScanArgs) -> Result<()> {
     }
     if args.free_stream && args.mode == ScanMode::Allocated {
         bail!("--free-stream cannot be combined with --mode allocated");
+    }
+    if args.metadata && args.no_fs {
+        bail!("--metadata requires filesystem detection (remove --no-fs)");
+    }
+    if args.metadata && args.mode == ScanMode::Allocated {
+        bail!("--metadata cannot be combined with --mode allocated");
     }
     Ok(())
 }
@@ -801,6 +811,7 @@ fn build_scan_options(
         max_frag_candidates: args.max_frag_candidates as usize,
         frag_time_limit: std::time::Duration::from_millis(args.frag_time_limit),
         free_stream: args.free_stream,
+        metadata: args.metadata,
     };
     let ctx = ScanContext {
         argv: std::env::args().collect(),
@@ -1096,6 +1107,50 @@ fn free_stream_allocation_metadata(
     (lba, cluster, volume.partition_index)
 }
 
+/// H-28/H-29: attach additive metadata fields to matching rows and append new
+/// metadata-only rows. Existing rows and their output order are never changed.
+fn merge_metadata_report(
+    report: &mut ScanReport,
+    results: Vec<MetadataResult>,
+    stats: MetadataPassStats,
+    warnings: Vec<Warning>,
+) {
+    let mut added_bytes = 0u64;
+    for result in results {
+        match result
+            .attach_to
+            .and_then(|index| report.files.get_mut(index))
+        {
+            Some(row) => {
+                row.original_name = result.file.original_name;
+                row.mtime = result.file.mtime;
+                row.contiguous_assumed = result.file.contiguous_assumed;
+                row.overwritten_clusters = result.file.overwritten_clusters;
+                row.metadata_notes = result.file.metadata_notes;
+                row.sparse_bytes = result.file.sparse_bytes;
+                row.notes.extend(result.file.notes);
+                row.validation_checks.extend(result.file.validation_checks);
+            }
+            None => {
+                added_bytes = added_bytes.saturating_add(result.file.carved_size);
+                report.files.push(result.file);
+            }
+        }
+    }
+    report.stats.candidates = report.stats.candidates.saturating_add(stats.candidates);
+    report.stats.carved = report.stats.carved.saturating_add(stats.added);
+    report.stats.bytes_written = report.stats.bytes_written.saturating_add(added_bytes);
+    report.warnings.extend(warnings);
+    report.warnings.push(Warning::new(
+        "METADATA",
+        format!(
+            "deleted-metadata pass examined {} candidate(s), added {} file(s), \
+             annotated {} existing row(s) and suppressed {} duplicate(s)",
+            stats.candidates, stats.added, stats.attached, stats.duplicates
+        ),
+    ));
+}
+
 fn scan(args: ScanArgs) -> Result<i32> {
     validate_scan_args(&args)?;
     let interrupt = scan::install_interrupt_handler()?;
@@ -1206,6 +1261,32 @@ fn scan(args: ScanArgs) -> Result<i32> {
                 temp.path(),
                 &args.output,
             )?;
+        }
+    }
+    if args.metadata {
+        if selection.volumes.is_empty() {
+            bail!("--metadata requires at least one selected volume");
+        }
+        let mut known = report
+            .files
+            .iter()
+            .map(|file| file.sha256.clone())
+            .collect::<std::collections::HashSet<_>>();
+        let initial_output_bytes = report.stats.bytes_written;
+        let (results, stats, metadata_warnings) =
+            scan::run_metadata_pass(scan::MetadataPassSpec {
+                source,
+                volumes: &selection.volumes,
+                existing: &report.files,
+                opts: &opts,
+                out_dir: &args.output,
+                start_seq: report.files.len() as u64 + 1,
+                known: &mut known,
+                initial_output_bytes,
+            })?;
+        merge_metadata_report(&mut report, results, stats, metadata_warnings);
+        if opts.manifest {
+            scan::write_manifest(&args.output, &report.files)?;
         }
     }
     finish_scan_report(

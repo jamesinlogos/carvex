@@ -1,4 +1,6 @@
-use crate::fs::FsInfo;
+use crate::fs::{
+    self as fsx, FsInfo, MetadataLimits, MetadataPieceKind, VolumeCtx, DEFAULT_METADATA_LIMITS,
+};
 use crate::io::{read_exact_at, ImageSource, RegionLog, UnreadableRegion};
 use crate::signatures::{
     analyze_with_limits, base_validity_checks, build_plan, validate_deep_detail, validate_repair,
@@ -488,6 +490,8 @@ pub struct ScanOptions {
     pub frag_time_limit: Duration,
     /// H-27: opt in to a second pass over one volume's free-space stream.
     pub free_stream: bool,
+    /// H-28/H-29: opt in to deleted filesystem metadata recovery.
+    pub metadata: bool,
 }
 
 impl ScanOptions {
@@ -533,6 +537,7 @@ impl ScanOptions {
                 .fragment_recovery
                 .then_some(self.frag_time_limit.as_millis() as u64),
             free_stream: self.free_stream.then_some(true),
+            metadata: self.metadata.then_some(true),
         }
     }
 }
@@ -574,6 +579,7 @@ impl Default for ScanOptions {
             max_frag_candidates: DEFAULT_MAX_FRAG_CANDIDATES,
             frag_time_limit: Duration::from_millis(DEFAULT_FRAG_TIME_LIMIT_MS),
             free_stream: false,
+            metadata: false,
         }
     }
 }
@@ -832,6 +838,9 @@ pub struct ReportOptions {
     /// H-27 free-space stream pass was enabled (omitted otherwise).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub free_stream: Option<bool>,
+    /// H-28/H-29 deleted-metadata pass was enabled (omitted otherwise).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<bool>,
 }
 
 /// Configuration/data structure.
@@ -917,6 +926,10 @@ impl Warning {
                 | "OUTPUT_LIMIT"
                 | "TRUNCATED_TOO_LARGE"
                 | "CANDIDATE_PANIC"
+                | "METADATA_TIME_LIMIT"
+                | "METADATA_PARSE_FAILED"
+                | "METADATA_MEMORY_LIMIT"
+                | "METADATA_CANDIDATE_LIMIT"
         )
     }
 }
@@ -1045,6 +1058,24 @@ pub struct CarvedFile {
     /// Absent whenever output bytes are identical to the source bytes.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sha256_original: Option<String>,
+    /// H-28/H-29: recovered display name. Never used to build output paths.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub original_name: Option<String>,
+    /// H-28/H-29: modified time from the deleted metadata, when available.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mtime: Option<String>,
+    /// H-28: true when a FAT file was assumed to occupy contiguous clusters.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub contiguous_assumed: Option<bool>,
+    /// H-28/H-29: number of clusters/runs found overwritten after recovery.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub overwritten_clusters: Option<u64>,
+    /// H-28/H-29: stable notes from the metadata parser and validation.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata_notes: Option<Vec<String>>,
+    /// H-29: zero-filled bytes contributed by sparse runs.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sparse_bytes: Option<u64>,
 }
 
 /// Configuration/data structure.
@@ -4729,6 +4760,599 @@ fn validity_reason_code(data: &CarvedData) -> String {
     }
 }
 
+/// Counters for the optional deleted-metadata pass.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct MetadataPassStats {
+    /// Metadata candidates examined.
+    pub candidates: usize,
+    /// New rows written by the pass.
+    pub added: usize,
+    /// Existing rows annotated with additive metadata fields.
+    pub attached: usize,
+    /// Candidates suppressed because their content hash was already known.
+    pub duplicates: usize,
+    /// Candidates that could not be parsed or validated.
+    pub parse_failed: usize,
+    /// Candidates using unsupported metadata features.
+    pub unsupported: usize,
+    /// True when the pass stopped at its time limit.
+    pub time_limited: bool,
+    /// True when the total materialisation budget stopped the pass.
+    pub memory_limited: bool,
+    /// True when the candidate budget stopped the pass.
+    pub candidate_limited: bool,
+    /// True when `--max-output` stopped the pass.
+    pub output_limited: bool,
+}
+
+/// One metadata result, either a new row or additive fields for an existing one.
+#[derive(Debug, Clone)]
+pub struct MetadataResult {
+    /// The reconstructed file row (new or additive only).
+    pub file: CarvedFile,
+    /// Index of an existing row to annotate, or `None` for a new row.
+    pub attach_to: Option<usize>,
+}
+
+/// Bundled inputs for [`run_metadata_pass`].
+///
+/// The pass has grown beyond a readable argument list; grouping the inputs
+/// also keeps the output-budget baseline together with the write path.
+pub struct MetadataPassSpec<'a> {
+    /// Physical image source, shared with the normal scan.
+    pub source: &'a dyn ImageSource,
+    /// Volumes selected for this run.
+    pub volumes: &'a [FsInfo],
+    /// Rows produced by the normal and free-stream passes.
+    pub existing: &'a [CarvedFile],
+    /// Effective scan options (all CLI filters apply here too).
+    pub opts: &'a ScanOptions,
+    /// Directory for newly written metadata rows.
+    pub out_dir: &'a Path,
+    /// First sequence number for newly written rows.
+    pub start_seq: u64,
+    /// Hashes already present in the report, updated in place.
+    pub known: &'a mut HashSet<String>,
+    /// Bytes already written by earlier passes, charged to `--max-output`.
+    pub initial_output_bytes: u64,
+}
+
+fn metadata_limits(opts: &ScanOptions) -> MetadataLimits {
+    let mut limits = DEFAULT_METADATA_LIMITS;
+    // `0` is the existing CLI spelling of "unlimited" for memory/output;
+    // candidate limits use the scan-wide effective default.
+    let memory = if opts.max_memory == 0 {
+        u64::MAX
+    } else {
+        opts.max_memory
+    };
+    let output = effective_max_output(opts);
+    limits.min_size = opts.min_size.max(limits.min_size);
+    limits.max_memory = memory;
+    limits.max_total_bytes = memory;
+    limits.max_output_bytes = output;
+    limits.max_candidates = effective_max_candidates(opts);
+    limits.max_entries = limits
+        .max_entries
+        .min(usize::try_from(limits.max_candidates).unwrap_or(usize::MAX));
+    limits.max_bytes = limits.max_bytes.min(memory).min(output);
+    limits.max_data_bytes = limits.max_data_bytes.min(memory).min(output);
+    limits.max_work_bytes = limits.max_work_bytes.min(memory);
+    limits.max_mft_scan_bytes = limits.max_mft_scan_bytes.min(memory);
+    limits.max_size = limits.max_size.min(memory).min(opts.max_size);
+    limits.time_budget = opts.time_budget;
+    limits
+}
+
+fn metadata_cluster(offset: u64, volume: &FsInfo) -> Option<u64> {
+    let rel = offset.checked_sub(volume.data_start)?;
+    if volume.cluster_size == 0 || rel % volume.cluster_size != 0 {
+        return None;
+    }
+    let index = rel / volume.cluster_size;
+    Some(match volume.kind {
+        crate::fs::FsKind::Ntfs => index,
+        _ => index.saturating_add(2),
+    })
+}
+
+fn metadata_checks(entry: &fsx::DeletedEntry) -> Vec<ValidationCheck> {
+    let mut checks = Vec::new();
+    checks.push(ValidationCheck::new(
+        "metadata_source",
+        Some(true),
+        entry.metadata_source,
+    ));
+    match entry.metadata_source {
+        "fat32_dir_entry" => {
+            if entry.lfn_recovered || entry.lfn_checksum_mismatch {
+                checks.push(ValidationCheck::new(
+                    "lfn_checksum",
+                    Some(!entry.lfn_checksum_mismatch),
+                    if entry.lfn_checksum_mismatch {
+                        "LFN checksum did not bind to the recovered 8.3 name; the long name was dropped"
+                    } else {
+                        "LFN checksum bound to the original 8.3 name"
+                    },
+                ));
+            }
+        }
+        _ => {
+            checks.push(ValidationCheck::new(
+                "fixup",
+                Some(true),
+                "update-sequence fixups applied; mismatching records skipped",
+            ));
+            checks.push(ValidationCheck::new(
+                "runlist_bounds",
+                Some(!entry.notes.iter().any(|n| n == "runlist_out_of_bounds")),
+                "runlist cluster bounds checked",
+            ));
+        }
+    }
+    if entry.metadata_source == "fat32_dir_entry" || entry.metadata_source == "ntfs_deleted_mft" {
+        checks.push(ValidationCheck::new(
+            "overwritten_clusters",
+            Some(entry.overwritten_clusters == 0),
+            format!(
+                "{} cluster(s)/run(s) marked allocated after deletion",
+                entry.overwritten_clusters
+            ),
+        ));
+    }
+    checks
+}
+
+fn materialize_metadata(
+    source: &dyn ImageSource,
+    entry: &fsx::DeletedEntry,
+    limits: &MetadataLimits,
+    budget: u64,
+) -> (Vec<u8>, Vec<Fragment>, bool, bool) {
+    let mut data = Vec::new();
+    let mut fragments = Vec::new();
+    let mut read_failed = false;
+    let mut budget_limited = false;
+    let mut remaining = budget;
+    for piece in &entry.pieces {
+        let allowed = piece.length.min(limits.max_bytes).min(remaining);
+        if piece.length > allowed {
+            budget_limited = true;
+        }
+        let length = usize::try_from(allowed).unwrap_or(usize::MAX);
+        if length == 0 {
+            continue;
+        }
+        let added = match piece.kind {
+            MetadataPieceKind::Physical => {
+                let Some(offset) = piece.physical_start else {
+                    read_failed = true;
+                    continue;
+                };
+                let mut buf = vec![0u8; length];
+                if read_exact_at(source, &mut buf, offset).is_err() {
+                    read_failed = true;
+                }
+                let added = buf.len();
+                fragments.push(Fragment {
+                    offset,
+                    len: added as u64,
+                });
+                data.extend_from_slice(&buf);
+                added
+            }
+            MetadataPieceKind::Sparse => {
+                let end = data.len().saturating_add(length);
+                data.resize(end, 0);
+                length
+            }
+            MetadataPieceKind::Resident => {
+                if let Some(bytes) = &piece.resident_bytes {
+                    let added = bytes.len().min(length);
+                    if let Some(prefix) = bytes.get(..added) {
+                        data.extend_from_slice(prefix);
+                    }
+                    added
+                } else {
+                    read_failed = true;
+                    continue;
+                }
+            }
+        };
+        remaining = remaining.saturating_sub(added as u64);
+    }
+    (data, fragments, read_failed, budget_limited)
+}
+
+/// Recover deleted FAT32/NTFS entries and turn them into report rows.
+///
+/// The pass is deliberately additive: it never rewrites results from the normal
+/// scan, and metadata alone never promotes a file to `verified`.
+pub fn run_metadata_pass(
+    spec: MetadataPassSpec<'_>,
+) -> Result<(Vec<MetadataResult>, MetadataPassStats, Vec<Warning>)> {
+    let MetadataPassSpec {
+        source,
+        volumes,
+        existing,
+        opts,
+        out_dir,
+        start_seq,
+        known,
+        initial_output_bytes,
+    } = spec;
+    let limits = metadata_limits(opts);
+    let deadline = if limits.time_budget.is_zero() {
+        None
+    } else {
+        Instant::now().checked_add(limits.time_budget)
+    };
+    let mut stats = MetadataPassStats::default();
+    let mut warnings = Vec::new();
+    let mut files = Vec::new();
+    let mut seq = start_seq;
+    let mut written = initial_output_bytes;
+    let mut materialized = 0u64;
+    let vlimits = ValidationLimits::new(opts.max_validator_memory);
+    if opts.verified_only {
+        warnings.push(Warning::new(
+            "METADATA_VERIFIED_ONLY",
+            "deleted metadata cannot establish verified validity, so no metadata rows were written",
+        ));
+        return Ok((files, stats, warnings));
+    }
+
+    for volume in volumes {
+        if deadline.is_some_and(|d| Instant::now() >= d) {
+            stats.time_limited = true;
+            break;
+        }
+        let max_len = source
+            .len()
+            .saturating_sub(volume.offset)
+            .min(volume.length);
+        let ctx = VolumeCtx {
+            source,
+            offset: volume.offset,
+            max_len,
+            partition_index: volume.partition_index,
+            partition_type: volume.partition_type.clone(),
+        };
+        let entries = match catch_unwind(AssertUnwindSafe(|| fsx::deleted_entries(&ctx, &limits))) {
+            Ok(Ok(entries)) => entries,
+            Ok(Err(_)) => {
+                stats.parse_failed = stats.parse_failed.saturating_add(1);
+                continue;
+            }
+            Err(_) => {
+                stats.parse_failed = stats.parse_failed.saturating_add(1);
+                warnings.push(Warning::new(
+                    "METADATA_PARSE_FAILED",
+                    "deleted-metadata parser panic was contained for one volume",
+                ));
+                continue;
+            }
+        };
+
+        for entry in entries {
+            if deadline.is_some_and(|d| Instant::now() >= d) {
+                stats.time_limited = true;
+                break;
+            }
+            if stats.candidates as u64 >= limits.max_candidates {
+                stats.candidate_limited = true;
+                break;
+            }
+            if limits.max_output_bytes != u64::MAX && written >= limits.max_output_bytes {
+                stats.output_limited = true;
+                warnings.push(output_limit_warning(
+                    stats.candidates,
+                    written,
+                    limits.max_output_bytes,
+                ));
+                return Ok((files, stats, warnings));
+            }
+            let candidate_budget = limits.max_total_bytes.saturating_sub(materialized);
+            if candidate_budget == 0 {
+                stats.memory_limited = true;
+                warnings.push(Warning::new(
+                    "METADATA_MEMORY_LIMIT",
+                    format!(
+                        "deleted-metadata pass reached its {} total materialisation limit",
+                        human_size(limits.max_total_bytes)
+                    ),
+                ));
+                return Ok((files, stats, warnings));
+            }
+            stats.candidates = stats.candidates.saturating_add(1);
+            if entry.unsupported {
+                stats.unsupported = stats.unsupported.saturating_add(1);
+            }
+            let (data, fragments, read_failed, budget_limited) =
+                materialize_metadata(source, &entry, &limits, candidate_budget);
+            materialized = materialized.saturating_add(data.len() as u64);
+            if data.len() < limits.min_size as usize {
+                stats.parse_failed = stats.parse_failed.saturating_add(1);
+                continue;
+            }
+            let kind = FileType::all()
+                .into_iter()
+                .find(|kind| data.starts_with(kind.header()));
+            let Some(kind) = kind else {
+                stats.parse_failed = stats.parse_failed.saturating_add(1);
+                continue;
+            };
+            if !opts.types.contains(&kind) {
+                continue;
+            }
+            // A deleted-entry size is authoritative: the reconstructed buffer
+            // is exact, so footer parsers must not ask for trailing bytes.
+            let need = analyze_with_limits(kind, &data, true, opts.pdf_eof, vlimits);
+            let analysis = match need {
+                Need::Analyzed(analysis) => analysis,
+                Need::More | Need::Reject(_) => {
+                    stats.parse_failed = stats.parse_failed.saturating_add(1);
+                    continue;
+                }
+            };
+            let prefix = analysis.end.min(data.len());
+            if !analysis.complete && prefix as u64 > opts.max_truncated_size {
+                stats.parse_failed = stats.parse_failed.saturating_add(1);
+                warnings.push(Warning::for_candidate(
+                    "TRUNCATED_TOO_LARGE",
+                    format!(
+                        "deleted metadata at byte {} is {prefix} byte(s), exceeding --max-truncated-size {}",
+                        entry.record_offset.unwrap_or(0),
+                        opts.max_truncated_size
+                    ),
+                    kind,
+                    entry.record_offset.unwrap_or(0),
+                    prefix as u64,
+                ));
+                continue;
+            }
+            if analysis.score < opts.min_score || (opts.complete_only && !analysis.complete) {
+                continue;
+            }
+            let checked = data.get(..prefix).unwrap_or(&data);
+            let detail = validate_deep_detail(kind, checked, &analysis, vlimits);
+            let hash = sha256_hex(&data);
+            // Resident and sparse bytes have no stable physical start. Never
+            // annotate an unrelated offset-0 carve with those fields.
+            let attachable = !entry.has_nonphysical_pieces() && !fragments.is_empty();
+            let physical = fragments
+                .first()
+                .map(|f| f.offset)
+                .or(entry.record_offset)
+                .unwrap_or(0);
+            let size = entry.total_length().max(data.len() as u64);
+            // Annotation is decided by location, not content hash: when the normal
+            // pass already carved the same bytes, keep its row and add only the
+            // metadata fields instead of dropping the candidate as a duplicate.
+            let attach_to = attachable
+                .then(|| {
+                    existing
+                        .iter()
+                        .position(|row| row.offset == physical && row.size == size)
+                })
+                .flatten();
+            let duplicate = !known.insert(hash.clone());
+            if attach_to.is_none() && duplicate {
+                stats.duplicates = stats.duplicates.saturating_add(1);
+                continue;
+            }
+
+            let downgrade = entry.unsupported
+                || entry.overwritten_clusters > 0
+                || entry.lfn_checksum_mismatch
+                || read_failed
+                || budget_limited
+                || entry.has_nonphysical_pieces()
+                || entry.notes.iter().any(|n| {
+                    matches!(
+                        n.as_str(),
+                        "uninitialized_tail" | "truncated_by_volume" | "runlist_short"
+                    )
+                });
+            let (mut validation, mut status, mut validity) = (
+                detail.validation,
+                analysis.status(false),
+                Validity::from_legacy(detail.validation, analysis.status(false)),
+            );
+            if validation == Validation::Decoded {
+                validation = Validation::Structure;
+            }
+            if validity == Validity::Verified {
+                validity = Validity::Structural;
+            }
+            let reason = if downgrade {
+                validation = Validation::Partial;
+                status = Status::Truncated;
+                validity = Validity::Partial;
+                if entry.unsupported {
+                    "unsupported"
+                } else if entry.overwritten_clusters > 0 {
+                    "overwritten_clusters"
+                } else if read_failed {
+                    "metadata_read_failed"
+                } else {
+                    "metadata_validation_incomplete"
+                }
+                .to_string()
+            } else {
+                validity_reason_code_raw(validation, status, validity, &detail.checks)
+            };
+
+            let mut notes = entry.notes.clone();
+            notes.extend(detail.notes.iter().cloned());
+            if budget_limited {
+                notes.push("truncated_by_limits".to_string());
+            }
+            if downgrade && !notes.iter().any(|n| n == "metadata_downgraded") {
+                notes.push("metadata_downgraded".to_string());
+            }
+            // Reserve the whole write before touching the filesystem: a single
+            // write must never push the run past --max-output.
+            if attach_to.is_none() && limits.max_output_bytes != u64::MAX {
+                let needed = written.saturating_add(data.len() as u64);
+                if needed > limits.max_output_bytes {
+                    stats.output_limited = true;
+                    warnings.push(output_limit_warning(
+                        stats.candidates,
+                        written,
+                        limits.max_output_bytes,
+                    ));
+                    return Ok((files, stats, warnings));
+                }
+                written = needed;
+            }
+            let (row_seq, path) = match attach_to {
+                Some(index) => (
+                    existing.get(index).map_or(seq, |row| row.seq),
+                    existing
+                        .get(index)
+                        .map_or_else(String::new, |row| row.path.clone()),
+                ),
+                None => {
+                    let filename =
+                        format!("{:05}_{}_{:016x}.{}", seq, kind.ext(), physical, kind.ext());
+                    fs::write(out_dir.join(&filename), &data).with_context(|| {
+                        format!(
+                            "cannot write metadata result '{filename}' to '{}'",
+                            out_dir.display()
+                        )
+                    })?;
+                    (seq, filename)
+                }
+            };
+            let (lba, cluster, partition_index) = (
+                physical / u64::from(volume.bytes_per_sector.max(1)),
+                metadata_cluster(physical, volume),
+                volume.partition_index,
+            );
+            files.push(MetadataResult {
+                attach_to,
+                file: CarvedFile {
+                    seq: row_seq,
+                    file_type: kind,
+                    offset: physical,
+                    size,
+                    carved_size: data.len() as u64,
+                    sha256: hash,
+                    status,
+                    score: analysis.score,
+                    width: analysis.width,
+                    height: analysis.height,
+                    repaired: false,
+                    path,
+                    notes,
+                    validation,
+                    validity,
+                    validity_reason: reason,
+                    tail_trimmed_bytes: 0,
+                    aligned: aligned(physical, opts.align, volumes),
+                    nested_in: None,
+                    sha256_output: None,
+                    repair_validated: false,
+                    recovered_rows: None,
+                    total_rows: None,
+                    recovered_fraction: None,
+                    validated_bytes: detail.validated_bytes,
+                    lba,
+                    cluster,
+                    partition_index,
+                    extent_id: 0,
+                    allocated: Some(false),
+                    source: "metadata".to_string(),
+                    fragments,
+                    validation_checks: detail
+                        .checks
+                        .into_iter()
+                        .chain(metadata_checks(&entry))
+                        .collect(),
+                    checks: None,
+                    confidence: None,
+                    alternatives: None,
+                    sha256_original: None,
+                    original_name: entry.name.clone(),
+                    mtime: entry.mtime.clone(),
+                    contiguous_assumed: (entry.metadata_source == "fat32_dir_entry" && attachable)
+                        .then_some(true),
+                    overwritten_clusters: Some(entry.overwritten_clusters),
+                    metadata_notes: Some(entry.notes.clone()),
+                    sparse_bytes: Some(entry.sparse_bytes()),
+                },
+            });
+            if attach_to.is_some() {
+                stats.attached = stats.attached.saturating_add(1);
+            } else {
+                seq = seq.saturating_add(1);
+                stats.added = stats.added.saturating_add(1);
+            }
+        }
+    }
+    if stats.time_limited {
+        warnings.push(Warning::new(
+            "METADATA_TIME_LIMIT",
+            "deleted-metadata pass stopped at its time limit",
+        ));
+    }
+    if stats.candidate_limited {
+        warnings.push(Warning::new(
+            "METADATA_CANDIDATE_LIMIT",
+            format!(
+                "deleted-metadata pass stopped at its {} candidate limit",
+                limits.max_candidates
+            ),
+        ));
+    }
+    if stats.parse_failed > 0 {
+        warnings.push(Warning::new(
+            "METADATA_PARSE_FAILED",
+            format!(
+                "{} deleted metadata candidate(s) could not be parsed",
+                stats.parse_failed
+            ),
+        ));
+    }
+    if stats.unsupported > 0 {
+        warnings.push(Warning::new(
+            "METADATA_UNSUPPORTED",
+            format!(
+                "{} deleted metadata candidate(s) used unsupported features and were not verified",
+                stats.unsupported
+            ),
+        ));
+    }
+    Ok((files, stats, warnings))
+}
+
+fn validity_reason_code_raw(
+    validation: Validation,
+    status: Status,
+    validity: Validity,
+    checks: &[ValidationCheck],
+) -> String {
+    if status == Status::Truncated {
+        return "truncated_prefix".to_string();
+    }
+    if validity == Validity::Suspect {
+        return checks
+            .iter()
+            .find(|check| check.ok == Some(false))
+            .map_or_else(
+                || "integrity_check_failed".to_string(),
+                |check| format!("failed_check:{}", check.name),
+            );
+    }
+    match validation {
+        Validation::Decoded => "decoded".to_string(),
+        Validation::Structure => "structural".to_string(),
+        Validation::Partial => "partial_validation".to_string(),
+        Validation::Unverified => "unverified".to_string(),
+    }
+}
+
 fn build_carved_file(
     seq: u64,
     data: &CarvedData,
@@ -4792,6 +5416,12 @@ fn build_carved_file(
         confidence: data.confidence,
         alternatives: data.alternatives,
         sha256_original: data.sha256_original.clone(),
+        original_name: None,
+        mtime: None,
+        contiguous_assumed: None,
+        overwritten_clusters: None,
+        metadata_notes: None,
+        sparse_bytes: None,
     }
 }
 
@@ -4952,7 +5582,9 @@ fn write_file_atomic(path: &Path, data: &[u8]) -> Result<()> {
     Ok(())
 }
 
-fn write_manifest(out_dir: &Path, files: &[CarvedFile]) -> Result<()> {
+/// Rewrite the manifest after an additive metadata pass so metadata-only rows
+/// are included. Normal scans still write it from `run_scan` only.
+pub fn write_manifest(out_dir: &Path, files: &[CarvedFile]) -> Result<()> {
     let path = out_dir.join("SHA256SUMS");
     let mut text = String::new();
     for f in files {

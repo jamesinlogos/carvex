@@ -472,6 +472,53 @@ island: 80/80 exact SHA-256 (Wilson 95% lower bound 0.954). The matching
 dead-island series produced 0 false `verified` results. The second pass cost
 was measured per family and is recorded with the same evidence.
 
+### 3.6b. Opt-in deleted filesystem metadata (Part T H-28/H-29)
+
+`--metadata` adds a bounded, opt-in pass over deleted FAT32 directory entries
+(H-28) and NTFS `$MFT` records (H-29). It requires filesystem detection and at
+least one selected volume; `--no-fs` and `--mode allocated` are rejected. FAT
+directory chains are assumed contiguous from a plausible start cluster, while
+NTFS runlists supply exact physical fragments, including signed backward deltas
+and sparse runs. Long names are bound to the checksum of the original 8.3 name
+(reconstructed from the deletion marker), NTFS update-sequence fixups must
+match, and hostile or truncated records are skipped or downgraded. Live FAT
+subdirectories are traversed in addition to the root and bounded deleted ones.
+Metadata alone never grants `verified`: content validity still comes from the
+format validator, and unsupported, overwritten, uninitialized, parent/sequence
+inconsistent or partially readable candidates are downgraded. The pass applies
+the normal `--types`, score, truncation, complete-only, candidate, memory,
+output and time limits; `--verified-only --metadata` emits no rows and reports
+`METADATA_VERIFIED_ONLY`. A zero `--time-budget` means unlimited here, and a
+manifest generated with `--metadata` is rewritten after the merge so it covers
+metadata-only files too.
+
+A metadata-only row has `source="metadata"`. When its physical offset and exact
+size match an existing carved row, only the additive fields are attached and
+the existing file, hash, path and output bytes are kept; the pass never changes
+the normal scan order. Physical `fragments[]` remain in image coordinates;
+resident bytes and NTFS sparse runs do not create false physical provenance.
+The additive JSON fields are `original_name`, `mtime`, `contiguous_assumed`,
+`overwritten_clusters`, `metadata_notes` and `sparse_bytes`; `options.metadata`
+is emitted only when the flag is present. Schema 1 strips all six fields and
+the CSV header is unchanged. Stable warnings are `METADATA`,
+`METADATA_PARSE_FAILED`, `METADATA_UNSUPPORTED`, `METADATA_TIME_LIMIT`,
+`METADATA_CANDIDATE_LIMIT`, `METADATA_MEMORY_LIMIT` and
+`METADATA_VERIFIED_ONLY`. `METADATA_TIME_LIMIT`, `METADATA_PARSE_FAILED`,
+`METADATA_MEMORY_LIMIT` and `METADATA_CANDIDATE_LIMIT` are in the exit-3
+incomplete set because they indicate dropped evidence.
+
+The acceptance run in `bench/results/h28_h29_metadata.txt` used 100 synthetic
+FAT32 trials from the frozen corpus (deleted JPEG/PNG/PDF) — 100/100 exact,
+Wilson 95% [0.963, 1.000] — and 10 `mkntfs` trials with a deleted JPEG — 10/10
+exact, Wilson 95% [0.722, 1.000]. `tests/metadata.rs` additionally covers a
+22 tests covering a 10,000-case runlist round-trip property with negative
+offsets and sparse runs, fixup mismatch, hostile records, deleted/out-of-order
+LFN slots and checksum failure, deleted files in live subdirectories,
+reallocated clusters, CLI filters/bounds, manifest coverage and an unchanged
+default report. The `fat32_dir` and `ntfs_deleted_mft` fuzz targets
+exercise both parsers on hostile bytes. Golden D0, default reports and frozen
+benchmark metrics are unchanged.
+
 ### 3.7. Filtering and deduplication
 
 After carving:

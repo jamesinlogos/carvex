@@ -16,6 +16,180 @@ use serde::Serialize;
 use std::collections::BTreeMap;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::Path;
+use std::time::Duration;
+
+/// How the bytes of a recovered metadata piece are stored.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MetadataPieceKind {
+    /// Directly readable at `physical_start` in the image.
+    Physical,
+    /// A sparse (zero-filled) run with no backing bytes in the image.
+    Sparse,
+    /// Resident bytes embedded in the metadata structure itself.
+    Resident,
+}
+
+/// One contiguous piece of a file recovered from filesystem metadata.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MetadataPiece {
+    /// Storage kind of this piece.
+    pub kind: MetadataPieceKind,
+    /// Image-coordinate start for physical pieces, `None` otherwise.
+    pub physical_start: Option<u64>,
+    /// Offset relative to the start of the reconstructed file.
+    pub volume_offset: u64,
+    /// Length of this piece in bytes.
+    pub length: u64,
+    /// Inline bytes for resident pieces, `None` otherwise.
+    pub resident_bytes: Option<Vec<u8>>,
+}
+
+/// A deleted directory entry / MFT record recovered from filesystem metadata.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeletedEntry {
+    /// Sanitized display name, when one could be recovered.
+    pub name: Option<String>,
+    /// DOS/Windows modified time in `YYYY-MM-DDTHH:MM:SSZ` form, when available.
+    pub mtime: Option<String>,
+    /// Short identifier of the metadata structure this entry came from.
+    pub metadata_source: &'static str,
+    /// Ordered pieces that make up the reconstructed file content.
+    pub pieces: Vec<MetadataPiece>,
+    /// Stable notes (e.g. checksum/fixup mismatches, unsupported features).
+    pub notes: Vec<String>,
+    /// Number of clusters/runs found overwritten after recovery.
+    pub overwritten_clusters: u64,
+    /// True when an LFN checksum could not be bound to the recovered 8.3 name.
+    pub lfn_checksum_mismatch: bool,
+    /// True when a long name was actually reconstructed from LFN slots.
+    pub lfn_recovered: bool,
+    /// Physical byte offset of the directory entry or MFT record, when known.
+    pub record_offset: Option<u64>,
+    /// True when a feature prevents reliable recovery (never verified).
+    pub unsupported: bool,
+}
+
+impl DeletedEntry {
+    fn new(metadata_source: &'static str) -> Self {
+        Self {
+            name: None,
+            mtime: None,
+            metadata_source,
+            pieces: Vec::new(),
+            notes: Vec::new(),
+            overwritten_clusters: 0,
+            lfn_checksum_mismatch: false,
+            lfn_recovered: false,
+            record_offset: None,
+            unsupported: false,
+        }
+    }
+
+    /// Sum of all piece lengths.
+    #[must_use]
+    pub fn total_length(&self) -> u64 {
+        self.pieces
+            .iter()
+            .fold(0u64, |acc, p| acc.saturating_add(p.length))
+    }
+
+    /// Number of bytes contributed by sparse runs.
+    #[must_use]
+    pub fn sparse_bytes(&self) -> u64 {
+        self.pieces
+            .iter()
+            .filter(|p| p.kind == MetadataPieceKind::Sparse)
+            .fold(0u64, |acc, p| acc.saturating_add(p.length))
+    }
+
+    /// True if any piece is not directly readable from the image.
+    #[must_use]
+    pub fn has_nonphysical_pieces(&self) -> bool {
+        self.pieces
+            .iter()
+            .any(|p| p.kind != MetadataPieceKind::Physical || p.physical_start.is_none())
+    }
+}
+
+/// Bounds applied to metadata recovery so hostile inputs cannot exhaust resources.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MetadataLimits {
+    /// Maximum directory depth to traverse.
+    pub max_depth: usize,
+    /// Maximum number of deleted entries to emit.
+    pub max_entries: usize,
+    /// Maximum bytes to materialise for one entry.
+    pub max_bytes: u64,
+    /// Maximum sanitized name length.
+    pub max_name_bytes: usize,
+    /// Maximum number of NTFS runlist entries to parse.
+    pub max_runlist_entries: usize,
+    /// Minimum plausible file size.
+    pub min_size: u64,
+    /// Maximum plausible file size.
+    pub max_size: u64,
+    /// Maximum bytes to read for one data attribute.
+    pub max_data_bytes: u64,
+    /// Maximum working bytes for volume metadata.
+    pub max_work_bytes: u64,
+    /// Maximum `$MFT` byte range to scan.
+    pub max_mft_scan_bytes: u64,
+    /// Maximum number of deleted candidates examined by one pass.
+    pub max_candidates: u64,
+    /// Maximum bytes materialised across the whole metadata pass.
+    pub max_total_bytes: u64,
+    /// Effective `--max-memory` cap for one materialised candidate.
+    pub max_memory: u64,
+    /// Effective `--max-output` cap (`u64::MAX` means unlimited).
+    pub max_output_bytes: u64,
+    /// Overall metadata wall-clock budget; zero means unlimited.
+    pub time_budget: Duration,
+}
+
+/// Conservative defaults used by both production and fuzz harnesses.
+pub const DEFAULT_METADATA_LIMITS: MetadataLimits = MetadataLimits {
+    max_depth: 8,
+    max_entries: 4096,
+    max_bytes: 512 * 1024 * 1024,
+    max_name_bytes: 512,
+    max_runlist_entries: 4096,
+    min_size: 32,
+    max_size: 512 * 1024 * 1024,
+    max_data_bytes: 64 * 1024 * 1024,
+    max_work_bytes: 64 * 1024 * 1024,
+    max_mft_scan_bytes: 256 * 1024 * 1024,
+    max_candidates: 4096,
+    max_total_bytes: 512 * 1024 * 1024,
+    max_memory: 512 * 1024 * 1024,
+    max_output_bytes: u64::MAX,
+    time_budget: Duration::ZERO,
+};
+
+/// Sanitize a recovered name for display only. Names never influence output paths.
+pub(crate) fn sanitize_name(raw: &str, limit: usize) -> Option<String> {
+    let mut out = String::new();
+    for ch in raw.chars() {
+        if ch.is_control() || matches!(ch, '/' | '\\' | '\0') {
+            continue;
+        }
+        if out.len().saturating_add(ch.len_utf8()) > limit {
+            break;
+        }
+        out.push(ch);
+    }
+    let trimmed = out.trim_matches([' ', '.']);
+    (!trimmed.is_empty()).then(|| trimmed.to_string())
+}
+
+/// Dispatch metadata recovery for a selected volume.
+pub fn deleted_entries(ctx: &VolumeCtx<'_>, limits: &MetadataLimits) -> Result<Vec<DeletedEntry>> {
+    let boot = ctx.read_vec(ctx.offset, 512)?;
+    if boot.get(3..7) == Some(b"NTFS") {
+        ntfs::deleted_entries(ctx, &boot, limits)
+    } else {
+        fat32::deleted_entries(ctx, &boot, limits)
+    }
+}
 
 /// The `FsKind` enumeration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]

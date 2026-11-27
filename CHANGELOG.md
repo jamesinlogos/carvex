@@ -26,6 +26,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   free extents (ascending LBA), skips allocated islands, and reports accepted
   files with `source="free-stream"` and translated physical `fragments[]`.
   The default scan, golden D0 and frozen benchmark outputs are unchanged.
+- Part T H-28/H-29: `--metadata` adds an opt-in pass over deleted FAT32
+  directory entries and NTFS MFT records. It reports exact physical
+  `fragments[]`, recovered names/times and additive validation fields, merges
+  matching carved rows instead of duplicating them, and never grants
+  `verified` from metadata alone. The pass honours normal filters and memory,
+  candidate, output and time bounds. Two fuzz targets cover the new parsers;
+  default output, CSV and golden D0 are unchanged.
 
 ### Fixed
 
