@@ -2,6 +2,9 @@ use crate::fs::{
     self as fsx, FsInfo, MetadataLimits, MetadataPieceKind, VolumeCtx, DEFAULT_METADATA_LIMITS,
 };
 use crate::io::{read_exact_at, ImageSource, RegionLog, UnreadableRegion};
+use crate::signatures::png::{
+    png_chunk_header_plausible, png_first_crc_gap, png_split_chunk_crc_ok, PngCrcGap,
+};
 use crate::signatures::{
     analyze_with_limits, base_validity_checks, build_plan, validate_deep_detail, validate_repair,
     Analysis, FileType, Need, PdfEofMode, Status, ValidatedRepair, Validation, ValidationCheck,
@@ -13,6 +16,7 @@ use crate::util::{
 };
 use anyhow::{bail, Context, Result};
 use clap::ValueEnum;
+use crc32fast::Hasher;
 use rayon::prelude::*;
 use serde::Serialize;
 use sha2::Digest;
@@ -627,8 +631,39 @@ pub fn fuzz_fragment_join(data: &[u8]) {
                 footer_end,
                 gap_clusters,
                 gap_matches: 0,
+                png_oracle: (fuzz_u64_at(&data, base + 28) & 1) == 1,
             };
             let _ = try_fragment_join(&source, &candidate, &join, &opts, &budget);
+        }
+    }
+}
+
+/// Hidden fuzz entry point for the H-30 PNG CRC oracle helpers.
+#[doc(hidden)]
+pub fn fuzz_png_crc_oracle(data: &[u8]) {
+    use crate::image::fuzz_support::fragment_fuzz;
+
+    let data = fragment_fuzz(data);
+    let Some(gap) = png_first_crc_gap(&data, data.len()) else {
+        let _ = png_chunk_header_plausible(&data);
+        return;
+    };
+    match gap {
+        PngCrcGap::Broken {
+            ctype,
+            data_start,
+            chunk_len,
+            stored_crc,
+            ..
+        } => {
+            let end = data_start.saturating_add(chunk_len).min(data.len());
+            let prefix = data.get(data_start..end).unwrap_or(&[]);
+            let stored = stored_crc.unwrap_or_else(|| fuzz_u64_at(&data, 0) as u32);
+            let _ = png_split_chunk_crc_ok(&ctype, prefix, &[], stored);
+            let _ = png_split_chunk_crc_ok(&ctype, &[], prefix, stored);
+        }
+        PngCrcGap::Boundary { last_chunk_end } => {
+            let _ = png_chunk_header_plausible(data.get(last_chunk_end..).unwrap_or(&[]));
         }
     }
 }
@@ -971,6 +1006,36 @@ impl VolumeSummary {
     }
 }
 
+/// H-30: provenance for a PNG CRC-guided two-fragment join.
+#[derive(Debug, Clone, Serialize)]
+pub struct JoinEvidence {
+    /// Oracle used to find the gap. Currently always `png_chunk_crc`.
+    pub method: String,
+    /// Physical cluster boundary where the head fragment ends.
+    pub cut: u64,
+    /// Physical cluster boundary where the tail fragment starts.
+    pub tail_start: u64,
+    /// Number of clusters skipped between the two fragments.
+    pub gap_clusters: u64,
+    /// False when more than one `(cut, gap)` deep-validated for this head.
+    pub unique: bool,
+}
+
+/// H-30: one deep-validated `(cut, gap)` solution for an ambiguous head.
+#[derive(Debug, Clone, Serialize)]
+pub struct JoinAlternative {
+    /// Physical cluster boundary where the head fragment ends.
+    pub cut: u64,
+    /// Physical cluster boundary where the tail fragment starts.
+    pub tail_start: u64,
+    /// Number of clusters skipped between the two fragments.
+    pub gap_clusters: u64,
+    /// SHA-256 of this deep-validated reconstruction.
+    pub sha256: String,
+    /// Honesty label of this deep-validated reconstruction.
+    pub validity: Validity,
+}
+
 /// Configuration/data structure.
 #[derive(Debug, Clone, Serialize)]
 pub struct CarvedFile {
@@ -1054,6 +1119,12 @@ pub struct CarvedFile {
     /// Number of joins that deep-validated for one B-06 head (H-29).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub alternatives: Option<u64>,
+    /// H-30: CRC-oracle provenance for a PNG bifragment join.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub join: Option<JoinEvidence>,
+    /// H-30: every deep-validated `(cut, gap)` solution for this head.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub join_alternatives: Option<Vec<JoinAlternative>>,
     /// SHA-256 of the bytes read before a repair changed the output.
     /// Absent whenever output bytes are identical to the source bytes.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1257,6 +1328,9 @@ struct CarvedData {
     checks: Option<u64>,
     confidence: Option<u8>,
     alternatives: Option<u64>,
+    /// H-30: filled only for a PNG CRC-guided stitch.
+    join: Option<JoinEvidence>,
+    join_alternatives: Option<Vec<JoinAlternative>>,
 }
 
 /// Result of the optional B-06 stage (H-29).
@@ -2644,6 +2718,8 @@ fn finalize_carved(ctx: CarveFinalize<'_>) -> Result<CarvedData, CarveOutcome> {
         checks: None,
         confidence: None,
         alternatives: None,
+        join: None,
+        join_alternatives: None,
     })
 }
 
@@ -2960,6 +3036,9 @@ struct FragmentJoin {
     gap_clusters: u64,
     /// How many skipped clusters look like filler or another file's header.
     gap_matches: u64,
+    /// H-30: this gap was found by the PNG chunk-CRC/chunk-header oracle and
+    /// must be tried before the weaker filler/header-only candidates.
+    png_oracle: bool,
 }
 
 impl FragmentJoin {
@@ -3255,8 +3334,12 @@ fn gap_cluster_matches(
         .count() as u64
 }
 
-fn join_rank(join: &FragmentJoin) -> (u64, std::cmp::Reverse<u64>, u64, u64, u64, u64) {
+fn join_rank(join: &FragmentJoin) -> (u8, u64, std::cmp::Reverse<u64>, u64, u64, u64, u64) {
     (
+        // H-30: the PNG CRC/chunk-header oracle explains a gap directly, so it
+        // is tried before filler-only candidates even though the gap bytes may
+        // be high entropy. Existing joins keep their relative ordering.
+        u8::from(!join.png_oracle),
         join.unexplained_gap(),
         // Among fully explained gaps, more filler evidence is stronger than a
         // merely smaller gap; a three-cluster zero run is a better split than
@@ -3269,6 +3352,240 @@ fn join_rank(join: &FragmentJoin) -> (u64, std::cmp::Reverse<u64>, u64, u64, u64
     )
 }
 
+/// H-30: derive PNG bifragment candidates from the chunk CRC-32 oracle.
+///
+/// The oracle is only a candidate generator. Every join returned here still
+/// goes through the unchanged structural analysis and deep decode validator in
+/// [`try_fragment_join`]. All reads are checked against scanned extents, so an
+/// allocated island cannot be sampled unless `--mode raw` selected it.
+const PNG_ORACLE_HEAD_CAP: u64 = 8 * 1024 * 1024;
+const PNG_ORACLE_CHUNK_CAP: usize = 1024 * 1024;
+const PNG_ORACLE_CUT_CAP: usize = 64;
+const PNG_ORACLE_FOOTERS: usize = 8;
+
+/// Compute a CRC-32 over `ctype` and a byte range split across two sources.
+/// `prefix` is the head slice, `tail` the first bytes at the candidate tail
+/// offset. Each hasher carries an explicit byte count so `Hasher::combine`
+/// reproduces a contiguous CRC without concatenating the bytes.
+fn png_split_crc(ctype: &[u8; 4], prefix: &[u8], tail: &[u8]) -> u32 {
+    let mut head_crc = Hasher::new();
+    head_crc.update(ctype);
+    head_crc.update(prefix);
+    let mut tail_crc = Hasher::new();
+    tail_crc.update(tail);
+    head_crc.combine(&tail_crc);
+    head_crc.finalize()
+}
+
+#[allow(clippy::too_many_arguments)]
+fn png_crc_joins(
+    source: &dyn ImageSource,
+    cand: &Candidate,
+    fs: &FsInfo,
+    footers: &[u64],
+    extents: &[Extent],
+    opts: &ScanOptions,
+    _budget: &MemoryBudget,
+    stop: &Stop,
+) -> Vec<FragmentJoin> {
+    let mut out = Vec::new();
+    if cand.kind != FileType::Png || footers.is_empty() || opts.validate != ValidationMode::Decode {
+        return out;
+    }
+    let Ok(cluster) = usize::try_from(fs.cluster_size) else {
+        return out;
+    };
+    if cluster == 0 {
+        return out;
+    }
+    let full_span = cand.extent_end.saturating_sub(cand.offset);
+    let head_span = opts.max_size.min(full_span);
+    let cap = PNG_ORACLE_HEAD_CAP.min(head_span).max(16);
+    let Ok(head_len) = usize::try_from(cap) else {
+        return out;
+    };
+    if head_len < 16 || !range_covered(extents, cand.offset, cand.offset + cap) {
+        return out;
+    }
+    let mut head = Vec::new();
+    if head.try_reserve_exact(head_len).is_err() {
+        return out;
+    }
+    head.resize(head_len, 0u8);
+    if read_exact_at(source, &mut head, cand.offset).is_err() {
+        return out;
+    }
+    let Some(gap_kind) = png_first_crc_gap(&head, head.len()) else {
+        return out;
+    };
+
+    let limit = opts.max_frag_candidates.saturating_mul(2).max(64);
+    let mut seen: HashSet<(u64, u64, u64)> = HashSet::new();
+
+    let push_join = |out: &mut Vec<FragmentJoin>,
+                     seen: &mut HashSet<(u64, u64, u64)>,
+                     cut_rel: usize,
+                     tail_start: u64,
+                     footer_end: u64,
+                     gap_clusters: u64| {
+        let Some(cut_abs) = cand.offset.checked_add(cut_rel as u64) else {
+            return;
+        };
+        if tail_start <= cut_abs || !seen.insert((cut_abs, tail_start, footer_end)) {
+            return;
+        }
+        out.push(FragmentJoin {
+            cut: cut_abs,
+            tail_start,
+            footer_end,
+            gap_clusters,
+            gap_matches: gap_clusters,
+            png_oracle: true,
+        });
+    };
+
+    match gap_kind {
+        PngCrcGap::Broken {
+            data_start,
+            chunk_len,
+            ctype,
+            stored_crc,
+            ..
+        } => {
+            if chunk_len > PNG_ORACLE_CHUNK_CAP {
+                return out;
+            }
+            let chunk_data_end = data_start.saturating_add(chunk_len);
+            // The split may fall inside the chunk data *or* inside its four
+            // trailing CRC bytes. In the latter case the prefix already holds
+            // the whole payload, so any cut after `data_start` is still valid.
+            let chunk_end = chunk_data_end.saturating_add(4);
+            let first_rel = data_start.div_ceil(cluster).saturating_mul(cluster);
+            let last_rel = chunk_end.min(head.len()) / cluster * cluster;
+            let mut cut_rel = first_rel;
+            let mut cuts = 0usize;
+            while cut_rel <= last_rel && cuts < PNG_ORACLE_CUT_CAP {
+                cuts += 1;
+                if cut_rel >= data_start && cut_rel < chunk_end {
+                    let prefix = head.get(data_start..cut_rel).unwrap_or(&[]);
+                    let suffix_len = chunk_data_end.saturating_sub(cut_rel);
+                    let crc_rel = chunk_end.saturating_sub(cut_rel);
+                    for gap in 1..=opts.max_gap {
+                        if stop.check() || out.len() >= limit {
+                            return out;
+                        }
+                        let Some(gap_bytes) = fs.cluster_size.checked_mul(gap) else {
+                            break;
+                        };
+                        let Some(cut_abs) = cand.offset.checked_add(cut_rel as u64) else {
+                            break;
+                        };
+                        let Some(tail_start) = cut_abs.checked_add(gap_bytes) else {
+                            break;
+                        };
+                        let Some(footer_end) = footers
+                            .iter()
+                            .copied()
+                            .filter(|&end| end > tail_start)
+                            .take(PNG_ORACLE_FOOTERS)
+                            .find(|&end| end.saturating_sub(tail_start) <= opts.max_size)
+                        else {
+                            continue;
+                        };
+                        let need = crc_rel;
+                        let need_u64 = u64::try_from(need).unwrap_or(u64::MAX);
+                        let tail_end = tail_start.saturating_add(need_u64);
+                        if need == 0
+                            || need > PNG_ORACLE_CHUNK_CAP.saturating_add(4)
+                            || tail_end.saturating_sub(tail_start) != need_u64
+                            || !range_covered(extents, cand.offset, cut_abs)
+                            || !range_covered(extents, tail_start, tail_end)
+                        {
+                            continue;
+                        }
+                        let mut tail = vec![0u8; need];
+                        if read_exact_at(source, &mut tail, tail_start).is_err() {
+                            continue;
+                        }
+                        let Some(stored) = stored_crc.or_else(|| {
+                            tail.get(suffix_len..crc_rel)
+                                .and_then(|b| <[u8; 4]>::try_from(b).ok())
+                                .map(u32::from_be_bytes)
+                        }) else {
+                            continue;
+                        };
+                        let suffix = tail.get(..suffix_len).unwrap_or(&[]);
+                        if png_split_crc(&ctype, prefix, suffix) == stored {
+                            push_join(&mut out, &mut seen, cut_rel, tail_start, footer_end, gap);
+                        }
+                    }
+                }
+                let Some(next) = cut_rel.checked_add(cluster) else {
+                    break;
+                };
+                cut_rel = next;
+            }
+        }
+        PngCrcGap::Boundary { last_chunk_end } => {
+            // A cut exactly on a chunk boundary leaves no failing chunk. The
+            // next header must parse, be plausibly sized and fit before IEND.
+            let mut cut_rel = last_chunk_end / cluster * cluster;
+            for _ in 0..2usize {
+                for gap in 1..=opts.max_gap {
+                    if stop.check() || out.len() >= limit {
+                        return out;
+                    }
+                    let Some(gap_bytes) = fs.cluster_size.checked_mul(gap) else {
+                        break;
+                    };
+                    let Some(cut_abs) = cand.offset.checked_add(cut_rel as u64) else {
+                        break;
+                    };
+                    let Some(tail_start) = cut_abs.checked_add(gap_bytes) else {
+                        break;
+                    };
+                    if tail_start.saturating_sub(cand.offset) > head_span {
+                        continue;
+                    }
+                    let Some(footer_end) = footers
+                        .iter()
+                        .copied()
+                        .filter(|&end| end > tail_start)
+                        .take(PNG_ORACLE_FOOTERS)
+                        .find(|&end| end.saturating_sub(tail_start) <= opts.max_size)
+                    else {
+                        continue;
+                    };
+                    let mut header = [0u8; 12];
+                    if !range_covered(extents, cand.offset, cut_abs)
+                        || !range_covered(extents, tail_start, tail_start.saturating_add(12))
+                        || read_exact_at(source, &mut header, tail_start).is_err()
+                        || !png_chunk_header_plausible(&header)
+                    {
+                        continue;
+                    }
+                    let len = u32::from_be_bytes(
+                        header
+                            .get(0..4)
+                            .and_then(|b| <[u8; 4]>::try_from(b).ok())
+                            .unwrap_or([0; 4]),
+                    ) as u64;
+                    if footer_end.saturating_sub(tail_start) < len.saturating_add(12) {
+                        continue;
+                    }
+                    push_join(&mut out, &mut seen, cut_rel, tail_start, footer_end, gap);
+                }
+                if cut_rel < cluster {
+                    break;
+                }
+                cut_rel -= cluster;
+            }
+        }
+    }
+    out
+}
+
+#[allow(clippy::too_many_arguments)]
 fn candidate_joins(
     source: &dyn ImageSource,
     cand: &Candidate,
@@ -3276,6 +3593,8 @@ fn candidate_joins(
     footers: &[u64],
     extents: &[Extent],
     opts: &ScanOptions,
+    budget: &MemoryBudget,
+    stop: &Stop,
 ) -> Vec<FragmentJoin> {
     let mut joins = Vec::new();
     if fs.cluster_size == 0 || !is_cluster_boundary(cand.offset, fs) {
@@ -3354,6 +3673,7 @@ fn candidate_joins(
                             cut,
                             tail_start,
                         ),
+                        png_oracle: false,
                     });
                     // Keep the pool bounded without discarding good joins that
                     // are enumerated late (a tail far from its footer).
@@ -3368,6 +3688,15 @@ fn candidate_joins(
             };
             tail_start = previous;
         }
+    }
+
+    if opts.fragment_recovery {
+        // H-30: high-entropy gaps are outside the original filler/header
+        // classes but are explained by a PNG chunk CRC. These candidates are
+        // ranked ahead of the weaker local signals above.
+        joins.extend(png_crc_joins(
+            source, cand, fs, footers, extents, opts, budget, stop,
+        ));
     }
 
     // A real split leaves filler (or another file's header) in the gap, while
@@ -3451,6 +3780,32 @@ fn head_quality_ok(analysis: &Analysis, bytes_len: usize, opts: &ScanOptions) ->
 fn head_deep_valid(detail: &ValidationDetail, analysis: &Analysis) -> bool {
     detail.validation == Validation::Decoded
         && Validity::from_legacy(detail.validation, analysis.status(false)) == Validity::Verified
+}
+
+/// H-30: a PNG head split inside a chunk fails deep validation but still has a
+/// strong candidate oracle. Probe only the bytes already read for the head; a
+/// matching gap marks this head as requiring a join attempt instead of being
+/// discarded as an ordinary truncated carve.
+fn png_head_needs_crc_join(source: &dyn ImageSource, cand: &Candidate, opts: &ScanOptions) -> bool {
+    if !opts.fragment_recovery
+        || cand.kind != FileType::Png
+        || opts.validate != ValidationMode::Decode
+    {
+        return false;
+    }
+    let available = cand.extent_end.saturating_sub(cand.offset);
+    let span = available.min(opts.max_size).clamp(16, PNG_ORACLE_HEAD_CAP);
+    let Ok(len) = usize::try_from(span) else {
+        return false;
+    };
+    let mut head = vec![0u8; len];
+    if read_exact_at(source, &mut head, cand.offset).is_err() {
+        return false;
+    }
+    matches!(
+        png_first_crc_gap(&head, len),
+        Some(PngCrcGap::Broken { .. }) | Some(PngCrcGap::Boundary { .. })
+    )
 }
 
 fn deep_validate_head(
@@ -3688,6 +4043,8 @@ fn joined_carved_data(spec: JoinedCarvedSpec<'_>) -> CarvedData {
         checks: None,
         confidence: Some(confidence),
         alternatives: None,
+        join: None,
+        join_alternatives: None,
     }
 }
 
@@ -3794,6 +4151,8 @@ struct FragmentHeadClassification {
     required: HashMap<(u64, FileType), bool>,
     force: HashMap<(u64, FileType), bool>,
     contiguous_hashes: HashMap<(u64, FileType), String>,
+    /// H-30: PNG heads whose already-read bytes contain a chunk-CRC oracle gap.
+    png_crc_heads: HashSet<(u64, FileType)>,
 }
 
 fn classify_fragment_heads(
@@ -3801,6 +4160,7 @@ fn classify_fragment_heads(
     candidates: &[Candidate],
     kept: &[CarvedData],
     volumes: &[FsInfo],
+    opts: &ScanOptions,
 ) -> FragmentHeadClassification {
     let mut required: HashMap<(u64, FileType), bool> = candidates
         .iter()
@@ -3861,10 +4221,20 @@ fn classify_fragment_heads(
             )
         })
         .collect();
+    let png_crc_heads = if opts.fragment_recovery {
+        candidates
+            .iter()
+            .filter(|cand| png_head_needs_crc_join(source, cand, opts))
+            .map(|cand| (cand.offset, cand.kind))
+            .collect()
+    } else {
+        HashSet::new()
+    };
     FragmentHeadClassification {
         required,
         force,
         contiguous_hashes,
+        png_crc_heads,
     }
 }
 
@@ -3992,7 +4362,9 @@ fn probe_fragment_heads<'a>(
             continue;
         }
         let key = (cand.offset, cand.kind);
-        if !classification.required.get(&key).copied().unwrap_or(true) {
+        if !classification.required.get(&key).copied().unwrap_or(true)
+            && !classification.png_crc_heads.contains(&key)
+        {
             continue;
         }
         let known_hash = classification.contiguous_hashes.get(&key);
@@ -4056,7 +4428,9 @@ fn probe_fragment_heads<'a>(
         }
         if probe.skipped_budget.is_some()
             || probe.work_limit.is_some()
-            || (probe.deep_valid && !classification.force.get(&key).copied().unwrap_or(false))
+            || (probe.deep_valid
+                && !classification.force.get(&key).copied().unwrap_or(false)
+                && !classification.png_crc_heads.contains(&key))
         {
             // A clean contiguous copy that deep-validates is not a fragmented
             // head; a budget-limited probe cannot safely be classified either
@@ -4131,7 +4505,13 @@ fn attempt_head_joins(
     if !has_plausible_footer(cand, fs, footer_hits, opts) {
         return Ok(None);
     }
-    let joins = candidate_joins(source, cand, fs, footer_hits, extents, opts);
+    let joins = candidate_joins(source, cand, fs, footer_hits, extents, opts, budget, stop);
+    // H-30: a PNG CRC hit is only an oracle, not proof. Keep every distinct
+    // deep-validated `(cut, gap)` solution so two good-looking joins cannot be
+    // collapsed into a silent first-success `verified` result.
+    let oracle_joins = joins.iter().filter(|join| join.png_oracle).count();
+    let mut oracle_results: Vec<(FragmentJoin, JoinAlternative)> = Vec::new();
+    let mut oracle_hashes: HashSet<(u64, u64, String)> = HashSet::new();
     let mut checks = 0u64;
     let mut alternatives = 0u64;
     let mut head_attempts = 0usize;
@@ -4196,6 +4576,24 @@ fn attempt_head_joins(
             continue;
         };
         alternatives = alternatives.saturating_add(1);
+        if join.png_oracle && data.validity == Validity::Verified {
+            // Record the geometry keyed by the generated bytes, not by the
+            // cluster gap alone: a different cut and gap can produce the same
+            // output and must not count as a second solution.
+            let key = (join.cut, join.gap_clusters, data.sha256.clone());
+            if oracle_hashes.insert(key) && oracle_results.len() < MAX_FRAG_ALTERNATIVES as usize {
+                oracle_results.push((
+                    join,
+                    JoinAlternative {
+                        cut: join.cut,
+                        tail_start: join.tail_start,
+                        gap_clusters: join.gap_clusters,
+                        sha256: data.sha256.clone(),
+                        validity: data.validity,
+                    },
+                ));
+            }
+        }
         if !state.seen_hashes.insert(data.sha256.clone()) {
             continue;
         }
@@ -4208,12 +4606,76 @@ fn attempt_head_joins(
             break;
         }
     }
+    if oracle_joins > 0 {
+        return Ok(finish_oracle_join(
+            oracle_results,
+            first_success,
+            alternatives,
+            checks,
+        ));
+    }
     if let Some(mut data) = first_success {
         data.alternatives = Some(alternatives);
         Ok(Some(data))
     } else {
         Ok(None)
     }
+}
+
+/// Choose the single H-30 report row for one PNG head. A unique deep-validated
+/// `(cut, gap)` result remains `verified`; two or more are downgraded to
+/// `suspect` and keep equally ranked alternatives without guessing a winner.
+fn finish_oracle_join(
+    results: Vec<(FragmentJoin, JoinAlternative)>,
+    first_success: Option<CarvedData>,
+    alternatives: u64,
+    checks: u64,
+) -> Option<CarvedData> {
+    let mut results = results;
+    if results.is_empty() {
+        return None;
+    }
+    let unique = results.len() == 1;
+    let alternative_rows: Vec<JoinAlternative> =
+        results.iter().map(|(_, row)| row.clone()).collect();
+    // Ordered candidate generation is deterministic; do not guess a winner
+    // among equally deep-validated geometries.
+    results.sort_by_key(|(join, row)| {
+        (
+            join.cut,
+            join.gap_clusters,
+            join.tail_start,
+            row.sha256.clone(),
+        )
+    });
+    let (join, _) = results.remove(0);
+    let mut data = first_success?;
+    // H-30 never changes a result that was not deeply decoded. In particular,
+    // a structure-mode legacy join must keep its old `verified` contract.
+    if data.validation != Validation::Decoded || data.validity != Validity::Verified {
+        return Some(data);
+    }
+    data.join = Some(JoinEvidence {
+        method: "png_chunk_crc".to_string(),
+        cut: join.cut,
+        tail_start: join.tail_start,
+        gap_clusters: join.gap_clusters,
+        unique,
+    });
+    if !unique {
+        let count = alternative_rows.len();
+        data.join_alternatives = Some(alternative_rows);
+        data.validity = Validity::Suspect;
+        data.validation = Validation::Structure;
+        data.validation_checks.push(ValidationCheck::new(
+            "png_crc_join_ambiguous",
+            Some(false),
+            format!("{count} deep-validated PNG chunk-CRC joins"),
+        ));
+    }
+    data.checks = Some(checks);
+    data.alternatives = Some(alternatives);
+    Some(data)
 }
 
 fn append_fragment_warnings(state: &FragmentScanState, warnings: &mut Vec<Warning>) {
@@ -4298,7 +4760,7 @@ fn recover_fragments(
             nondeterministic_stop: false,
         });
     }
-    let classification = classify_fragment_heads(source, candidates, &kept, volumes);
+    let classification = classify_fragment_heads(source, candidates, &kept, volumes, opts);
     let mut state = FragmentScanState::new(started, &kept, opts, internal_errors);
     let probe_ctx = FragmentProbeCtx {
         source,
@@ -4738,6 +5200,9 @@ fn source_changed_warning(data: &CarvedData, rel_path: &str, digest: &str) -> Wa
 }
 
 fn validity_reason_code(data: &CarvedData) -> String {
+    if data.join.as_ref().is_some_and(|join| !join.unique) {
+        return "ambiguous_png_crc_join".into();
+    }
     match data.validity {
         Validity::Verified => "validator_passed".into(),
         Validity::Structural => {
@@ -5273,6 +5738,8 @@ pub fn run_metadata_pass(
                     checks: None,
                     confidence: None,
                     alternatives: None,
+                    join: None,
+                    join_alternatives: None,
                     sha256_original: None,
                     original_name: entry.name.clone(),
                     mtime: entry.mtime.clone(),
@@ -5415,6 +5882,8 @@ fn build_carved_file(
         checks: data.checks,
         confidence: data.confidence,
         alternatives: data.alternatives,
+        join: data.join.clone(),
+        join_alternatives: data.join_alternatives.clone(),
         sha256_original: data.sha256_original.clone(),
         original_name: None,
         mtime: None,

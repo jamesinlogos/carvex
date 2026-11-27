@@ -336,7 +336,7 @@ fn fat32_first_free_offset(total_sectors: u32) -> usize {
     fat32_first_free_offset_spc(total_sectors, 1)
 }
 
-fn fat32_first_free_offset_spc(total_sectors: u32, spc: u8) -> usize {
+pub(crate) fn fat32_first_free_offset_spc(total_sectors: u32, spc: u8) -> usize {
     let fat_sectors = (u64::from(total_sectors) * 4 + 1024).div_ceil(512) as u32;
     // Data start = (reserved 1 + 1 FAT * fat_sectors) sectors; cluster 2 is
     // allocated in the fixture, so the first free cluster is 3.

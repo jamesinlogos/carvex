@@ -78,6 +78,8 @@ fn strip_v2_fields(value: &mut serde_json::Value) {
                 "fragments",
                 "sha256_original",
                 "alternatives",
+                "join",
+                "join_alternatives",
                 "original_name",
                 "mtime",
                 "contiguous_assumed",

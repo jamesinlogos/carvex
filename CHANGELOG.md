@@ -26,6 +26,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   free extents (ascending LBA), skips allocated islands, and reports accepted
   files with `source="free-stream"` and translated physical `fragments[]`.
   The default scan, golden D0 and frozen benchmark outputs are unchanged.
+- Part T H-30: `--fragment-recovery --validate decode` adds a bounded PNG
+  chunk-CRC oracle for two-fragment gaps. Unique deep-validated joins stay
+  `verified` and gain `join` provenance; multiple solutions are `suspect` with
+  `join_alternatives[]`. Schema 1 and CSV are unchanged; a new fuzz helper
+  covers the parser.
 - Part T H-28/H-29: `--metadata` adds an opt-in pass over deleted FAT32
   directory entries and NTFS MFT records. It reports exact physical
   `fragments[]`, recovered names/times and additive validation fields, merges

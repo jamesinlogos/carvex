@@ -5,4 +5,5 @@ use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {
     carvex::scan::fuzz_fragment_join(data);
+    carvex::scan::fuzz_png_crc_oracle(data);
 });

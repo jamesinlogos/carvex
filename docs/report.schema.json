@@ -305,6 +305,30 @@
         "bytes_in_extents": { "type": "integer", "minimum": 0 }
       }
     },
+    "join_evidence": {
+      "type": "object",
+      "required": ["method", "cut", "tail_start", "gap_clusters", "unique"],
+      "additionalProperties": false,
+      "properties": {
+        "method": { "const": "png_chunk_crc" },
+        "cut": { "type": "integer", "minimum": 0 },
+        "tail_start": { "type": "integer", "minimum": 0 },
+        "gap_clusters": { "type": "integer", "minimum": 1 },
+        "unique": { "type": "boolean", "description": "True only when exactly one (cut, gap) deep-validated" }
+      }
+    },
+    "join_alternative": {
+      "type": "object",
+      "required": ["cut", "tail_start", "gap_clusters", "sha256", "validity"],
+      "additionalProperties": false,
+      "properties": {
+        "cut": { "type": "integer", "minimum": 0 },
+        "tail_start": { "type": "integer", "minimum": 0 },
+        "gap_clusters": { "type": "integer", "minimum": 1 },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "validity": { "enum": ["verified", "structural", "suspect", "partial", "repaired"] }
+      }
+    },
     "file": {
       "type": "object",
       "required": [
@@ -353,6 +377,8 @@
         "fragment_checks": { "type": "integer", "minimum": 0, "description": "Deep-validation checks made for a B-06 stitch" },
         "confidence": { "type": "integer", "minimum": 0, "maximum": 100, "description": "Structural score of an accepted B-06 stitch" },
         "alternatives": { "type": "integer", "minimum": 0, "description": "Number of joins that deep-validated for one B-06 head (H-29)" },
+        "join": { "$ref": "#/$defs/join_evidence" },
+        "join_alternatives": { "type": "array", "items": { "$ref": "#/$defs/join_alternative" }, "description": "H-30: every deep-validated (cut, gap) solution when a PNG CRC join is ambiguous" },
         "sha256_original": { "type": "string", "pattern": "^[0-9a-f]{64}$", "description": "SHA-256 of the bytes read before a revalidated repair changed the output (H-21); absent when output bytes are unchanged" },
         "original_name": { "type": "string", "description": "H-28/H-29: sanitized name recovered from deleted metadata; never used for output paths" },
         "mtime": { "type": "string", "description": "H-28/H-29: modified time recovered from deleted metadata" },

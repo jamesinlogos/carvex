@@ -1,7 +1,7 @@
 # Implementation progress (CarveX 0.3.1; frozen benchmark figures remain 0.1.0/0.2.0)
 
-> Last updated: 2026-11-27 (H-04 closure, CI verification and Part T H-27 and
-> H-28/H-29; historical gate rows below are dated records). Every status below
+> Last updated: 2026-11-27 (H-04 closure, CI verification and Part T H-27,
+> H-28/H-29 and H-30; historical gate rows below are dated records). Every status below
 > is verified
 > by the command recorded with it; items that could not be run due to missing
 > tools are marked `SKIPPED`, with no guessed results. IDs follow the
@@ -162,6 +162,45 @@ Residual risk / next: FAT chains are assumed contiguous and NTFS
         B-01 is PARTIAL for FAT32/NTFS only. Packaged `dist/` binaries were
         rebuilt from `d9bdc8e` (`bench/results/h28_h29_dist_rebuild.txt`).
         H-30 follows.
+```
+
+### Part T H-30 — PNG chunk-CRC bifragment joins (new capability, 2026-11-27)
+
+```text
+Task: Part T H-30 — opt-in PNG chunk-CRC oracle for --fragment-recovery
+Commit: implementation commit follows this tree; the acceptance fixture fix
+        and its red baseline are already recorded in 60f4c21.
+Change: src/scan.rs, src/signatures/png.rs, src/cli.rs, src/report.rs,
+        docs/report.schema.json, docs/REPORT.md, docs/DECISIONS.md (D-77),
+        CHANGELOG.md, README.md, fuzz/fuzz_targets/fuzz_fragment_join.rs,
+        tests/cli_contract.rs, tests/fragment_recovery.rs; the acceptance
+        script scripts/part_t/h30_png_crc.py was fixed in 60f4c21.
+New tests: tests/fragment_recovery.rs (11 tests total): interior gaps filled
+        with random data or another PNG's bytes, at least three PNG colour
+        types, intact/missing-tail/header-gap/live-unallocated controls, and
+        ambiguity coverage. The existing fuzz_fragment_join target now calls
+        fuzz_png_crc_oracle(); tests/cli_contract.rs checks the additive JSON
+        schema fields. Default, golden and CSV output are unchanged.
+Gate: cargo fmt, clippy --all-targets -- -D warnings, targeted
+      fragment_recovery 11/11 and the full scripts/gate.sh all green before
+      this commit (GATE GREEN, G9 = 190 tests); remote CI PENDING until the
+      source and rebuilt dist/ commits are pushed.
+Measurement: the pre-commit release binary produced 100/100 exact joins for
+        each of the random-gap and other-PNG-interior-gap kinds, Wilson 95%
+        [0.963, 1.000] for both, 0 false `verified`, 0 control failures and
+        mean 0.088 s per scan under --frag-time-limit 5000. The final
+        post-commit evidence will be archived in
+        bench/results/h30_png_crc.txt and added to EVIDENCE.sha256.
+Decision: D-77 records a bounded exception to D-71: the CRC-32 proposes
+        candidates only, deep decode validation is authoritative, a unique
+        (cut, gap) remains `verified` with additive `join` provenance, and
+        multiple solutions are one `suspect` row with `join_alternatives[]`
+        and validity_reason `ambiguous_png_crc_join`.
+Residual risk / next: the assumption remains two forward, cluster-aligned
+        fragments with the head cut inside a PNG chunk; breaks on chunk
+        boundaries keep the earlier header-walk behaviour. Other formats,
+        backwards fragments and metadata joins are not covered. The packaged
+        dist/ binaries still need the H-30 rebuild; H-31/H-32 remain deferred.
 ```
 
 ### Part T H-31/H-32 — prototype deferral (new capability, 2026-11-27)

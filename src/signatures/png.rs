@@ -176,6 +176,138 @@ fn read_png_chunk<'a>(
     })
 }
 
+/// Bounded description of the chunk an H-30 CRC stitch has to repair.
+///
+/// `Broken` is the first chunk whose payload/CRC is not fully present in the
+/// head (or whose stored CRC does not match). `Boundary` is the fallback for a
+/// cut exactly on a chunk boundary: the head ends cleanly, so the next chunk
+/// header has to be plausibly present in the tail instead.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum PngCrcGap {
+    Broken {
+        data_start: usize,
+        chunk_len: usize,
+        ctype: [u8; 4],
+        /// Present when the whole chunk (including its CRC) survived in the head.
+        stored_crc: Option<u32>,
+    },
+    Boundary {
+        last_chunk_end: usize,
+    },
+}
+
+/// Find the bounded chunk-level oracle target for an H-30 head.
+pub(crate) fn png_first_crc_gap(data: &[u8], max_end: usize) -> Option<PngCrcGap> {
+    if data.get(0..8) != Some(PNG_MAGIC) {
+        return None;
+    }
+    let limit = max_end.min(data.len());
+    let mut pos = 8usize;
+    let mut last_chunk_end = 8usize;
+    let mut chunks = 0u32;
+    while pos + 8 <= limit {
+        let Some(len_bytes) = data.get(pos..pos + 4) else {
+            break;
+        };
+        let Ok(len_arr) = <[u8; 4]>::try_from(len_bytes) else {
+            break;
+        };
+        let len = u32::from_be_bytes(len_arr) as usize;
+        let Some(ctype_bytes) = data.get(pos + 4..pos + 8) else {
+            break;
+        };
+        let Ok(ctype) = <[u8; 4]>::try_from(ctype_bytes) else {
+            break;
+        };
+        if !ctype.iter().all(u8::is_ascii_alphabetic) || len > 256 * 1024 * 1024 {
+            break;
+        }
+        let Some(data_end) = pos.checked_add(8).and_then(|v| v.checked_add(len)) else {
+            break;
+        };
+        let Some(chunk_end) = data_end.checked_add(4) else {
+            break;
+        };
+        if chunk_end > limit {
+            return Some(PngCrcGap::Broken {
+                data_start: pos + 8,
+                chunk_len: len,
+                ctype,
+                stored_crc: None,
+            });
+        }
+        let Some(chunk_data) = data.get(pos + 8..data_end) else {
+            return Some(PngCrcGap::Broken {
+                data_start: pos + 8,
+                chunk_len: len,
+                ctype,
+                stored_crc: None,
+            });
+        };
+        let mut hasher = Hasher::new();
+        hasher.update(&ctype);
+        hasher.update(chunk_data);
+        let computed_crc = hasher.finalize();
+        let stored_crc = data
+            .get(data_end..chunk_end)
+            .and_then(|b| <[u8; 4]>::try_from(b).ok())
+            .map(u32::from_be_bytes);
+        if stored_crc != Some(computed_crc) {
+            return Some(PngCrcGap::Broken {
+                data_start: pos + 8,
+                chunk_len: len,
+                ctype,
+                // A mismatch means the tail holds the real CRC field. Reading
+                // it from the head would judge the wrong bytes.
+                stored_crc: None,
+            });
+        }
+        last_chunk_end = chunk_end;
+        if ctype == *b"IEND" {
+            return None;
+        }
+        pos = chunk_end;
+        chunks += 1;
+        if chunks > 1_000_000 {
+            return None;
+        }
+    }
+    (last_chunk_end > 8).then_some(PngCrcGap::Boundary { last_chunk_end })
+}
+
+/// CRC-32 over a chunk type split across a head prefix and a tail suffix.
+/// This is only a candidate signal; the decode validator remains authoritative.
+pub(crate) fn png_split_chunk_crc_ok(
+    ctype: &[u8; 4],
+    prefix: &[u8],
+    suffix: &[u8],
+    stored_crc: u32,
+) -> bool {
+    let mut hasher = Hasher::new();
+    hasher.update(ctype);
+    hasher.update(prefix);
+    hasher.update(suffix);
+    hasher.finalize() == stored_crc
+}
+
+/// Plausible next-chunk header used by the chunk-boundary fallback.
+pub(crate) fn png_chunk_header_plausible(data: &[u8]) -> bool {
+    let Some(len_bytes) = data.get(0..4) else {
+        return false;
+    };
+    let Ok(len_arr) = <[u8; 4]>::try_from(len_bytes) else {
+        return false;
+    };
+    let len = u32::from_be_bytes(len_arr) as usize;
+    let Some(ctype) = data.get(4..8) else {
+        return false;
+    };
+    if !ctype.iter().all(u8::is_ascii_alphabetic) || len > 256 * 1024 * 1024 {
+        return false;
+    }
+    len.checked_add(12).is_some_and(|end| end <= data.len())
+}
+
 fn update_chunk_crc(pos: usize, chunk: &PngChunk<'_>, progress: &mut PngProgress) {
     let mut hasher = Hasher::new();
     hasher.update(chunk.ctype);

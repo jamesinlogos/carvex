@@ -201,9 +201,10 @@ struct ScanArgs {
     /// scanned state are summarised (0 = unlimited; H-27)
     #[arg(long, value_parser = clap::value_parser!(u64), default_value_t = DEFAULT_MAX_REGIONS)]
     max_regions: u64,
-    /// Opt in to bounded B-06 gap carving (supported gaps: filler or embedded header; verified only)
-    /// Supported filler is zero/low-cardinality (<=8 distinct bytes) or a repeated period <=32;
-    /// random/high-entropy gaps are not joined. Acceptance always requires deep validation.
+    /// Opt in to bounded B-06 gap carving (filler/header gaps; PNG chunk-CRC gaps)
+    /// Filler is zero/low-cardinality (<=8 distinct bytes) or a repeated period <=32.
+    /// H-30 also joins high-entropy PNG gaps only when a chunk CRC-32 uniquely identifies the
+    /// stitch; ambiguous joins are suspect. Acceptance always requires deep decode validation.
     #[arg(long)]
     fragment_recovery: bool,
     /// Maximum gap between joined fragments, in clusters (B-06)

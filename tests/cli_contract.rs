@@ -362,6 +362,15 @@ fn emitted_report_matches_the_published_schema() {
             .is_some(),
         "schema must describe the additive H-29 alternatives count"
     );
+    assert!(
+        schema.pointer("/$defs/file/properties/join").is_some()
+            && schema
+                .pointer("/$defs/file/properties/join_alternatives")
+                .is_some()
+            && schema.pointer("/$defs/join_evidence").is_some()
+            && schema.pointer("/$defs/join_alternative").is_some(),
+        "schema must describe the additive H-30 join fields"
+    );
     assert_schema_keys("/$defs/options", &report["options"], true);
     assert_schema_keys("/$defs/stats", &report["stats"], false);
     assert_schema_keys("/$defs/file", &report["files"][0], true);

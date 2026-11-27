@@ -1592,3 +1592,24 @@ decision, and the consequences.
 - **Consequences:** no new join method, report field or fuzz target is added for
   H-31/H-32. Any later production proposal needs a new accepted experiment
   with n, Wilson bounds and zero false `verified` results for each gap kind.
+
+## D-77. H-30 PNG chunk-CRC joins are a bounded exception to D-71
+
+- **Context:** the archived prototype found a unique PNG chunk-CRC stitch in
+  200/200 random-gap and 200/200 other-PNG-interior trials, while the existing
+  filler/header-only B-06 recorder missed both classes. D-71 deliberately kept
+  precision over recall and excluded random/high-entropy gaps.
+- **Decision:** a single bounded exception is promoted: under
+  `--fragment-recovery --validate decode`, a PNG head split inside a chunk may
+  be joined when a CRC-32 over `type || head-prefix || tail-suffix` matches the
+  stored CRC. The oracle only proposes candidates; deep decode validation is
+  still mandatory. A unique `(cut, gap)` keeps `verified`; multiple solutions
+  are reported once as `suspect` with `join_alternatives[]`.
+- **Evidence:** `scripts/part_t/h30_png_crc.py`: 200/200 exact (100 random,
+  100 other-PNG-interior), Wilson 95% [0.963, 1.0] for both kinds, 0 false
+  `verified`, controls clean, mean 0.085–0.088 s per scan inside the 5 s
+  fragment time limit. New coverage lives in `tests/fragment_recovery.rs` and
+  `fuzz/fuzz_targets/fuzz_fragment_join.rs`.
+- **Consequences:** no other format, entropy class or metadata source gains a
+  join oracle. Allocated clusters are never read in unallocated/auto mode;
+  schema 1 strips `join`/`join_alternatives` and CSV columns are unchanged.

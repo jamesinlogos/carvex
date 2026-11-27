@@ -435,7 +435,19 @@ aborts the scan instead of silently continuing. Each accepted record has
 `source="bgc"`, exactly two `fragments[]` entries, a `checks` count, a
 `confidence` score and an `alternatives` count. These JSON fields are optional
 and omitted when B-06 is disabled. Schema 1 strips `alternatives`; CSV appends
-it as an empty trailing column for non-stitches. Bounded warnings are
+it as an empty trailing column for non-stitches.
+
+H-30 adds a bounded PNG exception under `--validate decode`. When a PNG head
+ends inside a chunk, the scanner tests cluster-aligned `(cut, gap)` candidates
+whose chunk CRC-32 matches a suffix at the candidate tail. This is only a
+candidate oracle: the resulting bytes still have to pass the ordinary deep
+decode validator. A unique solution keeps `validity="verified"` and gains
+`join` provenance (`method`, `cut`, `tail_start`, `gap_clusters`, `unique`). Two
+or more distinct solutions are emitted once with `unique=false`,
+`validity="suspect"`, `validity_reason="ambiguous_png_crc_join"` and the full
+`join_alternatives[]` list; no geometry is guessed. The oracle is opt-in and
+never reads allocated clusters in unallocated/auto mode. Schema 1 strips both
+fields; CSV columns are unchanged. Bounded warnings are
 `FRAGMENT_RECOVERY_SKIPPED`, `FRAGMENT_FOOTER_SCAN_FAILED`,
 `FRAGMENT_CANDIDATE_LIMIT` and `FRAGMENT_TIME_LIMIT`.
 
