@@ -598,7 +598,9 @@ fn ntfs_geometry(image: &[u8]) -> (u64, u64, u64, u64) {
 ///
 /// A missing `mkntfs` used to be printed as `SKIP` and then returned, which
 /// made the test a silent pass. The harness requires SKIP never to be silent,
-/// so this deliberately panics with an actionable message instead.
+/// so this deliberately panics with an actionable message instead. On
+/// non-Linux runners the five mkntfs-dependent tests carry a visible
+/// `#[ignore]` reason rather than pretending to have run.
 fn mkntfs_image(dir: &Path) -> Vec<u8> {
     let probe = Command::new("mkntfs").arg("--version").output();
     assert!(
@@ -629,6 +631,10 @@ fn ntfs_scan(dir: &Path, image: &[u8]) -> Scan {
 }
 
 #[test]
+#[cfg_attr(
+    not(target_os = "linux"),
+    ignore = "H-29: mkntfs fixture requires Linux"
+)]
 fn ntfs_resident_deleted_record_recovers_exact_bytes() {
     let dir = tempfile::tempdir().unwrap();
     let mut image = mkntfs_image(dir.path());
@@ -655,6 +661,10 @@ fn ntfs_resident_deleted_record_recovers_exact_bytes() {
 }
 
 #[test]
+#[cfg_attr(
+    not(target_os = "linux"),
+    ignore = "H-29: mkntfs fixture requires Linux"
+)]
 fn ntfs_nonresident_fragmented_record_round_trips_with_negative_delta() {
     let dir = tempfile::tempdir().unwrap();
     let mut image = mkntfs_image(dir.path());
@@ -687,6 +697,10 @@ fn ntfs_nonresident_fragmented_record_round_trips_with_negative_delta() {
 }
 
 #[test]
+#[cfg_attr(
+    not(target_os = "linux"),
+    ignore = "H-29: mkntfs fixture requires Linux"
+)]
 fn ntfs_unsupported_attribute_list_is_never_verified() {
     let dir = tempfile::tempdir().unwrap();
     let mut image = mkntfs_image(dir.path());
@@ -713,6 +727,10 @@ fn ntfs_unsupported_attribute_list_is_never_verified() {
 }
 
 #[test]
+#[cfg_attr(
+    not(target_os = "linux"),
+    ignore = "H-29: mkntfs fixture requires Linux"
+)]
 fn ntfs_fixup_mismatch_record_is_skipped_without_a_panic() {
     let dir = tempfile::tempdir().unwrap();
     let mut image = mkntfs_image(dir.path());
@@ -733,6 +751,10 @@ fn ntfs_fixup_mismatch_record_is_skipped_without_a_panic() {
 }
 
 #[test]
+#[cfg_attr(
+    not(target_os = "linux"),
+    ignore = "H-29: mkntfs fixture requires Linux"
+)]
 fn mkntfs_volume_with_deleted_record_is_recovered() {
     let dir = tempfile::tempdir().unwrap();
     let mut image = mkntfs_image(dir.path());

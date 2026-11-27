@@ -136,8 +136,11 @@ New tests: tests/metadata.rs (22 tests): exact SHA/size for deleted FAT
         subdirectory, reallocated cluster, corrupt directory, resident and
         negative-delta fragmented NTFS records, fixup mismatch, unsupported
         attributes, a real mkntfs deleted record, CLI rejection paths, filters,
-        bounds, manifest coverage and unchanged default output. Both new fuzz
-        targets compile under nightly cargo-fuzz.
+        bounds, manifest coverage and unchanged default output. The five
+        mkntfs-dependent tests fail loudly if the tool is missing on Linux and
+        are explicitly `#[ignore]`d with a visible reason on Windows/macOS;
+        neither case counts as a silent pass. Both new fuzz targets compile
+        under nightly cargo-fuzz.
 Gate: cargo fmt --all -- --check, git diff --check, clippy -D warnings and
       cargo test --all-features --locked --no-fail-fast green (185 tests,
       0 failed; metadata 22/22); nightly fuzz checks green. The full local
