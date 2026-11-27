@@ -1,0 +1,33 @@
+Part T H-28/H-29 packaged dist rebuild
+commit: d9bdc8e4a6b9a35ae7da345db53c95254939d054
+source changes: H-28/H-29 opt-in deleted FAT32/NTFS metadata recovery
+                (src/cli.rs, src/scan.rs, src/fs/{mod,fat32,ntfs}.rs,
+                src/report.rs) plus the visible non-Linux mkntfs test ignore
+rustc/cargo: 1.100.0
+targets: x86_64-unknown-linux-gnu, x86_64-pc-windows-gnu
+
+Build commands:
+  CARGO_NET_OFFLINE=true cargo build --release --locked --target x86_64-unknown-linux-gnu
+  CARGO_NET_OFFLINE=true cargo build --release --locked --target x86_64-pc-windows-gnu
+  cp target/x86_64-unknown-linux-gnu/release/carvex dist/carvex-linux-x86_64
+  cp target/x86_64-pc-windows-gnu/release/carvex.exe dist/carvex-windows-x86_64.exe
+  strip dist/carvex-linux-x86_64
+  strip dist/carvex-windows-x86_64.exe
+  (cd dist && sha256sum carvex-linux-x86_64 carvex-windows-x86_64.exe > SHA256SUMS)
+
+SHA-256:
+  46af14732bee91da90b0fd3b7ba62fdb0e8d94c89ee9a23fb2d8d23c157b409a  carvex-linux-x86_64
+  1eae6a5aea2e67bab224f56168734a7dc913cf2ae713de7014bb2fc11dad932b  carvex-windows-x86_64.exe
+
+Execution evidence:
+  Linux --version: carvex 0.3.1
+  Linux scan bench/images/mixed_fat32.img: 20 files, tool_info.commit=d9bdc8e4a6b9
+  Windows --version under Wine: carvex 0.3.1
+  Windows scan bench/images/mixed_fat32.img under Wine: 20 files, tool_info.commit=d9bdc8e4a6b9
+  CI=true bash scripts/check_dist.sh: DIST OK version=0.3.1
+
+CI context:
+  run 45944059648 at 0058f2c failed only because dist still reported
+  77b9cc7210fe and because five mkntfs-dependent tests failed on Windows/macOS;
+  the portability fix is commit d9bdc8e and this rebuild supplies current
+  packaged binaries. Final CI confirmation is recorded in docs/PROGRESS.md.
