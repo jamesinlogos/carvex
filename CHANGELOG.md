@@ -8,6 +8,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- H0: `docs/harness-f5bda4a.md` records the external harness revision for
+  `f5bda4a` verbatim; its baseline checks are recorded in `docs/PROGRESS.md`.
 - H-01: report `validity_reason`, `tail_trimmed_bytes`, `aligned`, `nested_in`,
   `sha256_output` and `tool_info.rustc`; new `--verified-only` filter with
   `stats.skipped_verified_only`. Report schema and CSV prefix stay compatible.

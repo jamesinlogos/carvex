@@ -1,6 +1,6 @@
 # Implementation progress (CarveX 0.3.1; frozen benchmark figures remain 0.1.0/0.2.0)
 
-> Last updated: 2026-11-25 (H0 preparation for `docs/harness-ab725a6.md`;
+> Last updated: 2026-11-26 (H0 verification for `docs/harness-f5bda4a.md`;
 > historical gate rows below are dated records). Every status below is verified
 > by the command recorded with it; items that could not be run due to missing
 > tools are marked `SKIPPED`, with no guessed results. IDs follow the
@@ -11,7 +11,7 @@
 
 | Component | Value |
 |---|---|
-| Date | 2026-11-25 (H0 preparation for `docs/harness-ab725a6.md`; earlier rows below are dated historical records) |
+| Date | 2026-11-26 (H0 verification for `docs/harness-f5bda4a.md`; earlier rows below are dated historical records) |
 | OS | Linux x86_64 (Kali), running in a container |
 | carvex | source `eeb42437bcf37` (0.3.1); `dist/carvex-linux-x86_64` rebuilt from `43dcf59bb01b`, SHA-256 `918616cf0eb512f5d69dd8b747d278e32a742571e499c658bf9acf8eb2645840` (Windows: `fd94127ed1c20cac65b473fdc07ef9575feaa9e6d8310680267b4ed18b0fbb7d`); current-HEAD CI `45749230527` completed success (27/27) |
 | rustc / cargo | 1.100.0 (0ef1bc386 2026-11-09) / 1.100.0 (pinned toolchain installed; no `RUSTUP_TOOLCHAIN` override needed) |
@@ -21,6 +21,35 @@
 | Benchmark tools | foremost, scalpel, photorec, mkfs.vfat, mkfs.exfat, mkntfs, mcopy, ntfs-3g, blkls, fls, istat, tsk_recover, parted, losetup, mount, mtools, 7z |
 | Validation tools | `actionlint 1.7.12`, `cargo-fuzz 0.13.2` with `nightly 1.102.0-nightly`, `cargo-llvm-cov 0.9.1`; `qpdf 12.4.2`, `ewfacquire`/`ewfexport`/`ewfverify` 20140816-2+b2 now installed |
 | Missing | `pdftoppm`, `qemu-img`, a real Windows runner (Wine 10.0 available for packaged `.exe`) |
+
+### H0 verification — `harness-f5bda4a` (2026-11-26)
+
+The external harness revision for `f5bda4a` was copied verbatim to
+`docs/harness-f5bda4a.md`; the repository's root `harness.md` was not changed.
+The baseline binary was rebuilt from `f5bda4a` with
+`cargo build --release --locked` (cargo/rustc 1.100.0). `cargo test --all-features
+--locked` reports 148 tests; `scripts/review_repro.py --assert --xfail
+scripts/repro_xfail.txt` reports 34 scenarios, 0 failures, 5 SKIP, 0 XPASS
+(exit 0). The harness records 6 SKIP on its machine; the difference here is
+environmental (`mkfs.vfat`/`mkntfs` are installed, `qemu-img` and two tools are
+not), not a qualitative mismatch, so §9 Q9 is not raised. `scripts/golden.py`
+→ `GOLDEN GREEN`; `scripts/perf_gate.py` → `PERF GREEN` (it prints an
+informational `rand64m` 2.096× line against the committed 0.030 s single-run
+baseline while staying inside the configured gate). `scripts/check_status.py`
+→ `STATUS GREEN`; `bench/render_docs.py --check` → 49 scan options / 148 tests
+match README. The previously recorded CI run `45749776522` remains green
+(27/27); no new CI claim is made here.
+
+```text
+Task: H0 — baseline and safety net (external harness revision `f5bda4a`)
+Change: docs/harness-f5bda4a.md; this progress record
+New tests: none (verification only)
+Gate: green for G2/G7/G8/G9 as recorded above; full gate re-run after each
+      implementation item
+Measurement: 148 tests, repro 34/0/5 SKIP/0 XPASS, golden green, perf green
+Residual risk / next: H-04 item 0 (structure-mode JPEG repair label), then the
+      Q12 crop implementation; Part T starts only when H1-H4 are green.
+```
 
 ### H0 preparation — `harness-ab725a6` (2026-11-25, in progress)
 
