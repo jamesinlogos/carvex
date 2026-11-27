@@ -6,7 +6,7 @@ use std::path::Path;
 
 /// Write the JSON report atomically.
 ///
-/// `schema` 1 removes the additive v2 fields (including `sha256_original`) so
+/// `schema` 1 removes the additive v2 fields (including all repair fields) so
 /// existing consumers keep the exact v0.1 shape; `schema` 2 is the default.
 pub fn write_json(report: &ScanReport, path: &Path, schema: u8) -> Result<()> {
     ensure_parent(path)?;
@@ -62,6 +62,10 @@ fn strip_v2_fields(value: &mut serde_json::Value) {
                 "aligned",
                 "nested_in",
                 "sha256_output",
+                "repair_validated",
+                "recovered_rows",
+                "total_rows",
+                "recovered_fraction",
                 "validated_bytes",
                 "checks",
                 "fragment_checks",

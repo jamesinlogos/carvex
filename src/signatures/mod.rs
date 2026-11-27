@@ -13,8 +13,9 @@ mod pdf_validate;
 /// PNG signature analysis and validation.
 pub mod png;
 mod repair;
+mod repair_image;
 
-pub(crate) use repair::{build_suffix, validate as validate_repair, ValidatedRepair};
+pub(crate) use repair::{build_plan, validate as validate_repair, ValidatedRepair};
 
 use clap::ValueEnum;
 use flate2::{Decompress, FlushDecompress, Status as InflateStatus};

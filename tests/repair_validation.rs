@@ -117,6 +117,60 @@ fn check(file: &Value, name: &str) -> Option<Value> {
         .cloned()
 }
 
+/// Independent Pillow proof for a crop repair: the output must load, and every
+/// retained row must be the original's row. JPEG skips the last two rows because
+/// chroma subsampling can make the bottom edge differ legitimately.
+fn assert_pillow_top_rows(original: &[u8], carved: &[u8], kind: &str, rows: u32, slack: u32) {
+    let dir = tempfile::tempdir().unwrap();
+    let original_path = dir.path().join("original");
+    let carved_path = dir.path().join("carved");
+    fs::write(&original_path, original).unwrap();
+    fs::write(&carved_path, carved).unwrap();
+    let script = r#"
+import sys
+from PIL import Image
+orig, out, kind, rows, slack = sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[4]), int(sys.argv[5])
+try:
+    with Image.open(out) as probe:
+        probe.verify()
+    with Image.open(out) as probe:
+        image = probe.convert('RGB')
+    with Image.open(orig) as probe:
+        reference = probe.convert('RGB')
+except Exception as exc:
+    sys.exit('decode failed: %r' % exc)
+keep = min(image.height - slack, rows if rows else image.height)
+if keep <= 0:
+    sys.exit('no retained rows')
+if image.crop((0, 0, image.width, keep)).tobytes() != reference.crop((0, 0, reference.width, keep)).tobytes():
+    sys.exit('retained rows differ from the original')
+if kind == 'jpeg' and image.height >= reference.height:
+    sys.exit('repaired JPEG kept the full canvas')
+print('OK')
+"#;
+    let proc = Command::new("python3")
+        .arg("-c")
+        .arg(script)
+        .arg(original_path)
+        .arg(carved_path)
+        .arg(kind)
+        .arg(rows.to_string())
+        .arg(slack.to_string())
+        .output()
+        .unwrap();
+    assert!(
+        proc.status.success(),
+        "Pillow oracle rejected {kind} repair: {}",
+        String::from_utf8_lossy(&proc.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&proc.stdout).trim(),
+        "OK",
+        "Pillow oracle: {}",
+        String::from_utf8_lossy(&proc.stdout)
+    );
+}
+
 #[test]
 fn revalidated_pdf_repair_is_honest_and_hashes_the_original() {
     let original = truncated_pdf();
@@ -176,10 +230,9 @@ fn unvalidatable_pdf_repair_stays_truncated_and_unchanged() {
 
 #[test]
 fn mid_stream_png_and_jpeg_repair_stays_partial() {
-    // §9 Q11 (user decision 2026-11-25): PDF, PNG and JPEG footer repair are
-    // supported, but a cut through the payload is not a footer repair. Pin the
-    // S-REPAIR-style 60 % rows: honest partial, no bytes changed, no repair
-    // hash, and a failed `repair` check.
+    // These tiny 1x1 fixtures leave no complete scanline/MCU row after a 60 %
+    // cut, so neither footer repair nor crop repair is possible. Pin the honest
+    // fallback: partial, no bytes changed, no repair hash, failed `repair` check.
     let jpeg_full = JPEG_1X1;
     let jpeg = &jpeg_full[..jpeg_full.len() * 3 / 5];
     let (jpeg_file, jpeg_carved) = scan_repaired(jpeg, "jpeg");
@@ -213,24 +266,48 @@ fn mid_stream_png_and_jpeg_repair_stays_partial() {
 
 #[test]
 fn jpeg_mid_stream_repair_structure_mode_stays_partial() {
-    // External harness H-04 item 0: a decoded proof is mandatory in both
-    // validation modes. Appending EOI to a mid-scan cut lets Pillow draw grey
-    // MCU rows, so a structural pass must never become `repaired`.
+    // External harness H-04 item 0 removed the structure-mode over-claim: a
+    // repair needs a decoded proof in both modes. The item-2 crop design then
+    // makes these mid-stream cuts recoverable, but only by emitting a shorter
+    // JPEG whose retained rows equal the original's. The test name is kept for
+    // traceability; the invariant is "no invented pixel", not "no repair".
     let original = corpus_jpeg_01();
-    for pct in [30usize, 60, 90] {
+    for (pct, expected_rows) in [(30usize, 8u32), (60, 17), (90, 27)] {
         let cut = &original[..original.len() * pct / 100];
-        let (file, carved) = scan_repaired_mode(cut, "jpeg", "structure");
-        assert_eq!(carved, cut, "failed repair must not alter bytes at {pct}%");
-        assert_eq!(file["status"], "truncated", "at {pct}%");
-        assert_eq!(file["validity"], "partial", "at {pct}%");
-        assert_eq!(file["repaired"], false, "at {pct}%");
-        assert!(file["sha256_original"].is_null(), "at {pct}%");
-        assert!(file["notes"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|note| note.as_str() == Some("repair attempted, not validated")));
-        assert_eq!(check(&file, "repair").unwrap()["ok"], false, "at {pct}%");
+        let mut decoded_validity: Option<String> = None;
+        for mode in ["structure", "decode"] {
+            let (file, carved) = scan_repaired_mode(cut, "jpeg", mode);
+            assert_eq!(file["status"], "repaired", "at {pct}% in {mode} mode");
+            assert_eq!(file["validity"], "repaired", "at {pct}% in {mode} mode");
+            assert_eq!(file["repaired"], true, "at {pct}% in {mode} mode");
+            assert_eq!(file["validation"], "decoded", "at {pct}% in {mode} mode");
+            assert_eq!(file["repair_validated"], true, "at {pct}% in {mode} mode");
+            assert_eq!(file["sha256"], sha256(&carved));
+            assert_eq!(file["sha256_original"], sha256(cut));
+            assert_eq!(
+                file["recovered_rows"].as_u64(),
+                Some(expected_rows as u64),
+                "at {pct}% in {mode} mode"
+            );
+            assert_eq!(
+                file["total_rows"].as_u64(),
+                Some(30),
+                "at {pct}% in {mode} mode"
+            );
+            assert!(carved.len() < cut.len(), "at {pct}% in {mode} mode");
+            assert_eq!(
+                check(&file, "repair").unwrap()["ok"],
+                true,
+                "at {pct}% in {mode} mode"
+            );
+            assert_pillow_top_rows(&original, &carved, "jpeg", expected_rows, 2);
+            let validity = file["validity"].as_str().unwrap().to_string();
+            if let Some(previous) = &decoded_validity {
+                assert_eq!(validity, *previous, "modes disagree at {pct}%");
+            } else {
+                decoded_validity = Some(validity);
+            }
+        }
     }
 }
 

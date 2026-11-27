@@ -322,10 +322,12 @@ model:
 | `partial` | `partial` | `truncated` | truncated, salvaged or prefix-only |
 | `repaired` | `partial`/`decoded` | `repaired` | repair applied and the result re-validates |
 
-A `repaired` row is produced only after the reconstructed bytes pass
-revalidation (§3.8); an unvalidated suffix is not represented by this label.
-The optional `sha256_original` field records the source bytes when repair
-changed the output, so the repaired and original hashes remain distinguishable.
+A `repaired` row is produced only after the rebuilt bytes pass the deep
+validator (§3.8); an unvalidated suffix is not represented by this label. The
+optional `sha256_original` field records the source bytes when repair changed
+the output, so the repaired and original hashes remain distinguishable. A
+validated PNG/JPEG crop additionally records `repair_validated`,
+`recovered_rows`, `total_rows` and `recovered_fraction`.
 Only `verified` may be presented as complete or verified in a summary, count,
 console line or benchmark. Default `--validate structure` output is therefore
 `structural` and is printed as **content not checked**, even when its legacy
@@ -471,33 +473,45 @@ Nested suppression applies only when the parent file has `status = complete` and
 
 ### 3.8. Repairing truncated files
 
-With `--repair`, CarveX first reconstructs candidate suffix bytes and then
-revalidates the complete result:
+With `--repair`, CarveX rebuilds only truncated candidates and then
+deep-validates the complete result. There are three bounded strategies:
 
-- Truncated JPEG: append `FF D9`.
-- Truncated PNG: append the real length-zero IEND chunk
-  (`00 00 00 00 49 45 4E 44 AE 42 60 82`).
-- Truncated PDF: scan the surviving prefix for `N G obj` headers and `/Root`
-  or `/Type /Catalog`, rebuild a bounded classic xref table and trailer with
+- **PDF:** scan the surviving prefix for `N G obj` headers and `/Root` or
+  `/Type /Catalog`, rebuild a bounded classic xref table and trailer with
   `startxref` pointing at the rebuilt table, then append `%%EOF`.
+- **PNG:** for non-interlaced files, inflate the readable IDAT prefix (the
+  partial zlib output is kept), retain the `n` complete scanlines including
+  their filter bytes, rewrite IHDR with height `n` and a recomputed CRC, keep
+  the ancillary chunks before IDAT, re-deflate the retained bytes into one new
+  IDAT, and append a real IEND chunk. Adam7-interlaced files stay `partial`.
+- **JPEG:** for baseline sequential, interleaved, single-scan files without
+  restart intervals, Huffman-decode MCU by MCU, stop at the first incomplete
+  MCU, retain the complete MCU rows, patch the SOF height to the recovered
+  extent, pad the last entropy byte with 1-bits (T.81 F.1.2.3; `FF` is stuffed
+  as `FF 00`), and append EOI. Progressive, non-interleaved and restart-interval
+  files stay `partial`.
 
-The supported repair formats are PDF, PNG and JPEG. In each case the rebuilt
-bytes are a footer; a cut through the payload (for example at 60 % of a PNG or
-JPEG) cannot be recovered by footer reconstruction and stays `partial`.
+The crop strategies emit a *shorter* image: every retained pixel comes from the
+carved prefix, so no missing canvas is filled with decoder grey or invented
+rows. The rejected alternative was full-canvas padding behind an explicit flag;
+it is not implemented and would never be a default. Revalidation does not
+change the original score or `carved_size`. If it fails, no rebuild is written:
+the row remains `truncated`/`partial`, its bytes are unchanged, and it carries
+the note `repair attempted, not validated` plus a failed `repair` check.
 
 Only a result that passes revalidation is labelled `repaired`. Every rebuilt
-file is deep-validated in both `--validate` modes; `Unverified` is not accepted
-as a proof. For PDF this means the H-19 structural validator passes even in
-default `structure` mode; a bare `%%EOF` without a resolvable xref/catalog is
-not sufficient. Revalidation does not change the original score or
-`carved_size`. If it fails, no suffix is
-written: the row remains `truncated`/`partial`, its bytes are unchanged, and it
-carries the note `repair attempted, not validated` plus a failed `repair` check.
-A successful repair emits `sha256_original`, the hash of the bytes read from
-the source, alongside the normal `sha256` of the written output. The legacy
-validation label becomes `decoded` for a decoded-mode repair; emitted scores,
-output names and the benchmark's exact metric are unchanged. Use `--repair`
-only when opening the file matters more than byte-exact evidence.
+file is deep-validated in both `--validate structure` and `--validate decode`
+modes; `Unverified` is not accepted as a proof. For PDF this means the H-19
+structural validator passes even in default `structure` mode; a bare `%%EOF`
+without a resolvable xref/catalog is not sufficient. A successful repair emits
+`sha256_original`, the hash of the bytes read from the image, and
+`sha256_output`, the hash of the rebuilt bytes, alongside the normal `sha256`.
+A validated PNG/JPEG crop also emits `repair_validated=true`, `recovered_rows`,
+`total_rows`, `recovered_fraction` and the note `repair cropped to N of M rows`.
+The legacy validation label becomes `decoded` for a repaired file; emitted
+scores, output names and the benchmark's exact metric are unchanged. Use
+`--repair` only when opening the recovered rows matters more than byte-exact
+evidence.
 
 ### 3.9. Read-error policy (H-22)
 
@@ -930,14 +944,16 @@ Reporting both avoids misjudging tools that append padding bytes. However, usabl
    64 KiB buffer. Images above that bound are reported as `validation=partial`
    without being inflated. The default benchmark path does not use decode
    validation, so the frozen figures are unaffected.
-12. **Repair scope (H-21).** PDF reconstruction is limited to classic xref
+12. **Repair scope (H-21/H-04).** PDF reconstruction is limited to classic xref
     tables whose object headers and `/Root` or `/Type /Catalog` survive in the
     salvaged prefix; xref-stream-only or heavily damaged documents may remain
-    `truncated` rather than be repaired. JPEG/PNG repair proves only that the
-    appended footer restores the same structural/decode result as an intact
-    file of that type; it does not prove that missing payload bytes were
-    recovered. Repaired outputs are excluded from exactness claims and the
-    published benchmark does not enable `--repair`.
+    `truncated` rather than be repaired. PNG crop repair covers non-interlaced
+    files; JPEG crop repair covers baseline sequential, interleaved, single-scan
+    files without restart intervals. Unsupported variants stay `partial`. A
+    validated crop proves that the emitted rows decode and match the carved
+    prefix; it does not recover bytes beyond the cut and is not byte-exact.
+    Repaired outputs are excluded from exactness claims and the published
+    benchmark does not enable `--repair`.
 13. **Read-error scope (H-22).** The executed evidence uses synthetic E01
     sections and a failing mock `ImageSource`; no libewf-made E01, `.E02`
     multi-segment image, real block device or Windows read failure was

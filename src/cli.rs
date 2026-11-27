@@ -155,7 +155,7 @@ struct ScanArgs {
     /// Minimum structural validation score (0-100)
     #[arg(long, default_value_t = 50)]
     min_score: u8,
-    /// Rebuild a truncated footer (PDF, JPEG or PNG) and label repaired only if revalidation passes; mid-stream cuts stay partial
+    /// Repair truncated files only with a deep proof (PDF: xref/trailer rebuild; PNG/JPEG: crop to recovered rows); progressive JPEG and interlaced PNG stay partial
     #[arg(long)]
     repair: bool,
     /// Only write files whose footer was found, not verified (see validity)

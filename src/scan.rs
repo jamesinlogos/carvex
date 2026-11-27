@@ -1,7 +1,7 @@
 use crate::fs::FsInfo;
 use crate::io::{read_exact_at, ImageSource, RegionLog, UnreadableRegion};
 use crate::signatures::{
-    analyze_with_limits, base_validity_checks, build_suffix, validate_deep_detail, validate_repair,
+    analyze_with_limits, base_validity_checks, build_plan, validate_deep_detail, validate_repair,
     Analysis, FileType, Need, PdfEofMode, Status, ValidatedRepair, Validation, ValidationCheck,
     ValidationDetail, ValidationLimits, ValidationMode, Validity,
 };
@@ -995,6 +995,14 @@ pub struct CarvedFile {
     pub nested_in: Option<u64>,
     /// Final output digest when repair changed the carved bytes.
     pub sha256_output: Option<String>,
+    /// True only when a repair passed the deep validator and changed the output.
+    pub repair_validated: bool,
+    /// Rows retained by a validated PNG/JPEG crop; null for other files.
+    pub recovered_rows: Option<u32>,
+    /// Row count declared by the original PNG/JPEG header; null otherwise.
+    pub total_rows: Option<u32>,
+    /// Ratio of retained rows to declared rows; null for other files.
+    pub recovered_fraction: Option<f64>,
     /// Bytes covered by validation.
     pub validated_bytes: u64,
     /// Logical block address, when known.
@@ -1193,6 +1201,11 @@ struct CarvedData {
     repaired: bool,
     /// Dynamic repair bytes appended by the write stage (empty when unchanged).
     repair_suffix: Vec<u8>,
+    /// Complete replacement bytes produced by a PNG/JPEG crop repair.
+    repair_replacement: Option<Vec<u8>>,
+    /// Row coverage of a successful crop repair.
+    recovered_rows: Option<u32>,
+    total_rows: Option<u32>,
     validation: Validation,
     validity: Validity,
     /// Trailing zero bytes removed from the salvaged prefix.
@@ -2294,8 +2307,12 @@ fn prepare_analysis(
 struct RepairState {
     attempted: bool,
     suffix: Vec<u8>,
+    replacement: Option<Vec<u8>>,
     repaired: bool,
+    sha256_output: Option<String>,
     sha256_original: Option<String>,
+    recovered_rows: Option<u32>,
+    total_rows: Option<u32>,
     detail: Option<ValidationDetail>,
     note: Option<String>,
     reason: Option<String>,
@@ -2306,8 +2323,12 @@ impl RepairState {
         Self {
             attempted,
             suffix: Vec::new(),
+            replacement: None,
             repaired: false,
+            sha256_output: None,
             sha256_original: None,
+            recovered_rows: None,
+            total_rows: None,
             detail: None,
             note: None,
             reason: None,
@@ -2347,70 +2368,81 @@ fn attempt_repair(ctx: RepairAttempt<'_>) -> Result<RepairState, CarveOutcome> {
     if !attempted {
         return Ok(state);
     }
-    // H-21: rebuild and revalidate before claiming `repaired`.
-    match build_suffix(cand.kind, &prefix[..end], limits) {
-        Ok(suffix) => {
-            let rebuilt_len = (end as u64).saturating_add(suffix.len() as u64);
-            match usize::try_from(rebuilt_len) {
-                Ok(rebuilt_len) => {
-                    match BudgetGuard::reserve(
-                        budget,
-                        rebuilt_len as u64,
-                        "validating a repaired file",
-                    ) {
-                        Ok(mut guard) => {
-                            let mut rebuilt = Vec::new();
-                            if rebuilt.try_reserve_exact(rebuilt_len).is_err() {
-                                state.reason =
-                                    Some("cannot reserve repair validation memory".into());
+    // H-21/H-04: build, revalidate, and only then expose the changed bytes.
+    // A crop repair is a complete replacement; a PDF repair is still a suffix.
+    let plan = match build_plan(cand.kind, &prefix[..end], limits) {
+        Ok(plan) => Some(plan),
+        Err(reason) => {
+            state.reason = Some(reason);
+            None
+        }
+    };
+    if let Some(plan) = plan {
+        let suffix = plan.suffix;
+        let rows = plan.recovered_rows.zip(plan.total_rows);
+        let has_replacement = plan.replacement.is_some();
+        let replacement = plan.replacement;
+        let rebuilt_len = if has_replacement {
+            replacement.as_ref().map_or(0, Vec::len) as u64
+        } else {
+            (end as u64).saturating_add(suffix.len() as u64)
+        };
+        match usize::try_from(rebuilt_len) {
+            Ok(rebuilt_len) => {
+                match BudgetGuard::reserve(budget, rebuilt_len as u64, "validating a repaired file")
+                {
+                    Ok(mut guard) => {
+                        let mut rebuilt = Vec::new();
+                        if rebuilt.try_reserve_exact(rebuilt_len).is_err() {
+                            state.reason = Some("cannot reserve repair validation memory".into());
+                        } else {
+                            if has_replacement {
+                                rebuilt = replacement.unwrap_or_default();
                             } else {
                                 rebuilt.extend_from_slice(&prefix[..end]);
                                 rebuilt.extend_from_slice(&suffix);
-                                if !work.add(rebuilt_len as u64) {
-                                    return Err(work_limit_outcome(
-                                        cand,
-                                        work.used().saturating_add(rebuilt_len as u64),
-                                        work_limit,
-                                    ));
-                                }
-                                test_panic_probe(cand.offset, "validate");
-                                match validate_repair(
-                                    cand.kind,
-                                    &rebuilt,
-                                    limits,
-                                    opts.pdf_eof,
-                                ) {
-                                    Ok(ValidatedRepair {
-                                        analysis: rebuilt_analysis,
-                                        detail,
-                                        note,
-                                    }) => {
-                                        state.repaired = true;
-                                        state.suffix = suffix;
-                                        state.detail = Some(detail);
-                                        state.note = Some(note.clone());
-                                        state.sha256_original = Some(sha256_hex(&prefix[..end]));
-                                        // Keep the original score, length and
-                                        // provenance notes; only the footer status
-                                        // becomes complete after revalidation.
-                                        analysis.complete = true;
-                                        analysis.notes.extend(rebuilt_analysis.notes);
-                                        analysis.notes.push(note);
-                                    }
-                                    Err(reason) => state.reason = Some(reason),
-                                }
                             }
-                            guard.release();
+                            if !work.add(rebuilt_len as u64) {
+                                return Err(work_limit_outcome(
+                                    cand,
+                                    work.used().saturating_add(rebuilt_len as u64),
+                                    work_limit,
+                                ));
+                            }
+                            test_panic_probe(cand.offset, "validate");
+                            match validate_repair(cand.kind, &rebuilt, limits, opts.pdf_eof, rows) {
+                                Ok(ValidatedRepair {
+                                    analysis: rebuilt_analysis,
+                                    detail,
+                                    note,
+                                }) => {
+                                    state.sha256_output = Some(sha256_hex(&rebuilt));
+                                    state.repaired = true;
+                                    state.suffix = suffix;
+                                    state.replacement =
+                                        if has_replacement { Some(rebuilt) } else { None };
+                                    state.recovered_rows = rows.map(|(kept, _)| kept);
+                                    state.total_rows = rows.map(|(_, total)| total);
+                                    state.detail = Some(detail);
+                                    state.note = Some(note.clone());
+                                    state.sha256_original = Some(sha256_hex(&prefix[..end]));
+                                    // Keep the original score and provenance
+                                    // notes; only the footer status becomes
+                                    // complete after revalidation.
+                                    analysis.complete = true;
+                                    analysis.notes.extend(rebuilt_analysis.notes);
+                                    analysis.notes.push(note);
+                                }
+                                Err(reason) => state.reason = Some(reason),
+                            }
                         }
-                        Err(e) => state.reason = Some(e.to_string()),
+                        guard.release();
                     }
-                }
-                Err(_) => {
-                    state.reason = Some("repaired length is not addressable".into());
+                    Err(e) => state.reason = Some(e.to_string()),
                 }
             }
+            Err(_) => state.reason = Some("repaired length is not addressable".into()),
         }
-        Err(reason) => state.reason = Some(reason),
     }
     if !state.repaired {
         analysis
@@ -2500,9 +2532,13 @@ fn finalize_carved(ctx: CarveFinalize<'_>) -> Result<CarvedData, CarveOutcome> {
         checks: detail_checks,
         validated_bytes,
     } = detail;
-    // `carved_size` describes bytes read; never claim more checked bytes than
-    // were read just because a suffix was appended.
-    let validated_bytes = validated_bytes.min(end as u64);
+    // `carved_size` describes bytes read; a crop repair emits fewer bytes than
+    // the carved prefix, so it must not claim more checked bytes than it wrote.
+    let checked_len = repair
+        .replacement
+        .as_ref()
+        .map_or(end as u64, |v: &Vec<u8>| v.len() as u64);
+    let validated_bytes = validated_bytes.min(checked_len);
     let status = analysis.status(repair.repaired);
     let validity = Validity::from_legacy(validation, status);
     let mut validation_checks =
@@ -2539,7 +2575,12 @@ fn finalize_carved(ctx: CarveFinalize<'_>) -> Result<CarvedData, CarveOutcome> {
             });
         }
     }
-    let sha256 = sha256_hex_with_suffix(&prefix[..end], &repair.suffix);
+    let sha256 = match repair.sha256_output.clone() {
+        Some(digest) => digest,
+        None => sha256_hex_with_suffix(&prefix[..end], &repair.suffix),
+    };
+    let replacement_len = repair.replacement.as_ref().map(|v| v.len() as u64);
+    let output_len = replacement_len.unwrap_or(output_len);
     Ok(CarvedData {
         candidate: cand.clone(),
         tail_trimmed_bytes,
@@ -2553,6 +2594,9 @@ fn finalize_carved(ctx: CarveFinalize<'_>) -> Result<CarvedData, CarveOutcome> {
         sha256_original: repair.sha256_original,
         repaired: repair.repaired,
         repair_suffix: repair.suffix,
+        repair_replacement: repair.replacement,
+        recovered_rows: repair.recovered_rows,
+        total_rows: repair.total_rows,
         validation,
         validity,
         validation_notes,
@@ -2660,7 +2704,10 @@ fn finalize_analyzed_candidate(ctx: AnalyzedCandidateCtx<'_>) -> Result<CarveOut
         Err(outcome) => return Ok(outcome),
     };
 
-    let output_len = (end as u64).saturating_add(repair.suffix.len() as u64);
+    let output_len = repair.replacement.as_ref().map_or_else(
+        || (end as u64).saturating_add(repair.suffix.len() as u64),
+        |bytes| bytes.len() as u64,
+    );
     if output_len < opts.min_size {
         return Ok(CarveOutcome::TooSmall(output_len));
     }
@@ -3591,6 +3638,9 @@ fn joined_carved_data(spec: JoinedCarvedSpec<'_>) -> CarvedData {
         sha256_original: None,
         repaired: false,
         repair_suffix: Vec::new(),
+        repair_replacement: None,
+        recovered_rows: None,
+        total_rows: None,
         validation,
         validity,
         validation_notes,
@@ -4605,20 +4655,26 @@ fn stream_file_digest(
     let mut file = File::create(tmp)
         .with_context(|| format!("cannot create temporary file '{}'", tmp.display()))?;
     let mut hasher = sha2::Sha256::new();
-    match &data.payload {
-        PayloadSpec::Range { offset, len } => {
-            stream_range(source, &mut file, &mut hasher, *offset, *len, scratch)?;
-        }
-        PayloadSpec::Join { fragments } => {
-            for fragment in fragments {
-                stream_range(
-                    source,
-                    &mut file,
-                    &mut hasher,
-                    fragment.offset,
-                    fragment.len,
-                    scratch,
-                )?;
+    if let Some(bytes) = data.repair_replacement.as_deref() {
+        file.write_all(bytes)
+            .with_context(|| "cannot write cropped repair output")?;
+        hasher.update(bytes);
+    } else {
+        match &data.payload {
+            PayloadSpec::Range { offset, len } => {
+                stream_range(source, &mut file, &mut hasher, *offset, *len, scratch)?;
+            }
+            PayloadSpec::Join { fragments } => {
+                for fragment in fragments {
+                    stream_range(
+                        source,
+                        &mut file,
+                        &mut hasher,
+                        fragment.offset,
+                        fragment.len,
+                        scratch,
+                    )?;
+                }
             }
         }
     }
@@ -4699,6 +4755,19 @@ fn build_carved_file(
         aligned: aligned(data.candidate.offset, opts.align, volumes),
         nested_in: None,
         sha256_output: data.repaired.then(|| data.sha256.clone()),
+        repair_validated: data.repaired,
+        recovered_rows: data.recovered_rows,
+        total_rows: data.total_rows,
+        recovered_fraction: data
+            .recovered_rows
+            .zip(data.total_rows)
+            .map(|(kept, total)| {
+                if total == 0 {
+                    0.0
+                } else {
+                    f64::from(kept) / f64::from(total)
+                }
+            }),
         validated_bytes: data.validated_bytes,
         lba,
         cluster,

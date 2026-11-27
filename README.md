@@ -5,7 +5,7 @@
 - **Signature-based carving** (header/footer) with full **structural validation** rather than merely searching for an end byte;
 - **FAT32/NTFS filesystem detection** to scan only **unallocated** space, greatly reducing false positives;
 - Parallel scanning per extent, suitable for large disk images;
-- JSON/CSV reports and an option to repair missing footers (`--repair`);
+- JSON/CSV reports and an option to repair truncated files with a deep proof (`--repair`);
 - Bundled static Linux and Windows x86_64 binaries.
 
 > **Forensic note:** CarveX only opens images in read-only mode. Always work on a forensic copy and verify the image hash before/after analysis.
@@ -139,7 +139,7 @@ Main options:
 | `--chunk-size <CHUNK_SIZE>` | `4M` | Read chunk size for parallel scanning |
 | `--threads <THREADS>` | `0` | Worker threads (0 = number of CPUs) |
 | `--min-score <MIN_SCORE>` | `50` | Minimum structural validation score (0-100) |
-| `--repair` | `off` | Rebuild a truncated footer (PDF, JPEG or PNG) and label repaired only if revalidation passes; mid-stream cuts stay partial |
+| `--repair` | `off` | Repair truncated files only with a deep proof (PDF: xref/trailer rebuild; PNG/JPEG: crop to recovered rows); progressive JPEG and interlaced PNG stay partial |
 | `--complete-only` | `off` | Only write files whose footer was found, not verified (see validity) |
 | `--verified-only` | `off` | Only write files whose authoritative validity is verified |
 | `--pdf-eof <PDF_EOF>` | `smart` | PDF %%EOF selection strategy |
@@ -257,7 +257,7 @@ Scan only allocated space:
 carvex scan disk.img -o out-allocated --mode allocated --complete-only
 ```
 
-Select partition 2 and repair truncated file footers:
+Select partition 2 and repair truncated files:
 
 ```bash
 carvex scan disk.img -o out --partition 2 --repair
@@ -318,16 +318,28 @@ Candidates scoring below `--min-score` are discarded. This eliminates most accid
 - PNG: an IEND chunk with length 0 and a correct CRC.
 - PDF: the nearest `%%EOF` whose `startxref` points to an xref/object; `smart` prefers the last valid revision. For PDFs with multiple revisions, `--pdf-eof first/last` allows changing the strategy.
 
-When `--repair` is enabled, CarveX reconstructs a candidate suffix: `FF D9` for
-JPEG, a real IEND chunk for PNG, or a bounded classic xref table and trailer for
-PDF. The result is marked `repaired` only if it passes revalidation; otherwise
-the original bytes are written with `status=truncated`, `validity=partial` and
-the note `repair attempted, not validated`. A successful repair records
-`sha256_original` (the bytes read) alongside `sha256` (the bytes written), and
-never counts as an exact recovery. All three formats (PDF, PNG, JPEG) are
-supported, but only when the missing bytes are a footer that can be rebuilt and
-revalidated; a cut through the payload (for example at 60 % of a PNG or JPEG)
-normally stays `partial` rather than claiming a successful repair. The official
+When `--repair` is enabled, CarveX attempts one of three bounded rebuilds:
+
+- **PDF:** rebuild a classic xref table and trailer from the surviving objects,
+  including a resolvable `/Root`/catalog, and append `%%EOF`.
+- **PNG (non-interlaced):** inflate the readable IDAT prefix, keep the complete
+  scanlines, rewrite the IHDR height, re-deflate the retained rows and append a
+  real IEND chunk.
+- **JPEG (baseline sequential, interleaved, no restart interval):** Huffman-decode
+  the entropy data MCU by MCU, keep the complete MCU rows, patch the SOF height
+  and append EOI.
+
+No pixel is invented: crop repairs are shorter than the original and contain
+only rows recovered from the carved prefix. Interlaced PNG, progressive or
+non-interleaved JPEG and restart-interval JPEG stay `partial`. A result is marked
+`repaired` only if the deep validator passes in both `--validate structure` and
+`--validate decode` mode; `Unverified` is not accepted. Otherwise the carved
+bytes are written unchanged with `status=truncated`, `validity=partial` and the
+note `repair attempted, not validated`. A successful repair records
+`sha256_original` (the bytes read from the image) and `sha256_output` alongside
+`sha256` (the bytes written). Crops also report `repair_validated`,
+`recovered_rows`, `total_rows`, `recovered_fraction` and the note `repair cropped
+to N of M rows`; they never count as byte-exact recoveries. The official
 benchmark does **not** enable this option.
 
 ### 5. Nested file removal
@@ -357,9 +369,9 @@ The JSON report (schema 2, default) has these main fields:
 - `warnings[]`: a list of `{code, message}`; `*_NOT_SCANNED`-style codes correspond to exit code 3, `READ_ABORTED` accompanies an exit-1 partial report, and `INTERRUPTED` accompanies an exit-4 cooperative stop (H-28);
 - `interrupted`: additive schema-2 boolean, true when SIGINT/Ctrl-C requested the stop; removed by `--report-schema 1` (H-28);
 - `unreadable_regions[]`: `{offset, len, reason}` for each failed source range (H-22);
-- `files[]`: `seq`, `type`, `offset`, `size`, `carved_size`, `sha256`, `status` (`complete`/`truncated`/`repaired`), `score`, `width`, `height`, `notes`, `path`, `validation`, `validity`, `checks[]`, and optional `sha256_original` after a revalidated repair.
+- `files[]`: `seq`, `type`, `offset`, `size`, `carved_size`, `sha256`, `status` (`complete`/`truncated`/`repaired`), `score`, `width`, `height`, `notes`, `path`, `validation`, `validity`, `checks[]`, and repair fields after a validated repair: `sha256_original`, `sha256_output`, `repair_validated`, and (for PNG/JPEG crops) `recovered_rows`, `total_rows`, `recovered_fraction`.
 
-`--report-schema 1` emits the legacy 0.1.0 format (omitting v2 fields, including `sha256_original`). The published JSON Schema is at [`docs/report.schema.json`](docs/report.schema.json).
+`--report-schema 1` emits the legacy 0.1.0 format (omitting v2 fields, including all repair fields). The published JSON Schema is at [`docs/report.schema.json`](docs/report.schema.json).
 
 The CSV report has one row per file, suitable for import into a spreadsheet.
 
@@ -556,7 +568,7 @@ cargo test
 ```
 
 <!-- BEGIN GENERATED TEST COUNT -->
-The current suite has 149 tests (43 unit + 15 `cli_contract` + 7 `evidence_formats` + 6 `fragment_recovery` + 8 `fs_detect` + 2 `jpeg_frame_budget` + 1 `jpeg_unsupported_validation` + 4 `memory_budget` + 3 `panic_containment` + 8 `pdf_structure_validation` + 3 `png_crc_validity` + 4 `png_decode_budget` + 2 `png_validator_budget` + 7 `properties` + 3 `region_coverage` + 4 `regress_e01_safety` + 5 `regress_tail_padding` + 1 `regress_task_plan` + 4 `regress_vmdk_safety` + 5 `repair_validation` + 6 `scan_integration` + 1 `validity_model` + 3 `volume_parse_errors` + 4 `work_budgets`).
+The current suite has 159 tests (43 unit + 15 `cli_contract` + 7 `evidence_formats` + 6 `fragment_recovery` + 8 `fs_detect` + 2 `jpeg_frame_budget` + 1 `jpeg_unsupported_validation` + 4 `memory_budget` + 3 `panic_containment` + 8 `pdf_structure_validation` + 3 `png_crc_validity` + 4 `png_decode_budget` + 2 `png_validator_budget` + 7 `properties` + 3 `region_coverage` + 4 `regress_e01_safety` + 10 `regress_repair_images` + 5 `regress_tail_padding` + 1 `regress_task_plan` + 4 `regress_vmdk_safety` + 5 `repair_validation` + 6 `scan_integration` + 1 `validity_model` + 3 `volume_parse_errors` + 4 `work_budgets`).
 <!-- END GENERATED TEST COUNT -->
 Run the full G0-G9 release gate with `bash scripts/gate.sh`: it also runs G7
 golden hashes, G8 performance checks against committed baselines, a generated

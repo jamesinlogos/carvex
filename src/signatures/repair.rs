@@ -1,22 +1,36 @@
-//! Repair planning and revalidation for `--repair` (H-21).
+//! Repair planning and revalidation for `--repair` (H-21, external H-04).
 //!
 //! A truncated candidate is only labelled `repaired` after the reconstructed
-//! bytes pass the same structural/decode checks as an intact file of that
-//! type. PDF repair rebuilds a classic xref table and trailer from the
-//! object headers and catalog found in the salvaged prefix; JPEG and PNG
-//! append their real footers.
+//! bytes pass the deep validator in both `--validate` modes. PDF repair rebuilds
+//! a classic xref table and trailer from the object headers and catalog found
+//! in the salvaged prefix. PNG and JPEG repair crop the payload to the rows
+//! actually present in the prefix, so no pixel is invented by a decoder.
 
 #![deny(clippy::indexing_slicing, clippy::unwrap_used, clippy::expect_used)]
 
 use super::{
-    jpeg::EOI, png::IEND_SUFFIX, validate_deep_detail, Analysis, FileType, Need, PdfEofMode,
-    Validation, ValidationDetail, ValidationLimits,
+    repair_image::{crop_jpeg, crop_png},
+    validate_deep_detail, Analysis, FileType, Need, PdfEofMode, Validation, ValidationDetail,
+    ValidationLimits,
 };
 use std::collections::HashMap;
 
 const MAX_REPAIR_OBJECTS: usize = 1_000_000;
 const MAX_OBJECT_BODY: usize = 64 * 1024;
 const MAX_XREF_OFFSET: u64 = 9_999_999_999;
+
+/// The bytes a repair will emit and the row coverage it claims.
+#[derive(Debug)]
+pub(crate) struct RepairPlan {
+    /// Bytes appended to the carved prefix (PDF only).
+    pub suffix: Vec<u8>,
+    /// Complete replacement bytes for a PNG/JPEG crop; `None` for PDF.
+    pub replacement: Option<Vec<u8>>,
+    /// Rows kept by a PNG/JPEG crop, reported only for a successful repair.
+    pub recovered_rows: Option<u32>,
+    /// Row count declared by the original header (PNG height or JPEG MCU rows).
+    pub total_rows: Option<u32>,
+}
 
 /// The result of a repair that passed its revalidation checks.
 #[derive(Debug)]
@@ -26,19 +40,40 @@ pub(crate) struct ValidatedRepair {
     pub note: String,
 }
 
-/// Build the suffix that would repair `data`.
+/// Build the repair for `data`.
 ///
 /// An `Err` means no honest repair is possible; the caller keeps the original
 /// truncated bytes and records `repair attempted, not validated`.
-pub(crate) fn build_suffix(
+pub(crate) fn build_plan(
     kind: FileType,
     data: &[u8],
     limits: ValidationLimits,
-) -> Result<Vec<u8>, String> {
+) -> Result<RepairPlan, String> {
     match kind {
-        FileType::Jpeg => Ok(EOI.to_vec()),
-        FileType::Png => Ok(IEND_SUFFIX.to_vec()),
-        FileType::Pdf => build_pdf_suffix(data, limits),
+        FileType::Jpeg => {
+            let crop = crop_jpeg(data, limits)?;
+            Ok(RepairPlan {
+                suffix: Vec::new(),
+                replacement: Some(crop.output),
+                recovered_rows: Some(crop.recovered_rows),
+                total_rows: Some(crop.total_rows),
+            })
+        }
+        FileType::Png => {
+            let crop = crop_png(data, limits)?;
+            Ok(RepairPlan {
+                suffix: Vec::new(),
+                replacement: Some(crop.output),
+                recovered_rows: Some(crop.recovered_rows),
+                total_rows: Some(crop.total_rows),
+            })
+        }
+        FileType::Pdf => Ok(RepairPlan {
+            suffix: build_pdf_suffix(data, limits)?,
+            replacement: None,
+            recovered_rows: None,
+            total_rows: None,
+        }),
     }
 }
 
@@ -49,6 +84,7 @@ pub(crate) fn validate(
     data: &[u8],
     limits: ValidationLimits,
     pdf_mode: PdfEofMode,
+    rows: Option<(u32, u32)>,
 ) -> Result<ValidatedRepair, String> {
     let analysis = match super::analyze(kind, data, true, pdf_mode) {
         Need::Analyzed(analysis) if analysis.complete && analysis.end == data.len() => analysis,
@@ -76,8 +112,12 @@ pub(crate) fn validate(
     }
     let note = match kind {
         FileType::Pdf => "repair rebuilt the xref/trailer and revalidated".to_string(),
-        FileType::Jpeg => "repair appended EOI and revalidated".to_string(),
-        FileType::Png => "repair appended IEND and revalidated".to_string(),
+        FileType::Jpeg | FileType::Png => match rows {
+            Some((recovered, total)) => {
+                format!("repair cropped to {recovered} of {total} rows")
+            }
+            None => "repair revalidated".to_string(),
+        },
     };
     Ok(ValidatedRepair {
         analysis,

@@ -13,6 +13,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - H-01: report `validity_reason`, `tail_trimmed_bytes`, `aligned`, `nested_in`,
   `sha256_output` and `tool_info.rustc`; new `--verified-only` filter with
   `stats.skipped_verified_only`. Report schema and CSV prefix stay compatible.
+- H-04: `--repair` now crops non-interlaced PNG and baseline sequential JPEG to
+  the recovered scanlines/MCU rows. Validated crops emit `repair_validated`,
+  `recovered_rows`, `total_rows` and `recovered_fraction`; no pixel is invented
+  and progressive JPEG/interlaced PNG stay `partial`. Decision D-73 and the
+  Appendix C.3 reference script are included; §9 Q12 remains formally open.
 - H-09 reopen: `scripts/jpeg_splice_property.py --assert-max-rate` fails a
   splice-acceptance run when the measured point estimate exceeds a supplied
   bound. The optional assertion does not change the default measurement.
@@ -21,16 +26,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - H-04 item 0: `--repair` now runs the deep validator in both
   `--validate structure` and `--validate decode` modes and rejects
-  `Unverified`. A JPEG cut mid-scan stays `truncated`/`partial` with its bytes
-  unchanged instead of being labelled `repaired` on a structural proof.
+  `Unverified`. A rebuilt file that cannot be proved stays `truncated`/`partial`
+  with its bytes unchanged instead of being labelled `repaired` on a structural
+  proof. Recoverable mid-stream cuts are cropped rather than grey-filled.
 - H-01: `--verbose` prints each carved-file line exactly once and honours
   `--quiet` (the duplicate pre-write line is gone).
 - H-02: candidates withheld by `--min-score` now produce a single aggregate
   `BELOW_MIN_SCORE` warning with the count and first offsets, instead of being
   silently discarded. The warning is not an incomplete-run condition and the
   default emission policy is unchanged.
-- H-04: document PDF, PNG and JPEG footer repair (§9 Q11 user decision) and pin
-  that mid-stream PNG/JPEG cuts stay `partial` with unchanged bytes.
+- H-04: document PDF xref/trailer rebuild and PNG/JPEG crop repair (§9 Q11 user
+  decision and D-73), including the unsupported progressive/interlaced variants;
+  an unvalidated repair still leaves the carved bytes unchanged.
 - H-17: document the supported B-06 gap classes and the precision-over-recall
   decision; `scan --help` now states that random/high-entropy gaps are not
   joined. No join behaviour, default, threshold or frozen result changed.

@@ -60,9 +60,33 @@ New tests: jpeg_mid_stream_repair_structure_mode_stays_partial (red before /
 Gate: green for targeted repair tests; full gate pending end-of-phase
 Measurement: before: 60 % cut = `repaired`/`repaired`, 116,427 B; after:
         `truncated`/`partial`, 116,425 B, bytes unchanged.
-Residual risk / next: Q12 crop recovery remains unimplemented; the test uses
-        report labels rather than a Rust pixel oracle, while the external
-        harness's Pillow/first-differing-row oracle is recorded in D-72.
+Residual risk / next: Q12 crop recovery was still unimplemented at this point;
+        the following block records its implementation and the Pillow oracle.
+```
+
+```text
+Task: H-04 items 1-7 — validated crop recovery for PNG/JPEG (Q12 target)
+Change: src/signatures/repair_image.rs, src/signatures/repair.rs, src/scan.rs,
+        src/report.rs, docs/report.schema.json, src/cli.rs, README.md,
+        docs/REPORT.md, docs/DECISIONS.md (D-73), docs/PROGRESS.md,
+        CHANGELOG.md, scripts/repair_ref.py (Appendix C.3 reference)
+New tests: tests/regress_repair_images.rs (10 tests; >= 3 corpus files per
+        format at 30/60/90 %, both validation modes, first-IDAT-boundary cut,
+        padding after the cut, unsupported variants, intact controls);
+        tests/repair_validation.rs updated to the no-invented-rows oracle.
+Gate: targeted tests green (5 repair_validation + 10 regress_repair_images);
+      full gate pending end-of-phase verification.
+Measurement: PNG png_02 = 180/359/539 of 600 rows; JPEG jpeg_01 = 8/17/27
+      of 30 MCU rows at 30/60/90 %, identical in --validate structure and
+      decode. Interlaced PNG and progressive JPEG stay truncated/partial.
+      Pillow verify()+load() and top-row comparison pass; 4 KiB zero padding
+      is trimmed before repair and does not add rows. Reference script exits
+      0 with the same row counts. A full corpus sweep matches the reference's
+      9/10 PNG and 8/10 JPEG repairable files at all three cuts.
+Decision: D-73 keeps crop-to-recovered-rows behind the existing --repair flag;
+      Q12 remains formally open until the user confirms or rejects it.
+Residual risk / next: full CI-env gate and push after all H-04 edits; Part T
+      starts only after H1-H4 gates are green and H-04/H-09 are closed.
 ```
 
 ### H0 preparation — `harness-ab725a6` (2026-11-25, in progress)
@@ -1356,6 +1380,14 @@ Residual risk / next: pedantic stage 2 (numeric casts) and stage 3 (API
 
 ## Blockers / open questions (current)
 
+- **§9 Q12 (H-04, formally open).** The repository originally read Q11 as
+  footer repair only (D-68); the external harness reads it as validated
+  recovery of mid-stream cuts. Following its recommendation, the crop design is
+  implemented behind the existing `--repair` flag and recorded in D-73, but no
+  user confirmation has been received. If the footer-only reading is confirmed,
+  close H-04 by reverting the crop and restoring the D-68 wording; otherwise
+  the crop implementation is the intended target. Part T stays blocked until
+  H-04 is closed and H1–H4 gates are green.
 - Current-HEAD CI run `45332545060` at `749ee7a` (2026-11-24) completed **success**
   (27/27 jobs), archived in `bench/results/ci_run_45332545060*.json`; checksums
   in `bench/results/EVIDENCE.sha256`. Job logs unavailable via public API (403);

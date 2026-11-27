@@ -1469,6 +1469,43 @@ decision, and the consequences.
 - **Evidence:** `tests/repair_validation.rs::jpeg_mid_stream_repair_structure_mode_stays_partial`
   was red before the fix (the 60 % cut was reported `repaired`) and green
   after it. The footer controls and the PDF repair rows remain green.
-- **Residual:** this decision removes the false label but does not recover
-  mid-stream PNG/JPEG cuts; the crop design of external H-04 items 1–7 is
-  tracked separately under Q12.
+- **Residual:** this decision removed the false label; the remaining gap was
+  recovery of mid-stream PNG/JPEG cuts. That gap is addressed by D-73, while
+  §9 Q12 stays formally open until confirmed by the user.
+
+## D-73. `--repair` crops PNG/JPEG to the recovered rows (external H-04 items 1–7 / §9 Q12)
+
+- **Context:** the user answered §9 Q11 with "repair PNG and JPEG too, with
+  verification". D-68 implemented the narrower footer-only reading, which is
+  honest but leaves a truncated PNG/JPEG — the common case — unrecoverable.
+  External H-04 items 1–7 define a crop-to-recovered-rows design; Appendix C.3
+  (`scripts/repair_ref.py`) demonstrates it on the corpus. §9 Q12 formally asks
+  which reading is intended; its recommendation is to keep the crop design.
+- **Decision:** implement the crop design behind the existing `--repair` flag.
+  PDF keeps the xref/trailer rebuild. Non-interlaced PNG keeps complete
+  scanlines and rewrites IHDR; baseline sequential, interleaved, single-scan
+  JPEG without restart intervals keeps complete MCU rows and rewrites SOF.
+  Progressive/non-interleaved/restart-interval JPEG and interlaced PNG stay
+  `partial`. Missing pixels are never invented: full-canvas fill is rejected,
+  no `--repair-fill` flag is added, and no output is labelled `repaired` without
+  a deep validator proof in both `--validate` modes (D-72). This supersedes the
+  narrower "mid-stream cuts stay partial" wording of D-68 while Q12 remains
+  formally open.
+- **Evidence:** `src/signatures/repair_image.rs` ports the Appendix C.3
+  algorithm with checked arithmetic and decode budgets. `tests/regress_repair_images.rs`
+  checks at least three corpus files per format at 30/60/90 %, both validation
+  modes on two formats, a cut in the next PNG chunk header, padding after the
+  cut, unsupported variants and intact controls. The independent Pillow oracle
+  verifies output and compares retained rows with the original (JPEG ignores
+  the last two rows for chroma edges). `tests/repair_validation.rs` retains the
+  item-0 regression name but now asserts the no-invented-rows invariant. A full
+  corpus sweep repairs the same 9/10 PNG and 8/10 JPEG files as Appendix C.3 at
+  all three cut points; the interlaced PNG and two progressive JPEGs stay
+  `partial`.
+- **Report fields:** validated crops emit `repair_validated`, `recovered_rows`,
+  `total_rows`, `recovered_fraction`, `sha256_original` and `sha256_output`,
+  plus the note `repair cropped to N of M rows`. Schema 1 omits these additive
+  fields. CSV columns and the frozen benchmark inputs and metrics are unchanged.
+- **Residual:** if the user confirms the footer-only reading instead, close H-04
+  by reverting the crop implementation and restoring the D-68 documentation;
+  no confirmation has been received, so the recommended crop target stands.
