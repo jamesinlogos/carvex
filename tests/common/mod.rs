@@ -9,6 +9,7 @@ use carvex::io::ImageSource;
 use carvex::scan::{AlignMode, ScanMode, ScanOptions};
 use carvex::signatures::{FileType, PdfEofMode, ValidationMode};
 use std::io;
+use std::process::Command;
 use std::sync::Arc;
 
 /// Read-only in-memory image source, independent from the crate's test-only
@@ -378,4 +379,24 @@ pub fn mbr_two_fat32(payload1: &[u8], payload2: &[u8]) -> Vec<u8> {
         (2048, 0x0C, &big),
         (2048 + u64::from(BIG_SECTORS), 0x0C, &small),
     ])
+}
+
+/// Locate a Python interpreter with Pillow installed. Windows runners expose
+/// `python` but not always `python3`; the `py -3` launcher is the last resort.
+pub fn pillow_python() -> (&'static str, &'static [&'static str]) {
+    for (program, prefix) in [
+        ("python3", &[][..]),
+        ("python", &[][..]),
+        ("py", &["-3"][..]),
+    ] {
+        let available = Command::new(program)
+            .args(prefix)
+            .args(["-c", "from PIL import Image"])
+            .output()
+            .is_ok_and(|output| output.status.success());
+        if available {
+            return (program, prefix);
+        }
+    }
+    panic!("no Python interpreter with Pillow found (python3, python, py -3)");
 }

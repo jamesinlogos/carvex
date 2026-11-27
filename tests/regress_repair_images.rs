@@ -5,6 +5,9 @@
 //! and compares those rows with the original; a grey-filled or re-rendered file
 //! cannot pass.
 
+mod common;
+
+use common::pillow_python;
 use serde_json::Value;
 use std::fs;
 use std::path::Path;
@@ -109,7 +112,9 @@ if image.crop((0, 0, image.width, keep)).tobytes() != reference.crop((0, 0, refe
     sys.exit('retained rows differ from the original')
 print('OK')
 "#;
-    let proc = Command::new("python3")
+    let (python, prefix) = pillow_python();
+    let proc = Command::new(python)
+        .args(prefix)
         .arg("-c")
         .arg(script)
         .arg(original_path)

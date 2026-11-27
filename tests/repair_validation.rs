@@ -6,7 +6,7 @@
 
 mod common;
 
-use common::{pdf_min, png_1x1, JPEG_1X1};
+use common::{pdf_min, pillow_python, png_1x1, JPEG_1X1};
 use serde_json::Value;
 use std::fs;
 use std::path::Path;
@@ -148,7 +148,9 @@ if kind == 'jpeg' and image.height >= reference.height:
     sys.exit('repaired JPEG kept the full canvas')
 print('OK')
 "#;
-    let proc = Command::new("python3")
+    let (python, prefix) = pillow_python();
+    let proc = Command::new(python)
+        .args(prefix)
         .arg("-c")
         .arg(script)
         .arg(original_path)

@@ -84,7 +84,7 @@ Measurement: PNG png_02 = 180/359/539 of 600 rows; JPEG jpeg_01 = 8/17/27
       0 with the same row counts. A full corpus sweep matches the reference's
       9/10 PNG and 8/10 JPEG repairable files at all three cuts.
 Decision: D-73 keeps crop-to-recovered-rows behind the existing --repair flag;
-      Q12 remains formally open until the user confirms or rejects it.
+      the user confirmed Q12 on 2026-11-27, closing it.
 Residual risk / next: full CI-env gate and push after all H-04 edits; Part T
       starts only after H1-H4 gates are green and H-04/H-09 are closed.
 ```
@@ -1380,14 +1380,6 @@ Residual risk / next: pedantic stage 2 (numeric casts) and stage 3 (API
 
 ## Blockers / open questions (current)
 
-- **§9 Q12 (H-04, formally open).** The repository originally read Q11 as
-  footer repair only (D-68); the external harness reads it as validated
-  recovery of mid-stream cuts. Following its recommendation, the crop design is
-  implemented behind the existing `--repair` flag and recorded in D-73, but no
-  user confirmation has been received. If the footer-only reading is confirmed,
-  close H-04 by reverting the crop and restoring the D-68 wording; otherwise
-  the crop implementation is the intended target. Part T stays blocked until
-  H-04 is closed and H1–H4 gates are green.
 - Current-HEAD CI run `45332545060` at `749ee7a` (2026-11-24) completed **success**
   (27/27 jobs), archived in `bench/results/ci_run_45332545060*.json`; checksums
   in `bench/results/EVIDENCE.sha256`. Job logs unavailable via public API (403);

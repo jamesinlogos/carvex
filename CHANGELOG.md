@@ -17,7 +17,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the recovered scanlines/MCU rows. Validated crops emit `repair_validated`,
   `recovered_rows`, `total_rows` and `recovered_fraction`; no pixel is invented
   and progressive JPEG/interlaced PNG stay `partial`. Decision D-73 and the
-  Appendix C.3 reference script are included; §9 Q12 remains formally open.
+  Appendix C.3 reference script are included; the user confirmed §9 Q12 on
+  2026-11-27.
 - H-09 reopen: `scripts/jpeg_splice_property.py --assert-max-rate` fails a
   splice-acceptance run when the measured point estimate exceeds a supplied
   bound. The optional assertion does not change the default measurement.
@@ -48,6 +49,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   favour of local stage/parameter structs. A pure refactor with no test edits;
   golden output is byte-identical, G8 is green and clippy reports no line-count
   findings.
+- CI: install pinned Pillow for the H-04 image-oracle tests and locate it via
+  `python3`, `python` or `py -3`, so hosted runners do not fail the crop tests
+  when the imaging library is absent. No tool behaviour or benchmark result
+  changes.
 - H-09 reopen (external `/home/kali/harness.md`): re-measured 3/4,000 accepted
   baseline JPEG splices (rate 0.0008), meeting that harness's point-estimate
   `<= 0.1%` rule, and pinned progressive JPEGs to `unverified` rather than
