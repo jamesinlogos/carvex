@@ -1,7 +1,8 @@
 # Implementation progress (CarveX 0.3.1; frozen benchmark figures remain 0.1.0/0.2.0)
 
-> Last updated: 2026-11-27 (H-04 closure, CI verification and Part T H-27;
-> historical gate rows below are dated records). Every status below is verified
+> Last updated: 2026-11-27 (H-04 closure, CI verification and Part T H-27 and
+> H-28/H-29; historical gate rows below are dated records). Every status below
+> is verified
 > by the command recorded with it; items that could not be run due to missing
 > tools are marked `SKIPPED`, with no guessed results. IDs follow the
 > consolidated guide §6 (A-01…A-15, B-01…B-11, C-01…C-09, D-01…D-03); old
@@ -13,7 +14,7 @@
 |---|---|
 | Date | 2026-11-27 (H-04 closure and current-HEAD CI verification; earlier rows below are dated historical records) |
 | OS | Linux x86_64 (Kali), running in a container |
-| carvex | source `a7fc893f28ff` (0.3.1); `dist/carvex-linux-x86_64` rebuilt from `77b9cc7210fe`, SHA-256 `dfa1d24f2d1fe40bf35e197fd46b36a0635ee6d2beba8b65f5e4eda4d6a4933a` (Windows: `4fef571c7cd0bc3b2aa46a0e4110238e67232d8a2edc183784c2329e15228e5f`); current-HEAD CI `45936082042` completed success (28/28, including `free_stream` fuzz); earlier H-27 CI runs `45930050947` (27/27) and `45935128607` (27/28, stale dist only) archived in `bench/results/` |
+| carvex | source `941fee9d21f4` (H-28/H-29 implementation, 0.3.1); `dist/carvex-linux-x86_64` still rebuilt from `77b9cc7210fe`, SHA-256 `dfa1d24f2d1fe40bf35e197fd46b36a0635ee6d2beba8b65f5e4eda4d6a4933a` (Windows: `4fef571c7cd0bc3b2aa46a0e4110238e67232d8a2edc183784c2329e15228e5f`), pending the end-of-phase rebuild; last confirmed CI `45936082042` completed success (28/28, including `free_stream` fuzz); earlier H-27 CI runs `45930050947` (27/27) and `45935128607` (27/28, stale dist only) archived in `bench/results/` |
 | rustc / cargo | 1.100.0 (0ef1bc386 2026-11-09) / 1.100.0 (pinned toolchain installed; no `RUSTUP_TOOLCHAIN` override needed) |
 | MSRV | 1.85.0, installed via rustup; `cargo +1.85 check --locked` passes |
 | Python | 3.13.12; Pillow 12.2.0; pypdf 6.9.2 |
@@ -116,6 +117,67 @@ Decision: D-74 records that H-27 is a complement to B-06/H-30/H-32, uses one
         volume only, and never claims recovery when a dead island is present.
 Residual risk / next: only ascending-LBA fragments are supported; the second
         pass costs one extra read of free space and is opt-in. H-28 follows.
+```
+
+### Part T H-28/H-29 — deleted filesystem metadata (new capability, 2026-11-27)
+
+```text
+Task: Part T H-28/H-29 — opt-in deleted FAT32 directory-entry and NTFS MFT
+      recovery (B-01, FAT32/NTFS only)
+Commit: 941fee9 (implementation); acceptance evidence regenerated from this tree.
+Change: src/cli.rs, src/scan.rs, src/fs/{mod,fat32,ntfs}.rs, src/report.rs,
+        docs/report.schema.json, docs/REPORT.md, docs/DECISIONS.md (D-75),
+        CHANGELOG.md, README.md, fuzz/Cargo.toml, fuzz/fuzz_targets/fat32_dir.rs,
+        fuzz/fuzz_targets/ntfs_deleted_mft.rs, scripts/fuzz.sh, CI,
+        scripts/part_t/h28_h29_metadata.py
+New tests: tests/metadata.rs (22 tests): exact SHA/size for deleted FAT
+        JPEG/PNG/PDF, original-name LFN checksum binding including deleted and
+        out-of-order slots, bad-checksum name drop, deleted file in a live
+        subdirectory, reallocated cluster, corrupt directory, resident and
+        negative-delta fragmented NTFS records, fixup mismatch, unsupported
+        attributes, a real mkntfs deleted record, CLI rejection paths, filters,
+        bounds, manifest coverage and unchanged default output. Both new fuzz
+        targets compile under nightly cargo-fuzz.
+Gate: cargo fmt --all -- --check, git diff --check, clippy -D warnings and
+      cargo test --all-features --locked --no-fail-fast green (185 tests,
+      0 failed; metadata 22/22); nightly fuzz checks green. The full local
+      `scripts/gate.sh` returned GATE GREEN (G5/G7/G8/G9, 16 fuzz smokers,
+      review repro, golden and perf; only the expected stale `dist/` check was
+      skipped outside CI). Remote CI is to be confirmed after this evidence
+      commit.
+Measurement: bench/results/h28_h29_metadata.txt records 100/100 exact FAT32
+        trials (JPEG 33/33, PNG 23/23, PDF 44/44), Wilson 95% [0.963, 1.000],
+        and 10/10 exact mkntfs NTFS trials, Wilson 95% [0.722, 1.000]. No
+        default scan is counted; metadata fields stay additive and omitted
+        without --metadata.
+Decision: D-75 records that metadata is evidence only, never a `verified`
+        shortcut, and that all normal filters and work bounds apply.
+Residual risk / next: FAT chains are assumed contiguous and NTFS
+        `$ATTRIBUTE_LIST`/extension/compressed/encrypted records are unsupported;
+        B-01 is PARTIAL for FAT32/NTFS only. H-30 follows.
+```
+
+### Part T H-31/H-32 — prototype deferral (new capability, 2026-11-27)
+
+```text
+Task: review archived H-31 PDF xref and H-32 JPEG seam prototypes before any
+      production promotion.
+Change: none in production source; D-76 records the deferral.
+Measurement: H-31 recovered 100/100 random-gap trials (Wilson lower 0.963) but
+      only 39/100 other-PDF-interior trials (Wilson 95% [0.300, 0.488]) with
+      61 false accepts. H-32's X1 prefilter was 572/572 on baseline JPEG
+      clusters but 0/2293 PNG, 0/2047 random and 0/255 zero clusters; the join
+      experiment recovered 12/100 random-gap trials (Wilson 95% [0.070, 0.198],
+      19 false accepts) and 0/100 other-JPEG-interior trials (Wilson 95%
+      [0.000, 0.037], 22 false accepts). Evidence is archived in
+      bench/results/h31_pdf_xref_prototype.txt,
+      bench/results/h32_jpeg_join_experiment.txt and part_t_prototypes.txt.
+Decision: D-76 — neither prototype authorizes a production join method. Xref
+      offsets are not unique against another PDF's interior and seam continuity
+      is unreliable for JPEG. Promotion needs a new accepted experiment with n,
+      Wilson bounds and zero false `verified` results for each gap kind.
+Residual risk / next: H-31 and H-32 remain experimental records only; H-30 is
+      the next production item.
 ```
 
 ### H0 preparation — `harness-ab725a6` (2026-11-25, in progress)

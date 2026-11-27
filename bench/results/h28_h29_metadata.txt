@@ -1,0 +1,16 @@
+H-28/H-29 production --metadata acceptance
+commit: 941fee9d21f476e39fc6f44a54b095c1979e6011
+binary: target/release/carvex (3c8b7f298acf1ac7453afdd066ac0741adaa911832430f7494efe5167d572744)
+corpus: bench/corpus (d3550a0320b9de6762e5f4bfd4015a865271e17c8aba948877d681ee5b92f543)
+seed: 28292026, cluster: 4096, N=100 FAT trials, N=10 NTFS trials
+corpus files used (22): jpeg_01_baseline_640x480.jpg, jpeg_03_progressive_800x600.jpg, jpeg_04_grayscale_512x512.jpg, jpeg_05_low_quality_1024x768.jpg, jpeg_06_portrait_480x800.jpg, jpeg_08_exif_thumb_900x700.jpg, jpeg_09_small_320x240.jpg, jpeg_10_progressive_1200x800.jpg, png_03_grayscale_512x512.png, png_04_palette_600x400.png, png_05_1bit_400x300.png, png_07_small_200x150.png, png_10_palette_320x240.png, pdf_01_image_1page.pdf, pdf_02_image_3pages.pdf, pdf_03_text_2pages.pdf, pdf_04_incremental.pdf, pdf_06_text_3pages.pdf, pdf_07_mixed_4pages.pdf, pdf_08_small_text.pdf, pdf_09_text_long.pdf, pdf_10_image_portrait.pdf
+
+== H-28 FAT32 deleted files: exact 100/100 = 100.0%, Wilson95 (0.963, 1.0)
+   by family: jpeg 33/33, png 23/23, pdf 44/44
+   7.0s total
+
+== H-29 NTFS deleted files: exact 10/10 = 100.0%, Wilson95 (0.722, 1.0)
+   5.3s total
+
+No default run is counted; metadata fields are additive and omitted when --metadata is absent.
+ACCEPTANCE=PASS
