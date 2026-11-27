@@ -12,8 +12,8 @@ use std::io::{self, Seek, SeekFrom};
 use std::path::Path;
 
 pub use crate::image::{
-    open_image, open_image_with_options, InputFormat, OnReadError, OpenOptions, OpenedImage,
-    RegionLog, SourceFile, SourceIdentity, UnreadableRegion,
+    open_image, open_image_with_options, FreeStreamSource, InputFormat, OnReadError, OpenOptions,
+    OpenedImage, RegionLog, SourceFile, SourceIdentity, UnreadableRegion,
 };
 
 /// A random-access, read-only byte source.

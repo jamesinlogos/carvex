@@ -80,6 +80,7 @@ pub fn scan_options(types: Vec<FileType>, mode: ScanMode) -> ScanOptions {
         max_gap: carvex::scan::DEFAULT_MAX_GAP_CLUSTERS,
         max_frag_candidates: carvex::scan::DEFAULT_MAX_FRAG_CANDIDATES,
         frag_time_limit: std::time::Duration::from_millis(carvex::scan::DEFAULT_FRAG_TIME_LIMIT_MS),
+        free_stream: false,
     }
 }
 

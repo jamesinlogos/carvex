@@ -192,7 +192,7 @@ pub fn complement_extents(start: u64, len: u64, free: &[Extent]) -> Vec<Extent> 
 }
 
 /// A half-open byte range `[offset, offset + len)`.
-#[derive(Debug, Clone, Copy, serde::Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub struct Extent {
     /// Absolute byte offset in the image.
     pub offset: u64,

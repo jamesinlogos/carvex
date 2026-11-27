@@ -1,12 +1,12 @@
 use crate::fs::{self, FsInfo, PartitionSel};
 use crate::io::{
-    open_image_with_options, sha256_source, InputFormat, OnReadError, OpenOptions, OpenedImage,
-    UnreadableRegion,
+    open_image_with_options, sha256_source, FreeStreamSource, InputFormat, OnReadError,
+    OpenOptions, OpenedImage, RegionLog, UnreadableRegion,
 };
 use crate::report;
 use crate::scan::{
-    self, AlignMode, ScanContext, ScanMode, ScanOptions, VolumeSummary, Warning,
-    DEFAULT_FRAG_TIME_LIMIT_MS, DEFAULT_MAX_FRAG_CANDIDATES, DEFAULT_MAX_GAP_CLUSTERS,
+    self, AlignMode, Fragment, ScanContext, ScanMode, ScanOptions, ScanReport, VolumeSummary,
+    Warning, DEFAULT_FRAG_TIME_LIMIT_MS, DEFAULT_MAX_FRAG_CANDIDATES, DEFAULT_MAX_GAP_CLUSTERS,
     DEFAULT_MAX_REGIONS, SCHEMA_VERSION,
 };
 use crate::signatures::{FileType, PdfEofMode, ValidationMode};
@@ -14,7 +14,8 @@ use crate::util::{human_size, parse_size, Extent};
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use serde::Serialize;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
 /// `--partition largest|all|<N>` (A-07).
 fn parse_partition_sel(s: &str) -> Result<PartitionSel, String> {
@@ -226,6 +227,11 @@ struct ScanArgs {
         default_value_t = DEFAULT_FRAG_TIME_LIMIT_MS
     )]
     frag_time_limit: u64,
+    /// H-27: add a second pass over one volume's free-space stream (concatenated free extents).
+    /// Only ascending-LBA fragments are recovered; allocated clusters are never read. Requires
+    /// exactly one selected volume and filesystem detection.
+    #[arg(long)]
+    free_stream: bool,
     /// Force the volume boot-sector offset (bytes, suffix K/M/G allowed)
     #[arg(long, value_parser = parse_size, conflicts_with = "partition")]
     offset: Option<u64>,
@@ -433,6 +439,12 @@ fn validate_scan_args(args: &ScanArgs) -> Result<()> {
             || args.frag_time_limit != DEFAULT_FRAG_TIME_LIMIT_MS)
     {
         bail!("B-06 limits require --fragment-recovery");
+    }
+    if args.free_stream && args.no_fs {
+        bail!("--free-stream requires filesystem detection (remove --no-fs)");
+    }
+    if args.free_stream && args.mode == ScanMode::Allocated {
+        bail!("--free-stream cannot be combined with --mode allocated");
     }
     Ok(())
 }
@@ -788,6 +800,7 @@ fn build_scan_options(
         max_gap: args.max_gap,
         max_frag_candidates: args.max_frag_candidates as usize,
         frag_time_limit: std::time::Duration::from_millis(args.frag_time_limit),
+        free_stream: args.free_stream,
     };
     let ctx = ScanContext {
         argv: std::env::args().collect(),
@@ -909,6 +922,180 @@ fn finish_scan_report(
     )
 }
 
+/// H-27: run the unchanged scan pipeline over one volume's free-space stream.
+/// The logical source is a read-only adapter; coordinate translation happens
+/// when the results are merged back into the physical report.
+fn run_free_stream_pass<'a>(
+    physical: &'a dyn crate::io::ImageSource,
+    volume: &FsInfo,
+    base_opts: &ScanOptions,
+    ctx: &ScanContext,
+    interrupt: scan::Interrupt,
+    temp_dir: &'a Path,
+) -> Result<(FreeStreamSource<'a>, Option<ScanReport>)> {
+    let stream = FreeStreamSource::new(physical, &volume.free_extents);
+    if stream.is_empty() {
+        return Ok((stream, None));
+    }
+    let mut opts = base_opts.clone();
+    opts.mode = ScanMode::Raw;
+    opts.free_stream = false;
+    let unreadable: RegionLog = Arc::new(Mutex::new(Vec::new()));
+    let input = scan::ScanInput {
+        source: &stream,
+        image: "free-stream",
+        image_identity: None,
+        image_len: stream.len(),
+        volumes: &[],
+        extra_extents: &[],
+        out_dir: temp_dir,
+        unreadable_regions: &unreadable,
+        skip_unreadable: false,
+        interrupt: Some(interrupt),
+    };
+    let report = scan::run_scan(&input, &opts, ctx)?;
+    Ok((stream, Some(report)))
+}
+
+/// H-27: translate the free-stream report into physical image coordinates and
+/// merge it into the physical report. Results already produced by the normal
+/// pass are removed by SHA-256, not by name or offset.
+fn merge_free_stream_report(
+    report: &mut ScanReport,
+    stream_report: ScanReport,
+    stream: &FreeStreamSource<'_>,
+    volume: &FsInfo,
+    mode: ScanMode,
+    temp_dir: &Path,
+    out_dir: &Path,
+) -> Result<()> {
+    use std::collections::HashSet;
+
+    let mut known = report
+        .files
+        .iter()
+        .map(|file| file.sha256.clone())
+        .collect::<HashSet<_>>();
+    let mut seq = report.files.len() as u64 + 1;
+    let mut added = 0usize;
+    let mut duplicates = 0usize;
+    let mut copied_bytes = 0u64;
+
+    for mut file in stream_report.files {
+        if !known.insert(file.sha256.clone()) {
+            duplicates += 1;
+            continue;
+        }
+        // The temporary output was named from the logical free-stream offset;
+        // preserve that name for the source path while reporting physical
+        // coordinates to the examiner.
+        let stream_name = file.path.clone();
+        let physical_offset = stream.map_offset(file.offset).unwrap_or(file.offset);
+        let physical_fragments: Vec<Extent> = if file.source == "bgc" && !file.fragments.is_empty()
+        {
+            file.fragments
+                .iter()
+                .flat_map(|fragment| {
+                    stream
+                        .physical_ranges(fragment.offset, fragment.len)
+                        .into_iter()
+                })
+                .collect()
+        } else {
+            stream.physical_ranges(file.offset, file.carved_size.max(1))
+        };
+        file.fragments = physical_fragments
+            .into_iter()
+            .map(|extent| Fragment {
+                offset: extent.offset,
+                len: extent.len,
+            })
+            .collect();
+        file.offset = physical_offset;
+        file.source = "free-stream".to_string();
+        let (lba, cluster, partition_index) =
+            free_stream_allocation_metadata(physical_offset, volume);
+        file.lba = lba;
+        file.cluster = cluster;
+        file.allocated = match mode {
+            ScanMode::Allocated => Some(true),
+            _ => Some(false),
+        };
+        file.partition_index = partition_index;
+
+        let filename = format!(
+            "{:05}_{}_{:016x}.{}",
+            seq,
+            file.file_type.ext(),
+            physical_offset,
+            file.file_type.ext()
+        );
+        let src = temp_dir.join(&stream_name);
+        let dst = out_dir.join(&filename);
+        std::fs::copy(&src, &dst).with_context(|| {
+            format!("cannot copy free-stream result '{stream_name}' to '{filename}'")
+        })?;
+        copied_bytes = copied_bytes.saturating_add(file.size);
+        file.path = filename;
+        file.seq = seq;
+        report.files.push(file);
+        added += 1;
+        seq += 1;
+    }
+
+    report.bytes_scanned = report
+        .bytes_scanned
+        .saturating_add(stream_report.bytes_scanned);
+    report.duration_ms = report.duration_ms.saturating_add(stream_report.duration_ms);
+    report.stats.candidates = report
+        .stats
+        .candidates
+        .saturating_add(stream_report.stats.candidates);
+    report.stats.carved = report.stats.carved.saturating_add(added);
+    report.stats.duplicate_hashes = report
+        .stats
+        .duplicate_hashes
+        .saturating_add(duplicates + usize::from(stream_report.stats.duplicate_hashes > 0));
+    report.stats.bytes_written = report.stats.bytes_written.saturating_add(copied_bytes);
+    report.stats.truncated = report
+        .stats
+        .truncated
+        .saturating_add(stream_report.stats.truncated);
+    report.stats.repaired = report
+        .stats
+        .repaired
+        .saturating_add(stream_report.stats.repaired);
+    report.warnings.extend(stream_report.warnings);
+    report.internal_errors.extend(stream_report.internal_errors);
+    report.nondeterministic_stop |= stream_report.nondeterministic_stop;
+    report.interrupted |= stream_report.interrupted;
+    report.warnings.push(Warning::new(
+        "FREE_STREAM",
+        format!(
+            "free-space stream pass added {added} file(s) and suppressed {duplicates} duplicate(s)"
+        ),
+    ));
+    Ok(())
+}
+
+fn free_stream_allocation_metadata(
+    offset: u64,
+    volume: &FsInfo,
+) -> (u64, Option<u64>, Option<usize>) {
+    let lba = offset / u64::from(volume.bytes_per_sector.max(1));
+    let cluster = offset.checked_sub(volume.data_start).and_then(|rel| {
+        if volume.cluster_size == 0 || rel % volume.cluster_size != 0 {
+            return None;
+        }
+        let index = rel / volume.cluster_size;
+        Some(match volume.kind {
+            fs::FsKind::Ntfs => index,
+            _ => index.saturating_add(2),
+        })
+    });
+    (lba, cluster, volume.partition_index)
+}
+
 fn scan(args: ScanArgs) -> Result<i32> {
     validate_scan_args(&args)?;
     let interrupt = scan::install_interrupt_handler()?;
@@ -961,7 +1148,7 @@ fn scan(args: ScanArgs) -> Result<i32> {
         out_dir: &args.output,
         unreadable_regions: &image.unreadable_regions,
         skip_unreadable: args.on_read_error == OnReadError::Skip,
-        interrupt: Some(interrupt),
+        interrupt: Some(interrupt.clone()),
     };
     let run_result = scan::run_scan(&input, &opts, &ctx);
     let unreadable_regions: Vec<UnreadableRegion> = match image.unreadable_regions.lock() {
@@ -989,6 +1176,38 @@ fn scan(args: ScanArgs) -> Result<i32> {
             return Err(err);
         }
     };
+    let mut report = report;
+    if args.free_stream {
+        if selection.volumes.len() != 1 {
+            bail!("--free-stream requires exactly one selected volume; use --partition <N>");
+        }
+        let temp = tempfile::tempdir().context("cannot create free-stream work directory")?;
+        let (stream, stream_report) = run_free_stream_pass(
+            source,
+            selection
+                .volumes
+                .first()
+                .context("--free-stream has no selected volume")?,
+            &opts,
+            &ctx,
+            interrupt,
+            temp.path(),
+        )?;
+        if let Some(stream_report) = stream_report {
+            merge_free_stream_report(
+                &mut report,
+                stream_report,
+                &stream,
+                selection
+                    .volumes
+                    .first()
+                    .context("--free-stream has no selected volume")?,
+                args.mode,
+                temp.path(),
+                &args.output,
+            )?;
+        }
+    }
     finish_scan_report(
         report,
         &args,

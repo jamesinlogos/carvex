@@ -1,6 +1,6 @@
 # Implementation progress (CarveX 0.3.1; frozen benchmark figures remain 0.1.0/0.2.0)
 
-> Last updated: 2026-11-27 (H-04 closure, CI verification and Part T start;
+> Last updated: 2026-11-27 (H-04 closure, CI verification and Part T H-27;
 > historical gate rows below are dated records). Every status below is verified
 > by the command recorded with it; items that could not be run due to missing
 > tools are marked `SKIPPED`, with no guessed results. IDs follow the
@@ -89,6 +89,28 @@ Decision: D-73 keeps crop-to-recovered-rows behind the existing --repair flag;
 Residual risk / next: none. Q12 was confirmed by the user on 2026-11-27, the
       full gate and remote CI are green, and H-09 remains accepted as documented;
       Part T can start.
+```
+
+### Part T H-27 — free-space stream (new capability, 2026-11-27)
+
+```text
+Task: Part T H-27 — join free clusters across allocated islands (opt-in)
+Change: src/image/free_stream.rs, src/cli.rs, src/scan.rs, src/io.rs,
+        src/util.rs, docs/report.schema.json, docs/REPORT.md, CHANGELOG.md,
+        README.md, fuzz/fuzz_targets/free_stream.rs, fuzz/Cargo.toml,
+        scripts/fuzz.sh, .github/workflows/ci.yml,
+        scripts/part_t/h27_free_stream.py
+New tests: tests/free_stream.rs (live island exact + physical fragment
+        property, dead island no false verified, default flag absent);
+        fuzz target `free_stream` keeps the extents/offset translator panic-free.
+Gate: targeted tests green (3/3); full CI-env gate pending end-of-H27.
+Measurement: 80 live-island trials (40 JPEG + 40 PNG) exact 80/80, Wilson 95%
+        [0.954, 1.000]; 80 dead-island trials with 0 false `verified`;
+        recorded in bench/results/h27_free_stream.txt after this commit.
+Decision: D-74 records that H-27 is a complement to B-06/H-30/H-32, uses one
+        volume only, and never claims recovery when a dead island is present.
+Residual risk / next: only ascending-LBA fragments are supported; the second
+        pass costs one extra read of free space and is opt-in. H-28 follows.
 ```
 
 ### H0 preparation — `harness-ab725a6` (2026-11-25, in progress)

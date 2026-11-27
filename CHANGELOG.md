@@ -22,6 +22,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - H-09 reopen: `scripts/jpeg_splice_property.py --assert-max-rate` fails a
   splice-acceptance run when the measured point estimate exceeds a supplied
   bound. The optional assertion does not change the default measurement.
+- Part T H-27: `--free-stream` adds an opt-in second pass over one volume's
+  free extents (ascending LBA), skips allocated islands, and reports accepted
+  files with `source="free-stream"` and translated physical `fragments[]`.
+  The default scan, golden D0 and frozen benchmark outputs are unchanged.
 
 ### Fixed
 

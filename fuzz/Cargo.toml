@@ -103,4 +103,11 @@ test = false
 doc = false
 bench = false
 
+[[bin]]
+name = "free_stream"
+path = "fuzz_targets/free_stream.rs"
+test = false
+doc = false
+bench = false
+
 [workspace]

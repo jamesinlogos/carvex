@@ -9,6 +9,7 @@
 #![deny(clippy::indexing_slicing, clippy::unwrap_used, clippy::expect_used)]
 
 mod e01;
+mod free_stream;
 mod split;
 mod vhd;
 mod vmdk;
@@ -34,6 +35,7 @@ use std::sync::{Arc, Mutex};
 use tempfile::NamedTempFile;
 
 pub use e01::E01Image;
+pub use free_stream::FreeStreamSource;
 pub use split::SplitRaw;
 pub use vhd::VhdImage;
 pub use vmdk::VmdkImage;

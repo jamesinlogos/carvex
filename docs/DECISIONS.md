@@ -1510,3 +1510,30 @@ decision, and the consequences.
 - **Residual:** none for the confirmed crop target. The user rejected the
   footer-only alternative under §9 Q12 on 2026-11-27, so H-04 is closed with
   this implementation; unsupported image variants remain honestly `partial`.
+
+## D-74. H-27 is an opt-in complement, not a replacement for content oracles
+
+- **Context:** Appendix C.4 E1 showed that a deleted file split around a live
+  allocated island is invisible to default carving and to B-06, while the same
+  layout is 40/40 recoverable when the free extents are concatenated into one
+  logical stream. The opposite layout, where the island is the interior of
+  another deleted file, produced 0/40 exact results with that stream: adjacency
+  in free space is not proof of content.
+- **Decision:** add `--free-stream` as a second, opt-in pass over the free
+  extents of exactly one selected volume. The pass uses the unchanged scanner
+  on a read-only logical `ImageSource`; physical provenance is restored by
+  translating logical ranges back to free extents before reporting. Results
+  already produced by the normal pass are suppressed by SHA-256. Files split
+  backwards (second fragment at a lower LBA) are explicitly unsupported.
+  `--no-fs` and `--mode allocated` are rejected with this flag.
+- **Evidence:** `tests/free_stream.rs` proves exact recovery past a live island,
+  physical `fragments[]` containment, no false `verified` on a dead island, and
+  an unchanged default report. `scripts/part_t/h27_free_stream.py` records
+  80/80 exact live-island trials (Wilson lower 0.954), 0/80 dead-island false
+  `verified` trials, and the measured extra pass cost. The `free_stream` fuzz
+  target exercises hostile extent maps.
+- **Consequences:** default runs, golden D0, schema-1 output, CSV header and
+  frozen benchmark metrics are byte-identical. Only `options.free_stream` and
+  a `FREE_STREAM` warning are added; accepted rows use `source="free-stream"`
+  with physical `fragments[]`. H-27 complements, and does not replace, B-06 and
+  the PNG/JPEG content-oracle items H-30/H-32.

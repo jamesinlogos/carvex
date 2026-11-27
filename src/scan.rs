@@ -486,6 +486,8 @@ pub struct ScanOptions {
     pub max_frag_candidates: usize,
     /// Wall-clock budget for the fragment-recovery stage.
     pub frag_time_limit: Duration,
+    /// H-27: opt in to a second pass over one volume's free-space stream.
+    pub free_stream: bool,
 }
 
 impl ScanOptions {
@@ -530,6 +532,7 @@ impl ScanOptions {
             frag_time_limit_ms: self
                 .fragment_recovery
                 .then_some(self.frag_time_limit.as_millis() as u64),
+            free_stream: self.free_stream.then_some(true),
         }
     }
 }
@@ -570,6 +573,7 @@ impl Default for ScanOptions {
             max_gap: DEFAULT_MAX_GAP_CLUSTERS,
             max_frag_candidates: DEFAULT_MAX_FRAG_CANDIDATES,
             frag_time_limit: Duration::from_millis(DEFAULT_FRAG_TIME_LIMIT_MS),
+            free_stream: false,
         }
     }
 }
@@ -825,6 +829,9 @@ pub struct ReportOptions {
     /// Fragment recovery time limit in milliseconds.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub frag_time_limit_ms: Option<u64>,
+    /// H-27 free-space stream pass was enabled (omitted otherwise).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub free_stream: Option<bool>,
 }
 
 /// Configuration/data structure.

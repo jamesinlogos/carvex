@@ -209,7 +209,8 @@
         "fragment_recovery": { "type": "boolean", "description": "B-06 was enabled (omitted otherwise)" },
         "max_gap": { "type": "integer", "minimum": 1, "description": "B-06 maximum gap in clusters" },
         "max_frag_candidates": { "type": "integer", "minimum": 1, "description": "B-06 candidate-join bound" },
-        "frag_time_limit_ms": { "type": "integer", "minimum": 1, "description": "B-06 wall-clock budget in milliseconds" }
+        "frag_time_limit_ms": { "type": "integer", "minimum": 1, "description": "B-06 wall-clock budget in milliseconds" },
+        "free_stream": { "type": "boolean", "description": "H-27 free-space stream pass was enabled (omitted otherwise)" }
       }
     },
     "volume": {

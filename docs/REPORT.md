@@ -451,6 +451,27 @@ matched the default. These are development measurements, not lockbox results or
 published benchmark claims. No fragment count above two or
 metadata/runlist-assisted reassembly is implemented.
 
+### 3.6a. Opt-in free-space stream (Part T H-27)
+
+`--free-stream` adds a second scan pass over the free extents of exactly one
+selected volume. The extents are concatenated in ascending physical order into
+a read-only logical stream; the scanner sees only that stream, so allocated
+clusters are never read by the pass. Only files whose fragments appear in
+ascending LBA order can be recovered this way; backwards-fragmented files are
+not supported. The flag is rejected with `--no-fs` and `--mode allocated`.
+
+Results from the second pass are deduplicated against the normal pass by
+SHA-256. An accepted row has `source="free-stream"` and physical `fragments[]`
+translated back to free extents; the report adds `options.free_stream: true`
+and a bounded `FREE_STREAM` warning. No default output field, CSV column,
+output filename or benchmark metric changes when the flag is absent.
+
+The acceptance run in `bench/results/h27_free_stream.txt` used 40 synthetic
+FAT32 trials per family from the frozen JPEG/PNG corpus with a live allocated
+island: 80/80 exact SHA-256 (Wilson 95% lower bound 0.954). The matching
+dead-island series produced 0 false `verified` results. The second pass cost
+was measured per family and is recorded with the same evidence.
+
 ### 3.7. Filtering and deduplication
 
 After carving:
