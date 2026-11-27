@@ -1,0 +1,40 @@
+Part T Appendix C.4 prototype evidence
+Recorded: 2026-11-27T02:43:41.074456+00:00
+Binary: /home/kali/carvex/target/release/carvex (c77e99919f480a63427dab0a0d6d09a2cc7d210b3530fd432738897c0c63b334)
+Corpus: /home/kali/carvex/bench/corpus
+Workdir: /home/kali/carvex/target/part-t/evidence
+
+$ python3 -I scripts/part_t/e1_islands.py <carvex> bench/corpus <workdir>/e1 40
+corpus files used (14): jpeg_01_baseline_640x480.jpg, jpeg_02_large_1280x960.jpg, jpeg_04_grayscale_512x512.jpg, jpeg_05_low_quality_1024x768.jpg, jpeg_06_portrait_480x800.jpg, jpeg_08_exif_thumb_900x700.jpg, png_01_rgba_640x480.png, png_02_rgb_800x600.png, png_03_grayscale_512x512.png, png_04_palette_600x400.png, png_06_large_1200x800.png, png_07_small_200x150.png, png_09_alpha_1024x768.png, png_10_palette_320x240.png
+== island = LIVE (allocated) file: N=40
+   default            exact  0/40 =   0.0%  Wilson95 (0, 0.088)
+   fragment-recovery  exact  0/40 =   0.0%  Wilson95 (0, 0.088)
+   free-space stream  exact 40/40 = 100.0%  Wilson95 (0.912, 1)
+== island = interior of another DELETED file (free): N=40
+   default            exact  0/40 =   0.0%  Wilson95 (0, 0.088)
+   fragment-recovery  exact  3/40 =   7.5%  Wilson95 (0.026, 0.199)
+   free-space stream  exact  0/40 =   0.0%  Wilson95 (0, 0.088)
+
+$ python3 -I scripts/part_t/x1_cluster_rule.py bench/corpus
+JPEG baseline entropy clusters               accepted  572/572  
+JPEG progressive entropy clusters            accepted  123/141  
+PNG corpus clusters                          accepted    0/2293 
+PDF pdf_01_image_1page.pdf         DCT=True  accepted   37/38   
+PDF pdf_02_image_3pages.pdf        DCT=True  accepted   87/90   
+PDF pdf_03_text_2pages.pdf         DCT=False accepted    0/1    
+PDF pdf_04_incremental.pdf         DCT=False accepted    0/1    
+PDF pdf_05_large_scan.pdf          DCT=True  accepted  151/152  
+PDF pdf_06_text_3pages.pdf         DCT=False accepted    0/3    
+PDF pdf_07_mixed_4pages.pdf        DCT=True  accepted  111/115  
+PDF pdf_08_small_text.pdf          DCT=False accepted    0/1    
+PDF pdf_09_text_long.pdf           DCT=False accepted    0/5    
+PDF pdf_10_image_portrait.pdf      DCT=True  accepted   42/43   
+random bytes 8 MiB                           accepted    0/2047 
+zeros 1 MiB                                  accepted    0/255  
+
+$ python3 -I scripts/part_t/x2_png_crc.py bench/corpus <carvex> <workdir>/x2
+CRC oracle, gap = random            : unique+correct 200/200  Wilson95 (0.981, 1)  (1.7s)
+CRC oracle, gap = other PNG interior: unique+correct 200/200  Wilson95 (0.981, 1)  (1.6s)
+CarveX --fragment-recovery, gap = random            : exact 0/30  Wilson95 (0, 0.114)
+CarveX --fragment-recovery, gap = other PNG interior: exact 0/30  Wilson95 (0, 0.114)
+

@@ -1,6 +1,6 @@
 # Implementation progress (CarveX 0.3.1; frozen benchmark figures remain 0.1.0/0.2.0)
 
-> Last updated: 2026-11-26 (H0 verification for `docs/harness-f5bda4a.md`;
+> Last updated: 2026-11-27 (H-04 closure, CI verification and Part T start;
 > historical gate rows below are dated records). Every status below is verified
 > by the command recorded with it; items that could not be run due to missing
 > tools are marked `SKIPPED`, with no guessed results. IDs follow the
@@ -11,9 +11,9 @@
 
 | Component | Value |
 |---|---|
-| Date | 2026-11-26 (H0 verification for `docs/harness-f5bda4a.md`; earlier rows below are dated historical records) |
+| Date | 2026-11-27 (H-04 closure and current-HEAD CI verification; earlier rows below are dated historical records) |
 | OS | Linux x86_64 (Kali), running in a container |
-| carvex | source `eeb42437bcf37` (0.3.1); `dist/carvex-linux-x86_64` rebuilt from `43dcf59bb01b`, SHA-256 `918616cf0eb512f5d69dd8b747d278e32a742571e499c658bf9acf8eb2645840` (Windows: `fd94127ed1c20cac65b473fdc07ef9575feaa9e6d8310680267b4ed18b0fbb7d`); current-HEAD CI `45749230527` completed success (27/27) |
+| carvex | source `67f7674718af` (0.3.1); `dist/carvex-linux-x86_64` rebuilt from `1307adcaadb6`, SHA-256 `63d0ce0415255c933301e1ab35383a89b93e31d15cab29a3bb5d55d4b50a5e2d` (Windows: `7e05e9bf5f528b4dc102ae452100761d0e44844cdddb11e15b6efe747e71738b`); current-HEAD CI `45929051498` completed success (27/27) |
 | rustc / cargo | 1.100.0 (0ef1bc386 2026-11-09) / 1.100.0 (pinned toolchain installed; no `RUSTUP_TOOLCHAIN` override needed) |
 | MSRV | 1.85.0, installed via rustup; `cargo +1.85 check --locked` passes |
 | Python | 3.13.12; Pillow 12.2.0; pypdf 6.9.2 |
@@ -75,7 +75,8 @@ New tests: tests/regress_repair_images.rs (10 tests; >= 3 corpus files per
         padding after the cut, unsupported variants, intact controls);
         tests/repair_validation.rs updated to the no-invented-rows oracle.
 Gate: targeted tests green (5 repair_validation + 10 regress_repair_images);
-      full gate pending end-of-phase verification.
+      full CI-env gate green locally (GATE GREEN) and remotely at `67f7674`
+      (run `45929051498`, 27/27 jobs success).
 Measurement: PNG png_02 = 180/359/539 of 600 rows; JPEG jpeg_01 = 8/17/27
       of 30 MCU rows at 30/60/90 %, identical in --validate structure and
       decode. Interlaced PNG and progressive JPEG stay truncated/partial.
@@ -85,8 +86,9 @@ Measurement: PNG png_02 = 180/359/539 of 600 rows; JPEG jpeg_01 = 8/17/27
       9/10 PNG and 8/10 JPEG repairable files at all three cuts.
 Decision: D-73 keeps crop-to-recovered-rows behind the existing --repair flag;
       the user confirmed Q12 on 2026-11-27, closing it.
-Residual risk / next: full CI-env gate and push after all H-04 edits; Part T
-      starts only after H1-H4 gates are green and H-04/H-09 are closed.
+Residual risk / next: none. Q12 was confirmed by the user on 2026-11-27, the
+      full gate and remote CI are green, and H-09 remains accepted as documented;
+      Part T can start.
 ```
 
 ### H0 preparation — `harness-ab725a6` (2026-11-25, in progress)
@@ -1380,11 +1382,15 @@ Residual risk / next: pedantic stage 2 (numeric casts) and stage 3 (API
 
 ## Blockers / open questions (current)
 
-- Current-HEAD CI run `45332545060` at `749ee7a` (2026-11-24) completed **success**
-  (27/27 jobs), archived in `bench/results/ci_run_45332545060*.json`; checksums
-  in `bench/results/EVIDENCE.sha256`. Job logs unavailable via public API (403);
-  status/conclusions/annotations only. Prior green reference: `45121233267` at
-  `86ae15f` (27/27).
+- Current-HEAD CI run `45929051498` at `67f7674` (2026-11-27) completed
+  **success** (27/27 jobs), archived in `bench/results/ci_run_45929051498*.json`;
+  checksums in `bench/results/EVIDENCE.sha256`. The first push (`45927399604`
+  at `1280fa2`) failed 5/27 jobs because hosted runners had no Pillow: the
+  eight image-oracle tests in `tests/regress_repair_images.rs` failed exactly as
+  reproduced locally with a `python3` shim lacking `PIL`. CI now installs
+  `Pillow==12.2.0`, and the tests discover `python3`, `python` or `py -3`.
+  Job logs remain unavailable via public API (403); status/conclusions and
+  annotations only. Prior green reference: `45332545060` at `749ee7a` (27/27).
 - R2-03/H-18: content-continuity check added, but eval splice upper bound
   0.182% is above the 0.1% target (D-67). **Accepted PARTIAL for 0.3.1 release
   by user (2026-11-23, option A)** with measured evidence recorded honestly;
