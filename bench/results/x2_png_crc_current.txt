@@ -1,0 +1,4 @@
+CRC oracle, gap = random            : unique+correct 200/200  Wilson95 (0.981, 1)  (1.7s)
+CRC oracle, gap = other PNG interior: unique+correct 200/200  Wilson95 (0.981, 1)  (1.6s)
+CarveX --fragment-recovery, gap = random            : exact 0/30  Wilson95 (0, 0.114)
+CarveX --fragment-recovery, gap = other PNG interior: exact 0/30  Wilson95 (0, 0.114)
