@@ -14,7 +14,7 @@
 |---|---|
 | Date | 2026-11-27 (H-04 closure and current-HEAD CI verification; earlier rows below are dated historical records) |
 | OS | Linux x86_64 (Kali), running in a container |
-| carvex | source `d9bdc8e4a6b9` (H-28/H-29 implementation plus visible non-Linux mkntfs skips, 0.3.1); `dist/carvex-linux-x86_64` rebuilt from `d9bdc8e4a6b9`, SHA-256 `46af14732bee91da90b0fd3b7ba62fdb0e8d94c89ee9a23fb2d8d23c157b409a` (Windows: `1eae6a5aea2e67bab224f56168734a7dc913cf2ae713de7014bb2fc11dad932b`); last confirmed CI `45936082042` completed success (28/28); current H-28/H-29 CI pending this rebuild; earlier H-27 CI runs `45930050947` and `45935128607` archived in `bench/results/` |
+| carvex | source `d9bdc8e4a6b9` (H-28/H-29 implementation plus visible non-Linux mkntfs skips, 0.3.1); `dist/carvex-linux-x86_64` rebuilt from `d9bdc8e4a6b9`, SHA-256 `46af14732bee91da90b0fd3b7ba62fdb0e8d94c89ee9a23fb2d8d23c157b409a` (Windows: `1eae6a5aea2e67bab224f56168734a7dc913cf2ae713de7014bb2fc11dad932b`); H-28/H-29 CI run `45945194205` completed success (30/30, including the full release gate and 16 fuzz targets); earlier H-27 CI runs `45936082042`, `45930050947` and `45935128607` archived in `bench/results/` |
 | rustc / cargo | 1.100.0 (0ef1bc386 2026-11-09) / 1.100.0 (pinned toolchain installed; no `RUSTUP_TOOLCHAIN` override needed) |
 | MSRV | 1.85.0, installed via rustup; `cargo +1.85 check --locked` passes |
 | Python | 3.13.12; Pillow 12.2.0; pypdf 6.9.2 |
@@ -146,8 +146,10 @@ Gate: cargo fmt --all -- --check, git diff --check, clippy -D warnings and
       0 failed; metadata 22/22); nightly fuzz checks green. The full local
       `scripts/gate.sh` returned GATE GREEN (G5/G7/G8/G9, 16 fuzz smokers,
       review repro, golden and perf; only the expected stale `dist/` check was
-      skipped outside CI). Remote CI is to be confirmed after this evidence
-      commit.
+      skipped outside CI). Remote CI run `45944059648` first failed only on a
+      stale `dist/` plus five mkntfs-dependent tests on Windows/macOS; after
+      the visible non-Linux `#[ignore]` fix (commit `d9bdc8e`) and the `dist/`
+      rebuild, run `45945194205` completed success (30/30).
 Measurement: bench/results/h28_h29_metadata.txt records 100/100 exact FAT32
         trials (JPEG 33/33, PNG 23/23, PDF 44/44), Wilson 95% [0.963, 1.000],
         and 10/10 exact mkntfs NTFS trials, Wilson 95% [0.722, 1.000]. No

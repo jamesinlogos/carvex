@@ -1565,7 +1565,9 @@ decision, and the consequences.
   0.963; 10/10 NTFS exact, Wilson lower 0.722). New fuzz targets `fat32_dir`
   and `ntfs_deleted_mft` cover both parsers. CI exposed the mkntfs dependency:
   the five mkntfs-dependent tests now fail loudly when the tool is missing on
-  Linux and are visibly `#[ignore]`d with a reason on Windows/macOS.
+  Linux and are visibly `#[ignore]`d with a reason on Windows/macOS; CI run
+  `45945194205` completed success (30/30) after the portability fix and `dist/`
+  rebuild.
 - **Consequences:** default reports, schema-1 output, CSV header, golden D0 and
   frozen benchmark metrics stay byte-identical. Only `options.metadata` and
   additive per-file fields appear when the flag is enabled; B-01 is now
