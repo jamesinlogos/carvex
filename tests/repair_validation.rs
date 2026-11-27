@@ -23,11 +23,11 @@ fn write_image(path: &Path, payload: &[u8]) {
     fs::write(path, image).unwrap();
 }
 
-/// Scan one payload with `--repair --validate decode` and return the first file
-/// row plus the bytes that were written.
-fn scan_repaired(payload: &[u8], name: &str) -> (Value, Vec<u8>) {
+/// Scan one payload with `--repair` and return the first file row plus the
+/// bytes that were written.
+fn scan_repaired_mode(payload: &[u8], name: &str, mode: &str) -> (Value, Vec<u8>) {
     let dir = tempfile::tempdir().unwrap();
-    let image = dir.path().join(format!("{name}.img"));
+    let image = dir.path().join(format!("{name}-{mode}.img"));
     write_image(&image, payload);
     let out = dir.path().join("out");
     let report_path = dir.path().join("report.json");
@@ -44,7 +44,7 @@ fn scan_repaired(payload: &[u8], name: &str) -> (Value, Vec<u8>) {
             "--types",
             name.split('-').next().unwrap(),
             "--validate",
-            "decode",
+            mode,
             "--min-score",
             "0",
             "--min-size",
@@ -87,6 +87,16 @@ fn scan_repaired(payload: &[u8], name: &str) -> (Value, Vec<u8>) {
     );
     assert_eq!(row[row.len() - 1], "", "repairs have no alternatives count");
     (file, carved)
+}
+
+fn scan_repaired(payload: &[u8], name: &str) -> (Value, Vec<u8>) {
+    scan_repaired_mode(payload, name, "decode")
+}
+
+fn corpus_jpeg_01() -> Vec<u8> {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("bench/corpus/jpeg/jpeg_01_baseline_640x480.jpg");
+    fs::read(path).expect("corpus JPEG fixture must exist")
 }
 
 fn truncated_pdf() -> Vec<u8> {
@@ -199,6 +209,30 @@ fn mid_stream_png_and_jpeg_repair_stays_partial() {
         .iter()
         .any(|note| note.as_str() == Some("repair attempted, not validated")));
     assert_eq!(check(&png_file, "repair").unwrap()["ok"], false);
+}
+
+#[test]
+#[ignore = "H-04 xfail"]
+fn jpeg_mid_stream_repair_structure_mode_stays_partial() {
+    // External harness H-04 item 0: a decoded proof is mandatory in both
+    // validation modes. Appending EOI to a mid-scan cut lets Pillow draw grey
+    // MCU rows, so a structural pass must never become `repaired`.
+    let original = corpus_jpeg_01();
+    for pct in [30usize, 60, 90] {
+        let cut = &original[..original.len() * pct / 100];
+        let (file, carved) = scan_repaired_mode(cut, "jpeg", "structure");
+        assert_eq!(carved, cut, "failed repair must not alter bytes at {pct}%");
+        assert_eq!(file["status"], "truncated", "at {pct}%");
+        assert_eq!(file["validity"], "partial", "at {pct}%");
+        assert_eq!(file["repaired"], false, "at {pct}%");
+        assert!(file["sha256_original"].is_null(), "at {pct}%");
+        assert!(file["notes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|note| note.as_str() == Some("repair attempted, not validated")));
+        assert_eq!(check(&file, "repair").unwrap()["ok"], false, "at {pct}%");
+    }
 }
 
 #[test]
