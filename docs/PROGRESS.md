@@ -13,7 +13,7 @@
 |---|---|
 | Date | 2026-11-27 (H-04 closure and current-HEAD CI verification; earlier rows below are dated historical records) |
 | OS | Linux x86_64 (Kali), running in a container |
-| carvex | source `67f7674718af` (0.3.1); `dist/carvex-linux-x86_64` rebuilt from `1307adcaadb6`, SHA-256 `63d0ce0415255c933301e1ab35383a89b93e31d15cab29a3bb5d55d4b50a5e2d` (Windows: `7e05e9bf5f528b4dc102ae452100761d0e44844cdddb11e15b6efe747e71738b`); current-HEAD CI `45929051498` completed success (27/27) |
+| carvex | source `42d5310e418f` (0.3.1); `dist/` rebuild from `42d5310e418f` in progress after H-27; CI run `45930050947` (`c8f80ac`, 27/27) and `45935128607` (`42d5310`, 27/28) archived in `bench/results/`; the single failure was the stale-dist guard, fixed by the rebuild recorded below |
 | rustc / cargo | 1.100.0 (0ef1bc386 2026-11-09) / 1.100.0 (pinned toolchain installed; no `RUSTUP_TOOLCHAIN` override needed) |
 | MSRV | 1.85.0, installed via rustup; `cargo +1.85 check --locked` passes |
 | Python | 3.13.12; Pillow 12.2.0; pypdf 6.9.2 |
@@ -104,9 +104,11 @@ Change: src/image/free_stream.rs, src/cli.rs, src/scan.rs, src/io.rs,
 New tests: tests/free_stream.rs (live island exact + physical fragment
         property, dead island no false verified, default flag absent);
         fuzz target `free_stream` keeps the extents/offset translator panic-free.
-Gate: targeted tests green (3/3); full CI-env gate green at this tree
-        (14 fuzz targets x 60 s, repro 0 failures, golden/smoke/DIST OK,
-        G9 50 options / 163 tests).
+Gate: targeted tests green (3/3); local full CI-env gate green before the
+        H-27 commit; remote run `45935128607` failed only at `check_dist.sh`
+        because the packaged binaries still came from `1307adcaadb6`; a
+        rebuild from `42d5310e418f` is committed below. All other 27 jobs
+        passed, including the new `free_stream` fuzz target.
 Measurement: 80 live-island trials (40 JPEG + 40 PNG) exact 80/80, Wilson 95%
         [0.954, 1.000]; 80 dead-island trials with 0 false `verified`;
         recorded in bench/results/h27_free_stream.txt from the b0255c5 tree.
