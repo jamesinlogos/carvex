@@ -1679,3 +1679,26 @@ decision, and the consequences.
 - **Consequences:** no new report field, threshold or CLI flag; the stricter
   check is confined to `--repair --validate decode` PDF revalidation. Golden D0
   and G8 are unchanged because no intact file or benchmark profile is affected.
+
+## D-81. FAT reuse is reported, not silently cut (H-28, 2026-11-28)
+
+- **Context:** the deleted-entry recovery assumed a contiguous run but checked
+  only the start cluster's FAT entry, treating end-of-chain as free. A deleted
+  file whose middle or last cluster had been reused was emitted as `complete`
+  with `overwritten_clusters = 0`, even though live bytes were inside the
+  output.
+- **Decision:** check every cluster of the assumed run. Any non-zero FAT value,
+  end-of-chain included, counts as reused; `overwritten_clusters` is the
+  number of such clusters and each contiguous reused run adds one
+  `fat_cluster_reallocated` note (hard-capped at 64 notes). The existing
+  metadata downgrade turns the row into `partial` with
+  `validity_reason = overwritten_clusters`. The output is deliberately not
+  truncated at the first foreign cluster: the directory entry is evidence of
+  an extent, not an oracle for its bytes, and the additive provenance fields
+  must describe the whole recovered candidate.
+- **Evidence:** `tests/metadata.rs` covers index 1, middle and last for JPEG,
+  PNG and PDF, an end-of-chain value at the start cluster, and five foreign
+  clusters in three runs. All three new tests failed before the fix with
+  `overwritten_clusters = 0` and pass after it.
+- **Consequences:** no default change, no new CLI flag, no report schema
+  change, and no golden D0 change; metadata rows are never `verified` (D-75).

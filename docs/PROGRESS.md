@@ -120,6 +120,27 @@ without changing `scripts/repro_xfail.txt`, any threshold or any metric
 definition; no new speed or resource claim is made. Full details:
 `bench/results/h04_gate.txt`.
 
+```text
+Task: H-28 — count every reused FAT cluster [fb97875 H-28]
+Change: src/fs/fat32.rs (bounded whole-run FAT scan, count and per-run notes),
+        tests/metadata.rs (new fixtures), docs/DECISIONS.md (D-81), README.md,
+        docs/PROGRESS.md
+New tests: fat_reused_cluster_at_index_1_middle_and_last_is_counted (red for
+        JPEG/PNG/PDF at index 1, middle and last with overwritten_clusters=0),
+        fat_end_of_chain_at_the_start_cluster_counts_as_overwritten (red:
+        end-of-chain was treated as free), fat_multiple_foreign_runs_count_
+        every_cluster_and_note_each_run (red: 0 instead of 5 and 3 notes)
+Gate: red/green evidence bench/results/h28_fat_reuse.txt; fmt/clippy release
+        build, G9 (197 tests), 197/197 tests, golden D0 and status green; perf
+        gate green with informational s9_4m/rand64m environment regressions
+Measurement: five foreign clusters in three runs now report
+        overwritten_clusters=5 and three fat_cluster_reallocated notes; all
+        reuse rows are `partial` with validity_reason=overwritten_clusters
+Residual risk / next: the harness's h28_reuse_f11.py is not in this checkout;
+        the three red/green tests reproduce its layouts locally. G7 golden D0
+        and G8 must stay unchanged.
+```
+
 ### H0 verification — `harness-f5bda4a` (2026-11-26)
 
 The external harness revision for `f5bda4a` was copied verbatim to

@@ -1,0 +1,29 @@
+H-28 FAT reused-cluster provenance (2026-11-28)
+command: cargo test --locked --test metadata fat_
+
+RED (before src/fs/fat32.rs change):
+  fat_end_of_chain_at_the_start_cluster_counts_as_overwritten ... FAILED
+    left: Number(0), right: 1
+  fat_multiple_foreign_runs_count_every_cluster_and_note_each_run ... FAILED
+    left: Number(0), right: 5
+  fat_reused_cluster_at_index_1_middle_and_last_is_counted ... FAILED
+    jpeg reused cluster index 1 of 48: left Number(0), right 1
+  7 passed; 3 failed
+
+GREEN (after bounded whole-run FAT scan):
+  all 10 fat_ metadata tests pass, including the three new ones.
+  End-of-chain at the start cluster counts as reused.
+  Index 1, middle and last are counted for JPEG, PNG and PDF.
+  Five foreign clusters in three runs report overwritten_clusters=5 and
+  three fat_cluster_reallocated notes.
+
+Release validation (2026-11-28):
+  cargo fmt --all -- --check                         green
+  cargo clippy --all-targets --all-features --locked -D warnings  green
+  cargo build --release --locked                     green
+  bench/render_docs.py --check                       G9 GREEN (197 tests)
+  cargo test --all-features --locked                 197 passed, 0 failed
+  scripts/golden.py                                  GOLDEN GREEN
+  scripts/perf_gate.py                               PERF GREEN (informational
+    s9_4m 1.529x and rand64m 3.599x environment regressions)
+  scripts/check_status.py                            STATUS GREEN

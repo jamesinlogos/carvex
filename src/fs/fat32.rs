@@ -302,6 +302,40 @@ fn fat_value(fat: &[u8], cluster: u64) -> Option<u32> {
     Some(u32::from_le_bytes(bytes) & 0x0FFF_FFFF)
 }
 
+/// Count reused clusters in the contiguous run assumed for a deleted file.
+///
+/// Every FAT entry is checked, including end-of-chain values: any non-zero
+/// entry means the cluster now belongs to another file. The second return value
+/// is the number of contiguous reused runs, used for one note per run.
+fn reused_clusters(
+    fat: &[u8],
+    start: u64,
+    size: u64,
+    cluster_size: u64,
+    total_clusters: u64,
+) -> (u64, u64) {
+    if cluster_size == 0 || start < 2 {
+        return (0, 0);
+    }
+    let wanted = size.div_ceil(cluster_size);
+    let available = total_clusters.saturating_add(2).saturating_sub(start);
+    let mut overwritten = 0u64;
+    let mut runs = 0u64;
+    let mut previous = false;
+    for index in 0..wanted.min(available) {
+        let cluster = start.saturating_add(index);
+        let foreign = fat_value(fat, cluster).is_some_and(|value| value != 0);
+        if foreign {
+            overwritten = overwritten.saturating_add(1);
+            if !previous {
+                runs = runs.saturating_add(1);
+            }
+        }
+        previous = foreign;
+    }
+    (overwritten, runs)
+}
+
 fn dos_datetime(date: u16, time: u16) -> Option<String> {
     let year = 1980u32.saturating_add((date >> 9) as u32);
     let month = (date >> 5) & 0x0F;
@@ -548,8 +582,8 @@ pub fn deleted_entries(
                     lfn_parts.clear();
                     continue;
                 }
-                let fat_entry = fat_value(&fat, start);
-                let overwritten = matches!(fat_entry, Some(v) if v != 0 && v != 0x0FFF_FFFF);
+                let (overwritten, overwritten_runs) =
+                    reused_clusters(&fat, start, size, geom.cluster_size, geom.total_clusters);
 
                 let (name, mismatch, lfn_recovered) =
                     if let Some((name, lfn_sum)) = decode_lfn(&lfn_parts, limits.max_name_bytes) {
@@ -582,9 +616,11 @@ pub fn deleted_entries(
                 if mismatch {
                     entry_out.notes.push("lfn_checksum_mismatch".to_string());
                 }
-                if overwritten {
-                    entry_out.overwritten_clusters = 1;
-                    entry_out.notes.push("fat_cluster_reallocated".to_string());
+                if overwritten > 0 {
+                    entry_out.overwritten_clusters = overwritten;
+                    for _ in 0..overwritten_runs.min(64) {
+                        entry_out.notes.push("fat_cluster_reallocated".to_string());
+                    }
                 }
                 let readable = volume_end
                     .saturating_sub(file_phys)

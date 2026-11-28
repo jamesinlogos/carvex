@@ -240,6 +240,40 @@ fn fat_image(
     fat_image_ex(payload, lfn, valid_checksum, reallocated, false)
 }
 
+/// Mark clusters of the assumed contiguous run as belonging to another file.
+/// `index` is relative to the deleted entry's start cluster (cluster 3 here).
+fn fat_image_with_reuse(payload: &[u8], reused: &[(usize, u32)]) -> Vec<u8> {
+    let mut image = fat_image(payload, None, true, false);
+    for (index, value) in reused {
+        let cluster = 3u64.saturating_add(u64::try_from(*index).unwrap_or(u64::MAX));
+        let off = 512usize
+            .saturating_add(usize::try_from(cluster.saturating_mul(4)).unwrap_or(usize::MAX));
+        if let Some(bytes) = image.get_mut(off..off.saturating_add(4)) {
+            bytes.copy_from_slice(&(value & 0x0FFF_FFFF).to_le_bytes());
+        }
+    }
+    image
+}
+
+fn reused_row<'a>(report: &'a Value, hash: &str) -> &'a Value {
+    metadata_rows(report)
+        .into_iter()
+        .find(|row| row["sha256"] == hash)
+        .unwrap_or_else(|| panic!("no metadata row for {hash} in {report}"))
+}
+
+fn reallocated_notes(row: &Value) -> usize {
+    row["metadata_notes"]
+        .as_array()
+        .map(|notes| {
+            notes
+                .iter()
+                .filter(|note| note.as_str() == Some("fat_cluster_reallocated"))
+                .count()
+        })
+        .unwrap_or(0)
+}
+
 #[test]
 fn fat_deleted_jpeg_png_pdf_are_recovered_with_exact_sha256_and_size() {
     for payload in [
@@ -338,6 +372,59 @@ fn fat_reallocated_first_cluster_is_partial_with_overwrite_count() {
     assert_eq!(row["overwritten_clusters"], 1);
     assert_eq!(row["validity"], "partial");
     assert_eq!(row["validity_reason"], "overwritten_clusters");
+}
+
+#[test]
+fn fat_reused_cluster_at_index_1_middle_and_last_is_counted() {
+    for (relative, label) in [
+        ("jpeg/jpeg_01_baseline_640x480.jpg", "jpeg"),
+        ("png/png_07_small_200x150.png", "png"),
+        ("pdf/pdf_09_text_long.pdf", "pdf"),
+    ] {
+        let payload = corpus(relative);
+        let clusters = payload.len().div_ceil(CLUSTER);
+        assert!(clusters > 3, "{label} fixture is too small: {clusters}");
+        for index in [1usize, clusters / 2, clusters - 1] {
+            let dir = tempfile::tempdir().unwrap();
+            let image = fat_image_with_reuse(&payload, &[(index, 4)]);
+            let scan = scan(&image, dir.path(), true);
+            let row = reused_row(&scan.report, &sha256(&payload));
+            assert_eq!(
+                row["overwritten_clusters"], 1,
+                "{label} reused cluster index {index} of {clusters}"
+            );
+            assert_eq!(row["validity"], "partial", "{label} index {index}");
+            assert_eq!(row["validity_reason"], "overwritten_clusters");
+            assert_eq!(reallocated_notes(row), 1, "{label} index {index}");
+        }
+    }
+}
+
+#[test]
+fn fat_end_of_chain_at_the_start_cluster_counts_as_overwritten() {
+    let dir = tempfile::tempdir().unwrap();
+    let payload = JPEG_1X1.to_vec();
+    let image = fat_image_with_reuse(&payload, &[(0, 0x0FFF_FFFF)]);
+    let scan = scan(&image, dir.path(), true);
+    let row = reused_row(&scan.report, &sha256(&payload));
+    assert_eq!(row["overwritten_clusters"], 1);
+    assert_eq!(row["validity"], "partial");
+    assert_eq!(reallocated_notes(row), 1);
+}
+
+#[test]
+fn fat_multiple_foreign_runs_count_every_cluster_and_note_each_run() {
+    let dir = tempfile::tempdir().unwrap();
+    let payload = corpus("jpeg/jpeg_01_baseline_640x480.jpg");
+    let image = fat_image_with_reuse(
+        &payload,
+        &[(1, 4), (2, 4), (5, 0x0FFF_FFFF), (9, 4), (10, 4)],
+    );
+    let scan = scan(&image, dir.path(), true);
+    let row = reused_row(&scan.report, &sha256(&payload));
+    assert_eq!(row["overwritten_clusters"], 5);
+    assert_eq!(reallocated_notes(row), 3);
+    assert_eq!(row["validity"], "partial");
 }
 
 #[test]
