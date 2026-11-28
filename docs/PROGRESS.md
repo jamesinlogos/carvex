@@ -15,7 +15,7 @@
 |---|---|
 | Date | 2026-11-28 (Q13 closure and current-HEAD CI verification; earlier rows below are dated historical records) |
 | OS | Linux x86_64 (Kali), running in a container |
-| carvex | source `cabd89f49893` (Q13 default repair rescore, 0.3.1); H-30 acceptance `bench/results/h30_png_crc.txt` is 200/200 exact with 0 false `verified`; `dist/carvex-linux-x86_64` rebuilt from `cabd89f49893`, SHA-256 `81cbe1769568ec1d532ab6229d4b98d0fa32ea05109399d8b3a7bee2c7e50f20` (Windows: `f0fa1204d5202ad2109b20904e81638d13bd7f44684f486db6b20801aa418a8c`), `CI=true scripts/check_dist.sh` = DIST OK. Prior R2-10 CI runs `46177821490` and `46178294777` completed success (30/30); Q13 CI verification pending |
+| carvex | source `cabd89f49893` (Q13 default repair rescore, 0.3.1); H-30 acceptance `bench/results/h30_png_crc.txt` is 200/200 exact with 0 false `verified`; `dist/carvex-linux-x86_64` rebuilt from `cabd89f49893`, SHA-256 `81cbe1769568ec1d532ab6229d4b98d0fa32ea05109399d8b3a7bee2c7e50f20` (Windows: `f0fa1204d5202ad2109b20904e81638d13bd7f44684f486db6b20801aa418a8c`), `CI=true scripts/check_dist.sh` = DIST OK. Q13 CI run `46183092265` at the dist commit `b2f3bc8` completed success (30/30, including release gate G0-G9); prior R2-10 CI runs `46177821490` and `46178294777` also completed success (30/30) |
 | rustc / cargo | 1.100.0 (0ef1bc386 2026-11-09) / 1.100.0 (pinned toolchain installed; no `RUSTUP_TOOLCHAIN` override needed) |
 | MSRV | 1.85.0, installed via rustup; `cargo +1.85 check --locked` passes |
 | Python | 3.13.12; Pillow 12.2.0; pypdf 6.9.2 |
@@ -257,7 +257,8 @@ Gate: fmt, clippy (all targets + size/argument limits), 201 registered tests
         and no threshold or scripts/repro_xfail.txt entry was changed. All
         sections after that line were re-run manually and are green: X08b/X26,
         golden, benchmark smoke and CI=true check_dist (/tmp/opencode/
-        q13-gate-remainder.log). CI verification pending.
+        q13-gate-remainder.log). Remote CI run 46183092265 at b2f3bc8 completed
+        success with 30/30 jobs, including release gate G0-G9.
 Measurement: png_04 cut at 30 % now yields one Pillow-verified repaired crop
         under the default --min-score 50; --no-repair-rescore still reports
         BELOW_MIN_SCORE and writes 0 files. Golden D0 is byte-identical to the
@@ -267,9 +268,8 @@ Measurement: png_04 cut at 30 % now yields one Pillow-verified repaired crop
         regression lines retained.
 Residual risk / next: the pre-Q13 default-drop test was adapted to the new
         explicit opt-out; its assertions were not loosened. q1 did not use
-        --repair, so no archived benchmark cell was re-run or edited. Push the
-        two local commits and confirm remote CI before calling Q13 closed in
-        the status tables.
+        --repair, so no archived benchmark cell was re-run or edited. Q13 is
+        closed after the green 30/30 CI run.
 ```
 
 ### H0 verification — `harness-f5bda4a` (2026-11-26)
