@@ -219,7 +219,8 @@ Evidence: CI run 46175814422 failed only at scripts/gate.sh line 134 with
         DIST STALE for the previous binary built from 1189cabe09dd; the user
         lifted the temporary q1 freeze after the benchmark ended.
 Gate: CI=true scripts/check_dist.sh -> DIST OK (Linux and Windows);
-        full gate re-run and remote CI verification pending.
+        CI run 46177821490 at 247b340 completed success (30/30 jobs, including
+        release gate G0-G9).
 Measurement: Linux SHA-256
         3f79897a533f0780acc038cd3fec818401e7397c870be93287dda33281d74fe4;
         Windows SHA-256
