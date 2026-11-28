@@ -13,9 +13,9 @@
 
 | Component | Value |
 |---|---|
-| Date | 2026-11-27 (H-04 closure and current-HEAD CI verification; earlier rows below are dated historical records) |
+| Date | 2026-11-28 (Q13 closure and current-HEAD CI verification; earlier rows below are dated historical records) |
 | OS | Linux x86_64 (Kali), running in a container |
-| carvex | source `3c69432647b1` (H-30 implementation plus H-27/H-28/H-29, 0.3.1); local release binary built from that commit, SHA-256 `d10b9e8327b872f2be149a831376f5de628058fa3be001cbefe1a52f546d16ab`; H-30 acceptance `bench/results/h30_png_crc.txt` is 200/200 exact with 0 false `verified`; `dist/carvex-linux-x86_64` rebuilt from `6da466d5a014` after the q1 freeze was lifted, SHA-256 `3f79897a533f0780acc038cd3fec818401e7397c870be93287dda33281d74fe4` (Windows: `b3f35c24bbfe3b6fa147d7f5595d2aeb22ea393f7857a6f22dc89d2415b3f89e`), `CI=true scripts/check_dist.sh` = DIST OK. H-30 CI run `45955915197` at the dist commit completed success (30/30, full release gate and 16 fuzz targets); the pre-rebuild run `45955602852` failed only at the release gate with stale `dist/`. H-28/H-29 CI run `45945194205` completed success (30/30); earlier H-27 CI runs `45936082042`, `45930050947` and `45935128607` archived in `bench/results/`; final docs-only H-30 CI `45962680798` completed success (30/30) |
+| carvex | source `cabd89f49893` (Q13 default repair rescore, 0.3.1); H-30 acceptance `bench/results/h30_png_crc.txt` is 200/200 exact with 0 false `verified`; `dist/carvex-linux-x86_64` rebuilt from `cabd89f49893`, SHA-256 `81cbe1769568ec1d532ab6229d4b98d0fa32ea05109399d8b3a7bee2c7e50f20` (Windows: `f0fa1204d5202ad2109b20904e81638d13bd7f44684f486db6b20801aa418a8c`), `CI=true scripts/check_dist.sh` = DIST OK. Prior R2-10 CI runs `46177821490` and `46178294777` completed success (30/30); Q13 CI verification pending |
 | rustc / cargo | 1.100.0 (0ef1bc386 2026-11-09) / 1.100.0 (pinned toolchain installed; no `RUSTUP_TOOLCHAIN` override needed) |
 | MSRV | 1.85.0, installed via rustup; `cargo +1.85 check --locked` passes |
 | Python | 3.13.12; Pillow 12.2.0; pypdf 6.9.2 |
@@ -249,18 +249,27 @@ Evidence: red /tmp/opencode/q13-red.log (default test: 0 files; opt-out test:
         unknown --no-repair-rescore, 2 failures) -> green
         /tmp/opencode/q13-green.log (3/3 targeted tests).
 Gate: fmt, clippy (all targets + size/argument limits), 201 registered tests
-        (196 passed + 5 mkntfs opt-in SKIPs), status and G9 (53 flags / 201
-        tests) green; golden D0 220/220 output hashes byte-identical to the
-        H-22 baseline; perf gate green with informational committed-baseline
-        ratios. Full gate and dist rebuild pending.
+        (196 passed + 5 mkntfs opt-in SKIPs), rustdoc, actionlint, deny/audit,
+        MSRV, release build, 16x60s fuzz smoke, status and G9 (53 flags / 201
+        tests) green. The local full gate stopped at line 109 only because R5
+        fake-header timing was 1.08s against the unchanged <= 1.0s target
+        (solo reruns 1.19s / 1.28s); per the user's Q9 answer this is recorded
+        and no threshold or scripts/repro_xfail.txt entry was changed. All
+        sections after that line were re-run manually and are green: X08b/X26,
+        golden, benchmark smoke and CI=true check_dist (/tmp/opencode/
+        q13-gate-remainder.log). CI verification pending.
 Measurement: png_04 cut at 30 % now yields one Pillow-verified repaired crop
         under the default --min-score 50; --no-repair-rescore still reports
-        BELOW_MIN_SCORE and writes 0 files. G8 source binary: s9_4m 0.657s
-        (1.676x committed baseline), rand64m 0.072s (2.387x); both PASS with
-        Q9 informational regression lines retained.
+        BELOW_MIN_SCORE and writes 0 files. Golden D0 is byte-identical to the
+        H-22 baseline (220/220 output hashes). G8 source binary: s9_4m 0.657s
+        (1.676x committed baseline), rand64m 0.072s (2.387x); shipped dist:
+        0.650s (1.657x) and 0.084s (2.809x). All PASS with Q9 informational
+        regression lines retained.
 Residual risk / next: the pre-Q13 default-drop test was adapted to the new
         explicit opt-out; its assertions were not loosened. q1 did not use
-        --repair, so no archived benchmark cell was re-run or edited.
+        --repair, so no archived benchmark cell was re-run or edited. Push the
+        two local commits and confirm remote CI before calling Q13 closed in
+        the status tables.
 ```
 
 ### H0 verification — `harness-f5bda4a` (2026-11-26)
