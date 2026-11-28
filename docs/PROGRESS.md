@@ -23,6 +23,53 @@
 | Validation tools | `actionlint 1.7.12`, `cargo-fuzz 0.13.2` with `nightly 1.102.0-nightly`, `cargo-llvm-cov 0.9.1`; `qpdf 12.4.2`, `ewfacquire`/`ewfexport`/`ewfverify` 20140816-2+b2 now installed |
 | Missing | `pdftoppm`, `qemu-img`, a real Windows runner (Wine 10.0 available for packaged `.exe`) |
 
+### H0 verification — `harness-fb97875` (2026-11-28)
+
+The external revision for `fb97875` was copied verbatim to
+`docs/harness-fb97875.md` (2950 lines, SHA-256
+`99939628e4e61dfeeb0abfd06115b94af99ff65c1ffa145012f432bd8a529d6d`);
+the repository's root `harness.md` was not changed. `git diff --stat f11c568
+fb97875 -- src Cargo.toml Cargo.lock build.rs` is empty. The binary was built
+from source with `CARGO_NET_OFFLINE=true cargo build --release --locked`
+(rustc/cargo 1.100.0, SHA-256
+`c090268e3dd073543377a00d1a71ccde7ed895f968964322947334b3a50a4b4c`); `dist/`
+was deliberately **not** rebuilt and retains SHA-256
+`e740b20d560ab782803770cc194a369c09e5da50c21c4c476886ec54ed8e5011`.
+`tool_info.commit` reads `fb978757849a` because this build is at HEAD, not at
+`f11c568`; the A.4 value differs for that reason only.
+
+`cargo test --all-features --locked`: **190 passed, 0 failed** (unlike A.4,
+`mkntfs` is installed here, so the five NTFS metadata tests actually ran).
+`scripts/golden.py` → GOLDEN GREEN (all eight D0 rows); `check_status.py` →
+STATUS GREEN; `bench/render_docs.py --check` → G9 GREEN (51 scan options and
+190 tests match README); `scripts/repro_x08b.py` and `scripts/repro_x26.py`
+PASS. `scripts/perf_gate.py` exits green but prints informational regression
+ratios (`s9_4m` 1.455×, `rand64m` 2.657× against the committed baselines;
+measured medians 0.571 s and 0.080 s with the repro running in parallel, and
+0.571 s / 0.080 s solo). These are observations on this 4-vCPU host, not new
+thresholds; no baseline or metric definition was changed.
+
+`scripts/review_repro.py --assert --xfail scripts/repro_xfail.txt` with both
+benchmark images: **34 scenarios, 1 failure, 2 SKIP, 0 XPASS**. The failure is
+R5 (`fake-header flood performance`, 1.90 s under parallel compilation and
+1.27 s on a solo re-run against the script's 1.0 s target). A.4 records the
+same S9-4M scenario at 1.37 s on the harness host, so this is timing-only, not
+a behavioural mismatch. §9 **Q9 was raised**; the user answered on
+2026-11-28: record the deviation and continue, leaving every threshold and
+`scripts/repro_xfail.txt` untouched.
+
+```text
+Task: H0 — baseline and safety net (external harness revision `fb97875`)
+Change: docs/harness-fb97875.md; this progress record
+New tests: none (verification only)
+Gate: 190/190 tests; G7 golden green; G8 perf green with informational ratios;
+      G9/docs green; repro 34/1 timing failure/2 SKIP/0 XPASS
+Measurement: see the commands and values above; all numbers are from this host
+Residual risk / next: Q9 is closed by the user's 2026-11-28 answer (timing
+      deviation recorded, no threshold changed); Q13 stays open and will be
+      implemented mechanism-first with the default unchanged.
+```
+
 ### H0 verification — `harness-f5bda4a` (2026-11-26)
 
 The external harness revision for `f5bda4a` was copied verbatim to

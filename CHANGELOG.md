@@ -8,6 +8,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- H0: `docs/harness-fb97875.md` records the external harness revision for
+  `fb97875` verbatim; its baseline checks (190/190 tests, golden/docs green,
+  one environmental R5 timing deviation recorded under §9 Q9) are in
+  `docs/PROGRESS.md`. `dist/` was not rebuilt.
 - H0: `docs/harness-f5bda4a.md` records the external harness revision for
   `f5bda4a` verbatim; its baseline checks are recorded in `docs/PROGRESS.md`.
 - H-01: report `validity_reason`, `tail_trimmed_bytes`, `aligned`, `nested_in`,
