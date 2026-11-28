@@ -1702,3 +1702,24 @@ decision, and the consequences.
   `overwritten_clusters = 0` and pass after it.
 - **Consequences:** no default change, no new CLI flag, no report schema
   change, and no golden D0 change; metadata rows are never `verified` (D-75).
+
+## D-82. NTFS fixture tests are explicit SKIPs by default (H-29, 2026-11-28)
+
+- **Context:** the five end-to-end NTFS metadata tests require `mkntfs`. On a
+  machine without `ntfs-3g` they used to panic, turning `cargo test` red for an
+  environmental reason; an earlier version printed `SKIP` and returned, which
+  was a silent pass. The harness (H-26 and H-29) forbids both.
+- **Decision:** `build.rs` declares `cfg(carvex_has_mkntfs)` and enables it only
+  when `CARVEX_REQUIRE_MKNTFS=1` on Linux. The five dependent tests carry an
+  `#[ignore]` reason naming the env var, so a normal `cargo test` prints a
+  visible SKIP; CI installs `ntfs-3g`, sets the variable and therefore fails if
+  the tool is missing. Three new synthetic `$MFT` tests (resident bytes,
+  fragmented runlist with a negative delta, fixup mismatch) run on every
+  runner and exercise the same recovery path without external tools.
+- **Evidence:** `bench/results/h29_ntfs_mkntfs.txt` records the default run
+  (`23 passed; 5 ignored` for `tests/metadata.rs`) and the opt-in run with
+  `CARVEX_REQUIRE_MKNTFS=1` (`28 passed; 0 ignored`), including all five
+  `mkntfs` fixtures passing locally.
+- **Consequences:** no production recovery path, CLI flag, report field or
+  default changes; golden D0 and G8 are unaffected. The repository's n = 10
+  recall claim remains [REPORTED]; these tests do not enlarge that corpus.

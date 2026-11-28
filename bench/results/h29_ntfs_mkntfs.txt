@@ -1,0 +1,46 @@
+H-29 NTFS test availability (2026-11-28)
+
+Default (CARVEX_REQUIRE_MKNTFS unset):
+  command: cargo test --locked --test metadata
+  result: 23 passed; 0 failed; 5 ignored; 0 measured; 0 filtered out
+  the five mkntfs-dependent tests print an explicit ignore reason:
+    H-29: mkntfs SKIP; set CARVEX_REQUIRE_MKNTFS=1 and install ntfs-3g on Linux
+  the three new synthetic MFT recovery tests run and pass in this mode:
+    ntfs_synthetic_resident_record_recovers_bytes_everywhere
+    ntfs_synthetic_fragmented_record_round_trips_with_negative_delta
+    ntfs_synthetic_fixup_mismatch_is_skipped_without_a_panic
+
+Opt-in (local machine has ntfs-3g):
+  command: CARVEX_REQUIRE_MKNTFS=1 cargo test --locked --test metadata
+  result: 28 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+  all five mkntfs fixtures passed locally:
+    ntfs_resident_deleted_record_recovers_exact_bytes
+    ntfs_nonresident_fragmented_record_round_trips_with_negative_delta
+    ntfs_unsupported_attribute_list_is_never_verified
+    ntfs_fixup_mismatch_record_is_skipped_without_a_panic
+    mkntfs_volume_with_deleted_record_is_recovered
+
+CI wiring:
+  test matrix installs ntfs-3g on Linux and sets CARVEX_REQUIRE_MKNTFS=1
+  only when matrix.os == 'ubuntu-latest'
+  coverage and release-gate install ntfs-3g and set the variable
+  actionlint .github/workflows/*.yml: green
+
+Full validation (2026-11-28):
+  cargo fmt --all -- --check                              green
+  cargo clippy --all-targets --all-features --locked -D warnings  green
+  CARVEX_REQUIRE_MKNTFS=1 cargo clippy ... -D warnings    green
+  actionlint .github/workflows/*.yml                      green
+  cargo build --release --locked                          green
+  bench/render_docs.py --check --carvex target/release/carvex
+    G9 GREEN: 52 scan options and 200 tests match README
+  cargo test --all-features --locked                      200 passed,
+    0 failed, 5 ignored (environmental mkntfs SKIPs)
+  scripts/golden.py                                      GOLDEN GREEN
+  scripts/perf_gate.py                                   PERF GREEN
+    (informational s9_4m 1.925x and rand64m 3.565x environment regressions)
+  scripts/check_status.py                                STATUS GREEN
+
+No production recovery path, CLI flag, report field or default changed. The
+repository's n=10 recall claim stays [REPORTED]; this file records that the
+five existing fixtures pass here, not a new recall measurement.

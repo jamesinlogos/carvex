@@ -684,10 +684,10 @@ fn ntfs_geometry(image: &[u8]) -> (u64, u64, u64, u64) {
 /// Create the NTFS fixture or fail the test.
 ///
 /// A missing `mkntfs` used to be printed as `SKIP` and then returned, which
-/// made the test a silent pass. The harness requires SKIP never to be silent,
-/// so this deliberately panics with an actionable message instead. On
-/// non-Linux runners the five mkntfs-dependent tests carry a visible
-/// `#[ignore]` reason rather than pretending to have run.
+/// made the test a silent pass. The harness requires SKIP never to be silent:
+/// by default the five dependent tests carry a visible `#[ignore]` reason;
+/// `CARVEX_REQUIRE_MKNTFS=1` enables the `carvex_has_mkntfs` cfg so CI runs
+/// them and a missing tool fails with this actionable message.
 fn mkntfs_image(dir: &Path) -> Vec<u8> {
     let probe = Command::new("mkntfs").arg("--version").output();
     assert!(
@@ -719,8 +719,8 @@ fn ntfs_scan(dir: &Path, image: &[u8]) -> Scan {
 
 #[test]
 #[cfg_attr(
-    not(target_os = "linux"),
-    ignore = "H-29: mkntfs fixture requires Linux"
+    not(carvex_has_mkntfs),
+    ignore = "H-29: mkntfs SKIP; set CARVEX_REQUIRE_MKNTFS=1 and install ntfs-3g on Linux"
 )]
 fn ntfs_resident_deleted_record_recovers_exact_bytes() {
     let dir = tempfile::tempdir().unwrap();
@@ -749,8 +749,8 @@ fn ntfs_resident_deleted_record_recovers_exact_bytes() {
 
 #[test]
 #[cfg_attr(
-    not(target_os = "linux"),
-    ignore = "H-29: mkntfs fixture requires Linux"
+    not(carvex_has_mkntfs),
+    ignore = "H-29: mkntfs SKIP; set CARVEX_REQUIRE_MKNTFS=1 and install ntfs-3g on Linux"
 )]
 fn ntfs_nonresident_fragmented_record_round_trips_with_negative_delta() {
     let dir = tempfile::tempdir().unwrap();
@@ -785,8 +785,8 @@ fn ntfs_nonresident_fragmented_record_round_trips_with_negative_delta() {
 
 #[test]
 #[cfg_attr(
-    not(target_os = "linux"),
-    ignore = "H-29: mkntfs fixture requires Linux"
+    not(carvex_has_mkntfs),
+    ignore = "H-29: mkntfs SKIP; set CARVEX_REQUIRE_MKNTFS=1 and install ntfs-3g on Linux"
 )]
 fn ntfs_unsupported_attribute_list_is_never_verified() {
     let dir = tempfile::tempdir().unwrap();
@@ -815,8 +815,8 @@ fn ntfs_unsupported_attribute_list_is_never_verified() {
 
 #[test]
 #[cfg_attr(
-    not(target_os = "linux"),
-    ignore = "H-29: mkntfs fixture requires Linux"
+    not(carvex_has_mkntfs),
+    ignore = "H-29: mkntfs SKIP; set CARVEX_REQUIRE_MKNTFS=1 and install ntfs-3g on Linux"
 )]
 fn ntfs_fixup_mismatch_record_is_skipped_without_a_panic() {
     let dir = tempfile::tempdir().unwrap();
@@ -839,8 +839,8 @@ fn ntfs_fixup_mismatch_record_is_skipped_without_a_panic() {
 
 #[test]
 #[cfg_attr(
-    not(target_os = "linux"),
-    ignore = "H-29: mkntfs fixture requires Linux"
+    not(carvex_has_mkntfs),
+    ignore = "H-29: mkntfs SKIP; set CARVEX_REQUIRE_MKNTFS=1 and install ntfs-3g on Linux"
 )]
 fn mkntfs_volume_with_deleted_record_is_recovered() {
     let dir = tempfile::tempdir().unwrap();
@@ -911,6 +911,156 @@ fn direct_metadata_pass(
         initial_output_bytes: 0,
     })
     .unwrap()
+}
+
+/// A small NTFS volume built without external tools, so the recovery path is
+/// exercised on every runner. `$MFT` lives at LCN 4 and record 6 holds a
+/// resident `$Bitmap`; records 8-10 are real deleted-record fixtures.
+fn synthetic_ntfs_image() -> Vec<u8> {
+    const RECORD: usize = 1024;
+    const MFT_LCN: usize = 4;
+    const MFT_RECORDS: usize = 16;
+    const IMAGE_LEN: usize = 8 * 1024 * 1024;
+
+    let mut image = vec![0u8; IMAGE_LEN];
+    let boot = &mut image[..512];
+    boot[0..3].copy_from_slice(&[0xEB, 0x52, 0x90]);
+    boot[3..11].copy_from_slice(b"NTFS    ");
+    le16_mut(boot, 0x0B, 512);
+    boot[0x0D] = 8;
+    le16_mut(boot, 0x0E, 1);
+    le16_mut(boot, 0x18, 63);
+    le16_mut(boot, 0x1A, 255);
+    le32_mut(boot, 0x20, 0);
+    le64_mut(boot, 0x28, (IMAGE_LEN / 512 - 1) as u64);
+    le64_mut(boot, 0x30, MFT_LCN as u64);
+    le64_mut(boot, 0x38, (MFT_LCN + 1) as u64);
+    boot[0x40] = 0xF6; // negative clusters-per-record: 1 KiB records
+    le64_mut(boot, 0x48, 0x2026_1128);
+    boot[510..512].copy_from_slice(&[0x55, 0xAA]);
+
+    let mft0 = mft_record(
+        1,
+        &[
+            resident_attr(0x10, &standard_info()),
+            resident_attr(0x30, &file_name_value("$MFT")),
+            nonresident_attr(
+                0x80,
+                &runlist(4, MFT_LCN as i8),
+                (MFT_RECORDS * RECORD) as u64,
+                0,
+            ),
+        ],
+        false,
+    );
+    let bitmap_len = (IMAGE_LEN / CLUSTER).div_ceil(8);
+    let mut bitmap = vec![0u8; bitmap_len];
+    for cluster in MFT_LCN..MFT_LCN + 4 {
+        if let Some(byte) = bitmap.get_mut(cluster / 8) {
+            *byte |= 1u8 << (cluster % 8);
+        }
+    }
+    let mut bitmap_rec = mft_record(
+        1,
+        &[
+            resident_attr(0x10, &standard_info()),
+            resident_attr(0x30, &file_name_value("$Bitmap")),
+            resident_attr(0x80, &bitmap),
+        ],
+        false,
+    );
+    bitmap_rec[0x16] = 1; // $Bitmap is in use; parse() requires it
+
+    let mft_off = MFT_LCN * CLUSTER;
+    image[mft_off..mft_off + RECORD].copy_from_slice(&mft0);
+    image[mft_off + RECORD..mft_off + 2 * RECORD].copy_from_slice(&mft0);
+    let bitmap_off = mft_off + 6 * RECORD;
+    image[bitmap_off..bitmap_off + RECORD].copy_from_slice(&bitmap_rec);
+    image
+}
+
+fn insert_mft_record(image: &mut [u8], index: usize, attrs: &[Vec<u8>], broken_fixup: bool) {
+    const RECORD: usize = 1024;
+    let rec = mft_record(5, attrs, broken_fixup);
+    let offset = 4 * CLUSTER + index * RECORD;
+    image[offset..offset + RECORD].copy_from_slice(&rec);
+}
+
+#[test]
+fn ntfs_synthetic_resident_record_recovers_bytes_everywhere() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut image = synthetic_ntfs_image();
+    let payload = png_1x1();
+    insert_mft_record(
+        &mut image,
+        8,
+        &[
+            resident_attr(0x10, &standard_info()),
+            resident_attr(0x30, &file_name_value("synthetic.png")),
+            resident_attr(0x80, &payload),
+        ],
+        false,
+    );
+    let (results, _, _) = direct_metadata_pass(&image, dir.path(), |_| {});
+    let result = results
+        .iter()
+        .find(|r| r.file.sha256 == sha256(&payload))
+        .unwrap_or_else(|| panic!("no synthetic resident result"));
+    assert_eq!(result.file.original_name.as_deref(), Some("synthetic.png"));
+    assert_eq!(result.file.sparse_bytes, Some(0));
+}
+
+#[test]
+fn ntfs_synthetic_fragmented_record_round_trips_with_negative_delta() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut image = synthetic_ntfs_image();
+    let payload = png_with_cluster_split(CLUSTER);
+    let first = 100 * CLUSTER;
+    let second = 99 * CLUSTER;
+    image[first..first + CLUSTER].copy_from_slice(&payload[..CLUSTER]);
+    image[second..second + (payload.len() - CLUSTER)].copy_from_slice(&payload[CLUSTER..]);
+    insert_mft_record(
+        &mut image,
+        9,
+        &[
+            resident_attr(0x10, &standard_info()),
+            resident_attr(0x30, &file_name_value("synthetic-frag.png")),
+            nonresident_attr(
+                0x80,
+                &[runlist(1, 100), runlist(1, -1)].concat(),
+                payload.len() as u64,
+                0,
+            ),
+        ],
+        false,
+    );
+    let (results, _, _) = direct_metadata_pass(&image, dir.path(), |_| {});
+    let result = results
+        .iter()
+        .find(|r| r.file.sha256 == sha256(&payload))
+        .unwrap_or_else(|| panic!("no synthetic fragmented result"));
+    assert_eq!(result.file.size, payload.len() as u64);
+    assert_ne!(result.file.validity, carvex::signatures::Validity::Verified);
+    assert_eq!(result.file.fragments.len(), 2);
+}
+
+#[test]
+fn ntfs_synthetic_fixup_mismatch_is_skipped_without_a_panic() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut image = synthetic_ntfs_image();
+    let payload = png_1x1();
+    insert_mft_record(
+        &mut image,
+        10,
+        &[
+            resident_attr(0x10, &standard_info()),
+            resident_attr(0x30, &file_name_value("broken-fixup.png")),
+            resident_attr(0x80, &payload),
+        ],
+        true,
+    );
+    let (results, _, _) = direct_metadata_pass(&image, dir.path(), |_| {});
+    assert!(results.iter().all(|r| r.file.sha256 != sha256(&payload)));
 }
 
 #[test]

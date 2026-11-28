@@ -141,6 +141,33 @@ Residual risk / next: the harness's h28_reuse_f11.py is not in this checkout;
         and G8 must stay unchanged.
 ```
 
+```text
+Task: H-29 — visible NTFS SKIPs and synthetic MFT tests [fb97875 H-29]
+Change: build.rs (cargo:rustc-check-cfg and CARVEX_REQUIRE_MKNTFS opt-in),
+        .github/workflows/ci.yml (install ntfs-3g, opt in on Linux in test,
+        coverage and release-gate jobs), tests/metadata.rs (cfg on the five
+        mkntfs tests plus three synthetic recovery tests), docs/DECISIONS.md
+        (D-82), docs/PROGRESS.md
+New tests: ntfs_synthetic_resident_record_recovers_bytes_everywhere,
+        ntfs_synthetic_fragmented_record_round_trips_with_negative_delta,
+        ntfs_synthetic_fixup_mismatch_is_skipped_without_a_panic — all run in
+        the default test command on every platform
+Gate: default tests/metadata.rs 23 passed / 5 visible ignored; opt-in
+        CARVEX_REQUIRE_MKNTFS=1 28 passed / 0 ignored. Full validation:
+        fmt/clippy default and with carvex_has_mkntfs, actionlint, release
+        build, G9 (200 tests), 200/200 tests, golden D0 and status green; perf
+        gate green with informational s9_4m/rand64m environment regressions.
+        Evidence: bench/results/h29_ntfs_mkntfs.txt
+Measurement: all five mkntfs fixtures passed locally here with ntfs-3g:
+        resident, fragmented negative delta, unsupported attribute list,
+        fixup mismatch, full deleted-record recovery. The n=10 Wilson claim
+        remains [REPORTED]; this work does not enlarge that corpus.
+Residual risk / next: a machine without CARVEX_REQUIRE_MKNTFS sees five SKIPs
+        by design; CI sets the variable so a missing tool fails loudly. No
+        production path, flag, default or report field changed; golden D0 and
+        G8 are unchanged.
+```
+
 ### H0 verification — `harness-f5bda4a` (2026-11-26)
 
 The external harness revision for `f5bda4a` was copied verbatim to

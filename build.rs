@@ -4,12 +4,27 @@ use std::process::Command;
 fn main() {
     println!("cargo:rerun-if-changed=.git/HEAD");
     println!("cargo:rerun-if-changed=.git/refs/heads");
+    println!("cargo:rerun-if-env-changed=CARVEX_REQUIRE_MKNTFS");
+    println!("cargo:rustc-check-cfg=cfg(carvex_has_mkntfs)");
+
+    // H-29: the five mkntfs-dependent integration tests are visible SKIPs by
+    // default. CI opts in (and installs ntfs-3g) so a missing tool is a hard
+    // failure there instead of a silent pass.
+    if require_mkntfs() {
+        println!("cargo:rustc-cfg=carvex_has_mkntfs");
+    }
 
     let commit = env_commit()
         .or_else(git_commit)
         .unwrap_or_else(|| "unknown".into());
     println!("cargo:rustc-env=CARVEX_GIT_COMMIT={commit}");
     println!("cargo:rustc-env=CARVEX_RUSTC={}", rustc_version());
+}
+
+fn require_mkntfs() -> bool {
+    let required = std::env::var("CARVEX_REQUIRE_MKNTFS").as_deref() == Ok("1");
+    let linux = std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("linux");
+    required && linux
 }
 
 fn rustc_version() -> String {
