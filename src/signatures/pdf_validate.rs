@@ -137,43 +137,12 @@ impl Collector {
     }
 }
 
-/// Run bounded PDF structure validation. `data` is the carved candidate whose
-/// length is `analysis.end`; no bytes beyond the selected revision are used.
-pub(super) fn validate(
-    data: &[u8],
-    analysis: &Analysis,
+fn collect_xref_sections(
+    selected: &[u8],
     limits: ValidationLimits,
-) -> ValidationDetail {
-    validate_inner(data, analysis, limits, false)
-}
-
-/// H-04 R2: a rebuilt trailer is only a proof of repair if the document still
-/// has a readable page. Ordinary validation deliberately stays structural; the
-/// stricter check applies only to the repair path.
-pub(super) fn validate_for_repair(
-    data: &[u8],
-    analysis: &Analysis,
-    limits: ValidationLimits,
-) -> ValidationDetail {
-    validate_inner(data, analysis, limits, true)
-}
-
-fn validate_inner(
-    data: &[u8],
-    analysis: &Analysis,
-    limits: ValidationLimits,
-    require_readable_page: bool,
-) -> ValidationDetail {
-    let mut out = Collector::default();
-    let selected = data.get(..analysis.end).unwrap_or(data);
-    let Some(startxref) = find_startxref(selected) else {
-        out.fail(
-            "startxref_target",
-            "no startxref value before the selected %%EOF",
-        );
-        return out.finish();
-    };
-
+    out: &mut Collector,
+    startxref: u64,
+) -> Vec<Section> {
     let mut sections: Vec<Section> = Vec::new();
     let mut seen: HashSet<u64> = HashSet::new();
     let mut target = startxref;
@@ -220,6 +189,47 @@ fn validate_inner(
             }
         }
     }
+    sections
+}
+
+/// Run bounded PDF structure validation. `data` is the carved candidate whose
+/// length is `analysis.end`; no bytes beyond the selected revision are used.
+pub(super) fn validate(
+    data: &[u8],
+    analysis: &Analysis,
+    limits: ValidationLimits,
+) -> ValidationDetail {
+    validate_inner(data, analysis, limits, false)
+}
+
+/// H-04 R2: a rebuilt trailer is only a proof of repair if the document still
+/// has a readable page. Ordinary validation deliberately stays structural; the
+/// stricter check applies only to the repair path.
+pub(super) fn validate_for_repair(
+    data: &[u8],
+    analysis: &Analysis,
+    limits: ValidationLimits,
+) -> ValidationDetail {
+    validate_inner(data, analysis, limits, true)
+}
+
+fn validate_inner(
+    data: &[u8],
+    analysis: &Analysis,
+    limits: ValidationLimits,
+    require_readable_page: bool,
+) -> ValidationDetail {
+    let mut out = Collector::default();
+    let selected = data.get(..analysis.end).unwrap_or(data);
+    let Some(startxref) = find_startxref(selected) else {
+        out.fail(
+            "startxref_target",
+            "no startxref value before the selected %%EOF",
+        );
+        return out.finish();
+    };
+
+    let sections = collect_xref_sections(selected, limits, &mut out, startxref);
 
     let Some(newest) = sections.first() else {
         return out.finish();

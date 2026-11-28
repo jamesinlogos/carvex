@@ -1157,6 +1157,84 @@ fn merge_metadata_report(
     ));
 }
 
+struct FreeStreamRunSpec<'a> {
+    physical: &'a dyn crate::io::ImageSource,
+    volumes: &'a [FsInfo],
+    opts: &'a ScanOptions,
+    ctx: &'a ScanContext,
+    mode: ScanMode,
+    out_dir: &'a Path,
+}
+
+fn apply_free_stream_pass(
+    report: &mut ScanReport,
+    spec: FreeStreamRunSpec<'_>,
+    interrupt: scan::Interrupt,
+) -> Result<()> {
+    if spec.volumes.len() != 1 {
+        bail!("--free-stream requires exactly one selected volume; use --partition <N>");
+    }
+    let temp = tempfile::tempdir().context("cannot create free-stream work directory")?;
+    let volume = spec
+        .volumes
+        .first()
+        .context("--free-stream has no selected volume")?;
+    let (stream, stream_report) = run_free_stream_pass(
+        spec.physical,
+        volume,
+        spec.opts,
+        spec.ctx,
+        interrupt,
+        temp.path(),
+    )?;
+    if let Some(stream_report) = stream_report {
+        merge_free_stream_report(
+            report,
+            stream_report,
+            &stream,
+            volume,
+            spec.mode,
+            temp.path(),
+            spec.out_dir,
+        )?;
+    }
+    Ok(())
+}
+
+fn apply_metadata_pass(
+    report: &mut ScanReport,
+    source: &dyn crate::io::ImageSource,
+    volumes: &[FsInfo],
+    opts: &ScanOptions,
+    out_dir: &Path,
+) -> Result<()> {
+    if volumes.is_empty() {
+        bail!("--metadata requires at least one selected volume");
+    }
+    let start_seq = report.files.len() as u64 + 1;
+    let mut known = report
+        .files
+        .iter()
+        .map(|file| file.sha256.clone())
+        .collect::<std::collections::HashSet<_>>();
+    let initial_output_bytes = report.stats.bytes_written;
+    let (results, stats, metadata_warnings) = scan::run_metadata_pass(scan::MetadataPassSpec {
+        source,
+        volumes,
+        existing: &report.files,
+        opts,
+        out_dir,
+        start_seq,
+        known: &mut known,
+        initial_output_bytes,
+    })?;
+    merge_metadata_report(report, results, stats, metadata_warnings);
+    if opts.manifest {
+        scan::write_manifest(out_dir, &report.files)?;
+    }
+    Ok(())
+}
+
 fn scan(args: ScanArgs) -> Result<i32> {
     validate_scan_args(&args)?;
     let interrupt = scan::install_interrupt_handler()?;
@@ -1239,61 +1317,21 @@ fn scan(args: ScanArgs) -> Result<i32> {
     };
     let mut report = report;
     if args.free_stream {
-        if selection.volumes.len() != 1 {
-            bail!("--free-stream requires exactly one selected volume; use --partition <N>");
-        }
-        let temp = tempfile::tempdir().context("cannot create free-stream work directory")?;
-        let (stream, stream_report) = run_free_stream_pass(
-            source,
-            selection
-                .volumes
-                .first()
-                .context("--free-stream has no selected volume")?,
-            &opts,
-            &ctx,
+        apply_free_stream_pass(
+            &mut report,
+            FreeStreamRunSpec {
+                physical: source,
+                volumes: &selection.volumes,
+                opts: &opts,
+                ctx: &ctx,
+                mode: args.mode,
+                out_dir: &args.output,
+            },
             interrupt,
-            temp.path(),
         )?;
-        if let Some(stream_report) = stream_report {
-            merge_free_stream_report(
-                &mut report,
-                stream_report,
-                &stream,
-                selection
-                    .volumes
-                    .first()
-                    .context("--free-stream has no selected volume")?,
-                args.mode,
-                temp.path(),
-                &args.output,
-            )?;
-        }
     }
     if args.metadata {
-        if selection.volumes.is_empty() {
-            bail!("--metadata requires at least one selected volume");
-        }
-        let mut known = report
-            .files
-            .iter()
-            .map(|file| file.sha256.clone())
-            .collect::<std::collections::HashSet<_>>();
-        let initial_output_bytes = report.stats.bytes_written;
-        let (results, stats, metadata_warnings) =
-            scan::run_metadata_pass(scan::MetadataPassSpec {
-                source,
-                volumes: &selection.volumes,
-                existing: &report.files,
-                opts: &opts,
-                out_dir: &args.output,
-                start_seq: report.files.len() as u64 + 1,
-                known: &mut known,
-                initial_output_bytes,
-            })?;
-        merge_metadata_report(&mut report, results, stats, metadata_warnings);
-        if opts.manifest {
-            scan::write_manifest(&args.output, &report.files)?;
-        }
+        apply_metadata_pass(&mut report, source, &selection.volumes, &opts, &args.output)?;
     }
     finish_scan_report(
         report,

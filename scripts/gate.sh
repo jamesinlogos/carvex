@@ -21,6 +21,9 @@ cargo fmt --all -- --check
 echo "== clippy =="
 cargo clippy --all-targets --all-features --locked -- -D warnings
 
+echo "== clippy size and argument limits (H-22) =="
+cargo clippy --lib --locked -- -D clippy::too_many_lines -D clippy::too_many_arguments
+
 echo "== tests =="
 cargo test --all-features --locked
 

@@ -872,6 +872,217 @@ fn bitmap_used(bitmap: &[u8], lcn: u64) -> bool {
         .is_some_and(|byte| (byte >> (lcn % 8)) & 1 != 0)
 }
 
+struct NtfsRecordMetaCtx<'a> {
+    attrs: &'a [DeletedAttr],
+    data: &'a DeletedAttr,
+    geom: &'a NtfsGeometry,
+    limits: &'a MetadataLimits,
+    count: u64,
+    seq: u16,
+}
+
+struct NtfsRecordMeta {
+    name: Option<String>,
+    mtime: Option<String>,
+    notes: Vec<String>,
+    unsupported: bool,
+}
+
+fn ntfs_record_meta(ctx: &NtfsRecordMetaCtx<'_>) -> NtfsRecordMeta {
+    let mut notes: Vec<String> = Vec::new();
+    let mut unsupported = ctx.attrs.iter().any(|a| {
+        a.type_id == 0x20 || (a.flags & 0x0001) != 0 || (a.flags & 0x4000) != 0 || a.lowest_vcn > 0
+    });
+    if unsupported {
+        notes.push("unsupported_mft_feature".to_string());
+    }
+    if (ctx.data.flags & 0x8000) != 0 {
+        notes.push("sparse_attribute".to_string());
+    }
+    if ctx.data.initialized_size < ctx.data.data_size {
+        notes.push("uninitialized_tail".to_string());
+    }
+
+    let std_info = ctx
+        .attrs
+        .iter()
+        .find(|a| a.type_id == 0x10 && !a.non_resident);
+    let mtime = std_info
+        .and_then(|a| a.resident.as_ref())
+        .and_then(|v| u64_at(v, 0x08).ok())
+        .and_then(filetime_iso);
+    let file_name = ctx
+        .attrs
+        .iter()
+        .find(|a| a.type_id == 0x30 && !a.non_resident);
+    let name = file_name.and_then(|a| {
+        let value = a.resident.as_ref()?;
+        let len = usize::from(u8_at(value, 0x40).ok()?);
+        let units: Vec<u16> = value
+            .get(0x42..)?
+            .chunks_exact(2)
+            .take(len)
+            .filter_map(|c| <[u8; 2]>::try_from(c).ok().map(u16::from_le_bytes))
+            .collect();
+        sanitize_name(&String::from_utf16_lossy(&units), ctx.limits.max_name_bytes)
+    });
+    if let Some(parent) = file_name
+        .and_then(|a| a.resident.as_ref())
+        .and_then(|v| u64_at(v, 0).ok())
+    {
+        let parent_seq = (parent >> 48) as u16;
+        let parent_no = parent & 0x0000_FFFF_FFFF_FFFF;
+        if parent_seq != 0 && parent_seq != ctx.seq {
+            notes.push("parent_sequence_mismatch".to_string());
+            unsupported = true;
+        }
+        if parent_no >= ctx.count && parent_no != 0 {
+            notes.push("parent_out_of_range".to_string());
+            unsupported = true;
+        }
+    }
+
+    let covered: u64 = ctx.data.runs.iter().fold(0u64, |acc, run| {
+        let offset = run.vcn.saturating_mul(ctx.ntfs_cluster_size());
+        if offset >= ctx.data.data_size {
+            return acc;
+        }
+        let length = run
+            .clusters
+            .saturating_mul(ctx.ntfs_cluster_size())
+            .min(ctx.data.data_size.saturating_sub(offset));
+        acc.saturating_add(length)
+    });
+    if covered < ctx.data.data_size {
+        notes.push("runlist_short".to_string());
+        if ctx.data.initialized_size >= ctx.data.data_size {
+            unsupported = true;
+        }
+    }
+    NtfsRecordMeta {
+        name,
+        mtime,
+        notes,
+        unsupported,
+    }
+}
+
+impl NtfsRecordMetaCtx<'_> {
+    fn ntfs_cluster_size(&self) -> u64 {
+        u64::from(self.geom.bps) * u64::from(self.geom.spc)
+    }
+}
+
+fn ntfs_resident_entry(
+    limits: &MetadataLimits,
+    bytes: &[u8],
+    unsupported: bool,
+    mut entry: DeletedEntry,
+) -> Option<DeletedEntry> {
+    if bytes.len() > limits.max_data_bytes as usize {
+        return None;
+    }
+    if ntfs_signature_match(bytes).is_none() && !unsupported {
+        return None;
+    }
+    entry.pieces.push(MetadataPiece {
+        kind: MetadataPieceKind::Resident,
+        physical_start: None,
+        volume_offset: 0,
+        length: bytes.len() as u64,
+        resident_bytes: Some(bytes.to_vec()),
+    });
+    Some(entry)
+}
+
+struct NtfsRunSpecCtx<'a, 'b> {
+    ctx: &'a VolumeCtx<'b>,
+    ntfs: &'a NtfsCtx<'b>,
+    geom: &'a NtfsGeometry,
+    bitmap: &'a [u8],
+    limits: &'a MetadataLimits,
+    volume_end: u64,
+}
+
+fn ntfs_nonresident_pieces(
+    spec: &NtfsRunSpecCtx<'_, '_>,
+    data: &DeletedAttr,
+    entry: &mut DeletedEntry,
+) -> Result<Vec<u8>> {
+    let mut total = 0u64;
+    let mut head: Vec<u8> = Vec::new();
+    let mut bad_run = false;
+    for run in &data.runs {
+        let offset = run
+            .vcn
+            .checked_mul(spec.ntfs.cluster_size)
+            .context("NTFS: run VCN overflow")?;
+        if offset >= data.data_size {
+            break;
+        }
+        let raw_len = run.clusters.saturating_mul(spec.ntfs.cluster_size);
+        let length = raw_len.min(data.data_size.saturating_sub(offset));
+        if length == 0 {
+            continue;
+        }
+        total = total.saturating_add(length);
+        if total > spec.limits.max_data_bytes {
+            entry.notes.push("truncated_by_limits".to_string());
+            entry.unsupported = true;
+            break;
+        }
+        match run.lcn {
+            Some(lcn) => {
+                if lcn >= spec.geom.total_clusters {
+                    bad_run = true;
+                    break;
+                }
+                let phys = spec
+                    .ctx
+                    .offset
+                    .checked_add(lcn.saturating_mul(spec.ntfs.cluster_size))
+                    .context("NTFS: run physical offset overflow")?;
+                if phys.saturating_add(length) > spec.volume_end {
+                    bad_run = true;
+                    break;
+                }
+                if bitmap_used(spec.bitmap, lcn) {
+                    entry.overwritten_clusters = entry.overwritten_clusters.saturating_add(1);
+                }
+                if head.is_empty() {
+                    let want = usize::try_from(length.min(512)).unwrap_or(512);
+                    head = read_vec_at(spec.ctx.source, phys, want).unwrap_or_default();
+                }
+                entry.pieces.push(MetadataPiece {
+                    kind: MetadataPieceKind::Physical,
+                    physical_start: Some(phys),
+                    volume_offset: offset,
+                    length,
+                    resident_bytes: None,
+                });
+            }
+            None => {
+                entry.pieces.push(MetadataPiece {
+                    kind: MetadataPieceKind::Sparse,
+                    physical_start: None,
+                    volume_offset: offset,
+                    length,
+                    resident_bytes: None,
+                });
+            }
+        }
+    }
+    if bad_run {
+        entry.notes.push("runlist_out_of_bounds".to_string());
+        entry.unsupported = true;
+        entry.pieces.clear();
+    }
+    if entry.overwritten_clusters > 0 {
+        entry.notes.push("bitmap_cluster_allocated".to_string());
+    }
+    Ok(head)
+}
+
 /// Recover deleted NTFS `$MFT` records, bounded by `limits`.
 pub fn deleted_entries(
     ctx: &VolumeCtx<'_>,
@@ -932,176 +1143,47 @@ pub fn deleted_entries(
             .offset
             .checked_add(index.saturating_mul(geom.record_size))
             .unwrap_or(ctx.offset);
-        let mut notes: Vec<String> = Vec::new();
-        let mut unsupported = attrs.iter().any(|a| {
-            a.type_id == 0x20
-                || (a.flags & 0x0001) != 0
-                || (a.flags & 0x4000) != 0
-                || a.lowest_vcn > 0
+        let meta = ntfs_record_meta(&NtfsRecordMetaCtx {
+            attrs: &attrs,
+            data,
+            geom: &geom,
+            limits,
+            count,
+            seq,
         });
-        if unsupported {
-            notes.push("unsupported_mft_feature".to_string());
-        }
-        if (data.flags & 0x8000) != 0 {
-            notes.push("sparse_attribute".to_string());
-        }
-        if data.initialized_size < data.data_size {
-            notes.push("uninitialized_tail".to_string());
-        }
-
-        let std_info = attrs.iter().find(|a| a.type_id == 0x10 && !a.non_resident);
-        let mtime = std_info
-            .and_then(|a| a.resident.as_ref())
-            .and_then(|v| u64_at(v, 0x08).ok())
-            .and_then(filetime_iso);
-        let file_name = attrs.iter().find(|a| a.type_id == 0x30 && !a.non_resident);
-        let name = file_name.and_then(|a| {
-            let value = a.resident.as_ref()?;
-            let len = usize::from(u8_at(value, 0x40).ok()?);
-            let units: Vec<u16> = value
-                .get(0x42..)?
-                .chunks_exact(2)
-                .take(len)
-                .filter_map(|c| <[u8; 2]>::try_from(c).ok().map(u16::from_le_bytes))
-                .collect();
-            sanitize_name(&String::from_utf16_lossy(&units), limits.max_name_bytes)
-        });
-        if let Some(parent) = file_name
-            .and_then(|a| a.resident.as_ref())
-            .and_then(|v| u64_at(v, 0).ok())
-        {
-            let parent_seq = (parent >> 48) as u16;
-            let parent_no = parent & 0x0000_FFFF_FFFF_FFFF;
-            if parent_seq != 0 && parent_seq != seq {
-                notes.push("parent_sequence_mismatch".to_string());
-                unsupported = true;
-            }
-            if parent_no >= count && parent_no != 0 {
-                notes.push("parent_out_of_range".to_string());
-                unsupported = true;
-            }
-        }
-
-        let covered: u64 = data.runs.iter().fold(0u64, |acc, run| {
-            let offset = run.vcn.saturating_mul(ntfs.cluster_size);
-            if offset >= data.data_size {
-                return acc;
-            }
-            let length = run
-                .clusters
-                .saturating_mul(ntfs.cluster_size)
-                .min(data.data_size.saturating_sub(offset));
-            acc.saturating_add(length)
-        });
-        if covered < data.data_size {
-            notes.push("runlist_short".to_string());
-            if data.initialized_size >= data.data_size {
-                unsupported = true;
-            }
-        }
-
+        let unsupported = meta.unsupported;
         let mut entry = DeletedEntry::new("ntfs_deleted_mft");
-        entry.name = name;
-        entry.mtime = mtime;
-        entry.notes = notes;
+        entry.name = meta.name;
+        entry.mtime = meta.mtime;
+        entry.notes = meta.notes;
         entry.unsupported = unsupported;
         entry.record_offset = Some(record_phys);
 
         if let Some(bytes) = &data.resident {
-            if bytes.len() > limits.max_data_bytes as usize {
-                continue;
-            }
-            if ntfs_signature_match(bytes).is_none() && !unsupported {
-                continue;
-            }
-            entry.pieces.push(MetadataPiece {
-                kind: MetadataPieceKind::Resident,
-                physical_start: None,
-                volume_offset: 0,
-                length: bytes.len() as u64,
-                resident_bytes: Some(bytes.clone()),
-            });
-            out.push(entry);
-            continue;
-        }
-
-        let mut total = 0u64;
-        let mut head: Vec<u8> = Vec::new();
-        let mut bad_run = false;
-        for run in &data.runs {
-            let offset = run
-                .vcn
-                .checked_mul(ntfs.cluster_size)
-                .context("NTFS: run VCN overflow")?;
-            if offset >= data.data_size {
-                break;
-            }
-            let raw_len = run.clusters.saturating_mul(ntfs.cluster_size);
-            let length = raw_len.min(data.data_size.saturating_sub(offset));
-            if length == 0 {
-                continue;
-            }
-            total = total.saturating_add(length);
-            if total > limits.max_data_bytes {
-                entry.notes.push("truncated_by_limits".to_string());
-                entry.unsupported = true;
-                break;
-            }
-            match run.lcn {
-                Some(lcn) => {
-                    if lcn >= geom.total_clusters {
-                        bad_run = true;
-                        break;
-                    }
-                    let phys = ctx
-                        .offset
-                        .checked_add(lcn.saturating_mul(ntfs.cluster_size))
-                        .context("NTFS: run physical offset overflow")?;
-                    if phys.saturating_add(length) > volume_end {
-                        bad_run = true;
-                        break;
-                    }
-                    if bitmap_used(&bitmap, lcn) {
-                        entry.overwritten_clusters = entry.overwritten_clusters.saturating_add(1);
-                    }
-                    if head.is_empty() {
-                        let want = usize::try_from(length.min(512)).unwrap_or(512);
-                        head = read_vec_at(ctx.source, phys, want).unwrap_or_default();
-                    }
-                    entry.pieces.push(MetadataPiece {
-                        kind: MetadataPieceKind::Physical,
-                        physical_start: Some(phys),
-                        volume_offset: offset,
-                        length,
-                        resident_bytes: None,
-                    });
-                }
-                None => {
-                    entry.pieces.push(MetadataPiece {
-                        kind: MetadataPieceKind::Sparse,
-                        physical_start: None,
-                        volume_offset: offset,
-                        length,
-                        resident_bytes: None,
-                    });
-                }
-            }
-        }
-        if bad_run {
-            entry.notes.push("runlist_out_of_bounds".to_string());
-            entry.unsupported = true;
-            entry.pieces.clear();
-        }
-        if entry.overwritten_clusters > 0 {
-            entry.notes.push("bitmap_cluster_allocated".to_string());
-        }
-        if entry.pieces.is_empty() {
-            if unsupported || bad_run {
+            if let Some(entry) = ntfs_resident_entry(limits, bytes, unsupported, entry) {
                 out.push(entry);
             }
             continue;
         }
-        if ntfs_signature_match(&head).is_none() && !unsupported && entry.overwritten_clusters == 0
+
+        let run_spec = NtfsRunSpecCtx {
+            ctx,
+            ntfs: &ntfs,
+            geom: &geom,
+            bitmap: &bitmap,
+            limits,
+            volume_end,
+        };
+        let head = ntfs_nonresident_pieces(&run_spec, data, &mut entry)?;
+        if entry.pieces.is_empty() {
+            if entry.unsupported {
+                out.push(entry);
+            }
+            continue;
+        }
+        if ntfs_signature_match(&head).is_none()
+            && !entry.unsupported
+            && entry.overwritten_clusters == 0
         {
             continue;
         }

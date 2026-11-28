@@ -3393,6 +3393,15 @@ const PNG_ORACLE_CHUNK_CAP: usize = 1024 * 1024;
 const PNG_ORACLE_CUT_CAP: usize = 64;
 const PNG_ORACLE_FOOTERS: usize = 8;
 
+struct CandidateJoinsCtx<'a> {
+    source: &'a dyn ImageSource,
+    cand: &'a Candidate,
+    fs: &'a FsInfo,
+    extents: &'a [Extent],
+    opts: &'a ScanOptions,
+    stop: &'a Stop,
+}
+
 /// Compute a CRC-32 over `ctype` and a byte range split across two sources.
 /// `prefix` is the head slice, `tail` the first bytes at the candidate tail
 /// offset. Each hasher carries an explicit byte count so `Hasher::combine`
@@ -3407,239 +3416,276 @@ fn png_split_crc(ctype: &[u8; 4], prefix: &[u8], tail: &[u8]) -> u32 {
     head_crc.finalize()
 }
 
-#[allow(clippy::too_many_arguments)]
-fn png_crc_joins(
-    source: &dyn ImageSource,
-    cand: &Candidate,
-    fs: &FsInfo,
-    footers: &[u64],
-    extents: &[Extent],
-    opts: &ScanOptions,
-    _budget: &MemoryBudget,
-    stop: &Stop,
-) -> Vec<FragmentJoin> {
-    let mut out = Vec::new();
-    if cand.kind != FileType::Png || footers.is_empty() || opts.validate != ValidationMode::Decode {
-        return out;
+fn push_png_join(
+    ctx: &CandidateJoinsCtx<'_>,
+    out: &mut Vec<FragmentJoin>,
+    seen: &mut HashSet<(u64, u64, u64)>,
+    cut_rel: usize,
+    tail_start: u64,
+    footer_end: u64,
+    gap_clusters: u64,
+) {
+    let Some(cut_abs) = ctx.cand.offset.checked_add(cut_rel as u64) else {
+        return;
+    };
+    if tail_start <= cut_abs || !seen.insert((cut_abs, tail_start, footer_end)) {
+        return;
     }
-    let Ok(cluster) = usize::try_from(fs.cluster_size) else {
-        return out;
+    out.push(FragmentJoin {
+        cut: cut_abs,
+        tail_start,
+        footer_end,
+        gap_clusters,
+        gap_matches: gap_clusters,
+        png_oracle: true,
+    });
+}
+
+/// Read the bounded head once and locate its first chunk-level CRC gap.
+fn png_crc_head(ctx: &CandidateJoinsCtx<'_>) -> Option<(PngCrcGap, Vec<u8>)> {
+    let Ok(cluster) = usize::try_from(ctx.fs.cluster_size) else {
+        return None;
     };
     if cluster == 0 {
-        return out;
+        return None;
     }
-    let full_span = cand.extent_end.saturating_sub(cand.offset);
-    let head_span = opts.max_size.min(full_span);
+    let full_span = ctx.cand.extent_end.saturating_sub(ctx.cand.offset);
+    let head_span = ctx.opts.max_size.min(full_span);
     let cap = PNG_ORACLE_HEAD_CAP.min(head_span).max(16);
     let Ok(head_len) = usize::try_from(cap) else {
-        return out;
+        return None;
     };
-    if head_len < 16 || !range_covered(extents, cand.offset, cand.offset + cap) {
-        return out;
+    if head_len < 16 || !range_covered(ctx.extents, ctx.cand.offset, ctx.cand.offset + cap) {
+        return None;
     }
     let mut head = Vec::new();
     if head.try_reserve_exact(head_len).is_err() {
-        return out;
+        return None;
     }
     head.resize(head_len, 0u8);
-    if read_exact_at(source, &mut head, cand.offset).is_err() {
+    if read_exact_at(ctx.source, &mut head, ctx.cand.offset).is_err() {
+        return None;
+    }
+    png_first_crc_gap(&head, head.len()).map(|gap| (gap, head))
+}
+
+struct PngBrokenSpec<'a> {
+    head: &'a [u8],
+    data_start: usize,
+    chunk_len: usize,
+    ctype: [u8; 4],
+    stored_crc: Option<u32>,
+}
+
+fn png_broken_joins(
+    ctx: &CandidateJoinsCtx<'_>,
+    spec: &PngBrokenSpec<'_>,
+    footers: &[u64],
+    out: &mut Vec<FragmentJoin>,
+    seen: &mut HashSet<(u64, u64, u64)>,
+    limit: usize,
+) {
+    if spec.chunk_len > PNG_ORACLE_CHUNK_CAP {
+        return;
+    }
+    let Ok(cluster) = usize::try_from(ctx.fs.cluster_size) else {
+        return;
+    };
+    let chunk_data_end = spec.data_start.saturating_add(spec.chunk_len);
+    // The split may fall inside the chunk data *or* inside its four trailing
+    // CRC bytes. In the latter case the prefix already holds the whole payload,
+    // so any cut after `data_start` is still valid.
+    let chunk_end = chunk_data_end.saturating_add(4);
+    let first_rel = spec.data_start.div_ceil(cluster).saturating_mul(cluster);
+    let last_rel = chunk_end.min(spec.head.len()) / cluster * cluster;
+    let mut cut_rel = first_rel;
+    let mut cuts = 0usize;
+    while cut_rel <= last_rel && cuts < PNG_ORACLE_CUT_CAP {
+        cuts += 1;
+        if cut_rel >= spec.data_start && cut_rel < chunk_end {
+            let prefix = spec.head.get(spec.data_start..cut_rel).unwrap_or(&[]);
+            let suffix_len = chunk_data_end.saturating_sub(cut_rel);
+            let crc_rel = chunk_end.saturating_sub(cut_rel);
+            for gap in 1..=ctx.opts.max_gap {
+                if ctx.stop.check() || out.len() >= limit {
+                    return;
+                }
+                let Some(gap_bytes) = ctx.fs.cluster_size.checked_mul(gap) else {
+                    break;
+                };
+                let Some(cut_abs) = ctx.cand.offset.checked_add(cut_rel as u64) else {
+                    break;
+                };
+                let Some(tail_start) = cut_abs.checked_add(gap_bytes) else {
+                    break;
+                };
+                let Some(footer_end) = footers
+                    .iter()
+                    .copied()
+                    .filter(|&end| end > tail_start)
+                    .take(PNG_ORACLE_FOOTERS)
+                    .find(|&end| end.saturating_sub(tail_start) <= ctx.opts.max_size)
+                else {
+                    continue;
+                };
+                let need = crc_rel;
+                let need_u64 = u64::try_from(need).unwrap_or(u64::MAX);
+                let tail_end = tail_start.saturating_add(need_u64);
+                if need == 0
+                    || need > PNG_ORACLE_CHUNK_CAP.saturating_add(4)
+                    || tail_end.saturating_sub(tail_start) != need_u64
+                    || !range_covered(ctx.extents, ctx.cand.offset, cut_abs)
+                    || !range_covered(ctx.extents, tail_start, tail_end)
+                {
+                    continue;
+                }
+                let mut tail = vec![0u8; need];
+                if read_exact_at(ctx.source, &mut tail, tail_start).is_err() {
+                    continue;
+                }
+                let Some(stored) = spec.stored_crc.or_else(|| {
+                    tail.get(suffix_len..crc_rel)
+                        .and_then(|bytes| <[u8; 4]>::try_from(bytes).ok())
+                        .map(u32::from_be_bytes)
+                }) else {
+                    continue;
+                };
+                let suffix = tail.get(..suffix_len).unwrap_or(&[]);
+                if png_split_crc(&spec.ctype, prefix, suffix) == stored {
+                    push_png_join(ctx, out, seen, cut_rel, tail_start, footer_end, gap);
+                }
+            }
+        }
+        let Some(next) = cut_rel.checked_add(cluster) else {
+            break;
+        };
+        cut_rel = next;
+    }
+}
+
+fn png_boundary_joins(
+    ctx: &CandidateJoinsCtx<'_>,
+    footers: &[u64],
+    last_chunk_end: usize,
+    out: &mut Vec<FragmentJoin>,
+    seen: &mut HashSet<(u64, u64, u64)>,
+    limit: usize,
+) {
+    let Ok(cluster) = usize::try_from(ctx.fs.cluster_size) else {
+        return;
+    };
+    let full_span = ctx.cand.extent_end.saturating_sub(ctx.cand.offset);
+    let head_span = ctx.opts.max_size.min(full_span);
+    // A cut exactly on a chunk boundary leaves no failing chunk. The next
+    // header must parse, be plausibly sized and fit before IEND.
+    let mut cut_rel = last_chunk_end / cluster * cluster;
+    for _ in 0..2usize {
+        for gap in 1..=ctx.opts.max_gap {
+            if ctx.stop.check() || out.len() >= limit {
+                return;
+            }
+            let Some(gap_bytes) = ctx.fs.cluster_size.checked_mul(gap) else {
+                break;
+            };
+            let Some(cut_abs) = ctx.cand.offset.checked_add(cut_rel as u64) else {
+                break;
+            };
+            let Some(tail_start) = cut_abs.checked_add(gap_bytes) else {
+                break;
+            };
+            if tail_start.saturating_sub(ctx.cand.offset) > head_span {
+                continue;
+            }
+            let Some(footer_end) = footers
+                .iter()
+                .copied()
+                .filter(|&end| end > tail_start)
+                .take(PNG_ORACLE_FOOTERS)
+                .find(|&end| end.saturating_sub(tail_start) <= ctx.opts.max_size)
+            else {
+                continue;
+            };
+            let mut header = [0u8; 12];
+            if !range_covered(ctx.extents, ctx.cand.offset, cut_abs)
+                || !range_covered(ctx.extents, tail_start, tail_start.saturating_add(12))
+                || read_exact_at(ctx.source, &mut header, tail_start).is_err()
+                || !png_chunk_header_plausible(&header)
+            {
+                continue;
+            }
+            let len = u32::from_be_bytes(
+                header
+                    .get(0..4)
+                    .and_then(|bytes| <[u8; 4]>::try_from(bytes).ok())
+                    .unwrap_or([0; 4]),
+            ) as u64;
+            if footer_end.saturating_sub(tail_start) < len.saturating_add(12) {
+                continue;
+            }
+            push_png_join(ctx, out, seen, cut_rel, tail_start, footer_end, gap);
+        }
+        if cut_rel < cluster {
+            break;
+        }
+        cut_rel -= cluster;
+    }
+}
+
+fn png_crc_joins(ctx: &CandidateJoinsCtx<'_>, footers: &[u64]) -> Vec<FragmentJoin> {
+    let mut out = Vec::new();
+    if ctx.cand.kind != FileType::Png
+        || footers.is_empty()
+        || ctx.opts.validate != ValidationMode::Decode
+    {
         return out;
     }
-    let Some(gap_kind) = png_first_crc_gap(&head, head.len()) else {
+    let Some((gap_kind, head)) = png_crc_head(ctx) else {
         return out;
     };
-
-    let limit = opts.max_frag_candidates.saturating_mul(2).max(64);
+    let limit = ctx.opts.max_frag_candidates.saturating_mul(2).max(64);
     let mut seen: HashSet<(u64, u64, u64)> = HashSet::new();
-
-    let push_join = |out: &mut Vec<FragmentJoin>,
-                     seen: &mut HashSet<(u64, u64, u64)>,
-                     cut_rel: usize,
-                     tail_start: u64,
-                     footer_end: u64,
-                     gap_clusters: u64| {
-        let Some(cut_abs) = cand.offset.checked_add(cut_rel as u64) else {
-            return;
-        };
-        if tail_start <= cut_abs || !seen.insert((cut_abs, tail_start, footer_end)) {
-            return;
-        }
-        out.push(FragmentJoin {
-            cut: cut_abs,
-            tail_start,
-            footer_end,
-            gap_clusters,
-            gap_matches: gap_clusters,
-            png_oracle: true,
-        });
-    };
-
     match gap_kind {
         PngCrcGap::Broken {
             data_start,
             chunk_len,
             ctype,
             stored_crc,
-            ..
-        } => {
-            if chunk_len > PNG_ORACLE_CHUNK_CAP {
-                return out;
-            }
-            let chunk_data_end = data_start.saturating_add(chunk_len);
-            // The split may fall inside the chunk data *or* inside its four
-            // trailing CRC bytes. In the latter case the prefix already holds
-            // the whole payload, so any cut after `data_start` is still valid.
-            let chunk_end = chunk_data_end.saturating_add(4);
-            let first_rel = data_start.div_ceil(cluster).saturating_mul(cluster);
-            let last_rel = chunk_end.min(head.len()) / cluster * cluster;
-            let mut cut_rel = first_rel;
-            let mut cuts = 0usize;
-            while cut_rel <= last_rel && cuts < PNG_ORACLE_CUT_CAP {
-                cuts += 1;
-                if cut_rel >= data_start && cut_rel < chunk_end {
-                    let prefix = head.get(data_start..cut_rel).unwrap_or(&[]);
-                    let suffix_len = chunk_data_end.saturating_sub(cut_rel);
-                    let crc_rel = chunk_end.saturating_sub(cut_rel);
-                    for gap in 1..=opts.max_gap {
-                        if stop.check() || out.len() >= limit {
-                            return out;
-                        }
-                        let Some(gap_bytes) = fs.cluster_size.checked_mul(gap) else {
-                            break;
-                        };
-                        let Some(cut_abs) = cand.offset.checked_add(cut_rel as u64) else {
-                            break;
-                        };
-                        let Some(tail_start) = cut_abs.checked_add(gap_bytes) else {
-                            break;
-                        };
-                        let Some(footer_end) = footers
-                            .iter()
-                            .copied()
-                            .filter(|&end| end > tail_start)
-                            .take(PNG_ORACLE_FOOTERS)
-                            .find(|&end| end.saturating_sub(tail_start) <= opts.max_size)
-                        else {
-                            continue;
-                        };
-                        let need = crc_rel;
-                        let need_u64 = u64::try_from(need).unwrap_or(u64::MAX);
-                        let tail_end = tail_start.saturating_add(need_u64);
-                        if need == 0
-                            || need > PNG_ORACLE_CHUNK_CAP.saturating_add(4)
-                            || tail_end.saturating_sub(tail_start) != need_u64
-                            || !range_covered(extents, cand.offset, cut_abs)
-                            || !range_covered(extents, tail_start, tail_end)
-                        {
-                            continue;
-                        }
-                        let mut tail = vec![0u8; need];
-                        if read_exact_at(source, &mut tail, tail_start).is_err() {
-                            continue;
-                        }
-                        let Some(stored) = stored_crc.or_else(|| {
-                            tail.get(suffix_len..crc_rel)
-                                .and_then(|b| <[u8; 4]>::try_from(b).ok())
-                                .map(u32::from_be_bytes)
-                        }) else {
-                            continue;
-                        };
-                        let suffix = tail.get(..suffix_len).unwrap_or(&[]);
-                        if png_split_crc(&ctype, prefix, suffix) == stored {
-                            push_join(&mut out, &mut seen, cut_rel, tail_start, footer_end, gap);
-                        }
-                    }
-                }
-                let Some(next) = cut_rel.checked_add(cluster) else {
-                    break;
-                };
-                cut_rel = next;
-            }
-        }
+        } => png_broken_joins(
+            ctx,
+            &PngBrokenSpec {
+                head: &head,
+                data_start,
+                chunk_len,
+                ctype,
+                stored_crc,
+            },
+            footers,
+            &mut out,
+            &mut seen,
+            limit,
+        ),
         PngCrcGap::Boundary { last_chunk_end } => {
-            // A cut exactly on a chunk boundary leaves no failing chunk. The
-            // next header must parse, be plausibly sized and fit before IEND.
-            let mut cut_rel = last_chunk_end / cluster * cluster;
-            for _ in 0..2usize {
-                for gap in 1..=opts.max_gap {
-                    if stop.check() || out.len() >= limit {
-                        return out;
-                    }
-                    let Some(gap_bytes) = fs.cluster_size.checked_mul(gap) else {
-                        break;
-                    };
-                    let Some(cut_abs) = cand.offset.checked_add(cut_rel as u64) else {
-                        break;
-                    };
-                    let Some(tail_start) = cut_abs.checked_add(gap_bytes) else {
-                        break;
-                    };
-                    if tail_start.saturating_sub(cand.offset) > head_span {
-                        continue;
-                    }
-                    let Some(footer_end) = footers
-                        .iter()
-                        .copied()
-                        .filter(|&end| end > tail_start)
-                        .take(PNG_ORACLE_FOOTERS)
-                        .find(|&end| end.saturating_sub(tail_start) <= opts.max_size)
-                    else {
-                        continue;
-                    };
-                    let mut header = [0u8; 12];
-                    if !range_covered(extents, cand.offset, cut_abs)
-                        || !range_covered(extents, tail_start, tail_start.saturating_add(12))
-                        || read_exact_at(source, &mut header, tail_start).is_err()
-                        || !png_chunk_header_plausible(&header)
-                    {
-                        continue;
-                    }
-                    let len = u32::from_be_bytes(
-                        header
-                            .get(0..4)
-                            .and_then(|b| <[u8; 4]>::try_from(b).ok())
-                            .unwrap_or([0; 4]),
-                    ) as u64;
-                    if footer_end.saturating_sub(tail_start) < len.saturating_add(12) {
-                        continue;
-                    }
-                    push_join(&mut out, &mut seen, cut_rel, tail_start, footer_end, gap);
-                }
-                if cut_rel < cluster {
-                    break;
-                }
-                cut_rel -= cluster;
-            }
+            png_boundary_joins(ctx, footers, last_chunk_end, &mut out, &mut seen, limit)
         }
     }
     out
 }
 
-#[allow(clippy::too_many_arguments)]
-fn candidate_joins(
-    source: &dyn ImageSource,
-    cand: &Candidate,
-    fs: &FsInfo,
-    footers: &[u64],
-    extents: &[Extent],
-    opts: &ScanOptions,
-    budget: &MemoryBudget,
-    stop: &Stop,
-) -> Vec<FragmentJoin> {
+fn filler_candidate_joins(ctx: &CandidateJoinsCtx<'_>, footers: &[u64]) -> Vec<FragmentJoin> {
     let mut joins = Vec::new();
-    if fs.cluster_size == 0 || !is_cluster_boundary(cand.offset, fs) {
+    if ctx.fs.cluster_size == 0 || !is_cluster_boundary(ctx.cand.offset, ctx.fs) {
         return joins;
     }
-    let base = cluster_base(fs);
-    let available = cand.extent_end.saturating_sub(cand.offset);
-    let head_span = opts.max_size.min(available);
-    let max_tail_clusters = (opts.max_size / fs.cluster_size).max(1);
-    let join_pool_limit = opts.max_frag_candidates.saturating_mul(4).max(1024);
+    let base = cluster_base(ctx.fs);
+    let available = ctx.cand.extent_end.saturating_sub(ctx.cand.offset);
+    let head_span = ctx.opts.max_size.min(available);
+    let max_tail_clusters = (ctx.opts.max_size / ctx.fs.cluster_size).max(1);
+    let join_pool_limit = ctx.opts.max_frag_candidates.saturating_mul(4).max(1024);
     let (gap_filler, gap_headers) =
-        gap_cluster_flags(source, base, fs.cluster_size, cand.extent_end);
+        gap_cluster_flags(ctx.source, base, ctx.fs.cluster_size, ctx.cand.extent_end);
 
     for &footer_end in footers {
-        if footer_end <= cand.offset.saturating_add(fs.cluster_size) {
+        if footer_end <= ctx.cand.offset.saturating_add(ctx.fs.cluster_size) {
             continue;
         }
         let end_before_footer = footer_end.saturating_sub(1);
@@ -3647,32 +3693,32 @@ fn candidate_joins(
             continue;
         }
         let mut tail_start = base
-            .checked_add((end_before_footer - base) / fs.cluster_size * fs.cluster_size)
+            .checked_add((end_before_footer - base) / ctx.fs.cluster_size * ctx.fs.cluster_size)
             .unwrap_or(base);
         for _tail_clusters in 1..=max_tail_clusters {
-            if tail_start <= cand.offset.saturating_add(fs.cluster_size)
-                || tail_start.saturating_sub(cand.offset) > head_span
+            if tail_start <= ctx.cand.offset.saturating_add(ctx.fs.cluster_size)
+                || tail_start.saturating_sub(ctx.cand.offset) > head_span
             {
                 break;
             }
             let tail_len = footer_end - tail_start;
-            if tail_len > opts.max_size {
+            if tail_len > ctx.opts.max_size {
                 break;
             }
-            if tail_window_plausible(source, tail_start)
-                && range_covered(extents, tail_start, footer_end)
+            if tail_window_plausible(ctx.source, tail_start)
+                && range_covered(ctx.extents, tail_start, footer_end)
             {
-                for gap in 1..=opts.max_gap {
-                    let Some(gap_bytes) = fs.cluster_size.checked_mul(gap) else {
+                for gap in 1..=ctx.opts.max_gap {
+                    let Some(gap_bytes) = ctx.fs.cluster_size.checked_mul(gap) else {
                         break;
                     };
                     let Some(cut) = tail_start.checked_sub(gap_bytes) else {
                         break;
                     };
-                    if cut <= cand.offset || cut.saturating_sub(cand.offset) > head_span {
+                    if cut <= ctx.cand.offset || cut.saturating_sub(ctx.cand.offset) > head_span {
                         continue;
                     }
-                    if !range_covered(extents, cand.offset, cut) {
+                    if !range_covered(ctx.extents, ctx.cand.offset, cut) {
                         continue;
                     }
                     // A real split has file data on both sides of the gap. A
@@ -3680,13 +3726,15 @@ fn candidate_joins(
                     // that begins with filler is not a file remainder. The
                     // head's own first cluster and a short tail's zero padding
                     // are exempt: compact fixtures use repeated-byte markers.
-                    let previous = cut.saturating_sub(fs.cluster_size);
-                    let head_has_room = previous >= cand.offset.saturating_add(fs.cluster_size);
+                    let previous = cut.saturating_sub(ctx.fs.cluster_size);
+                    let head_has_room =
+                        previous >= ctx.cand.offset.saturating_add(ctx.fs.cluster_size);
                     let tail_spans_cluster =
-                        footer_end.saturating_sub(tail_start) >= fs.cluster_size;
-                    if (head_has_room && cluster_flag(&gap_filler, base, fs.cluster_size, previous))
+                        footer_end.saturating_sub(tail_start) >= ctx.fs.cluster_size;
+                    if (head_has_room
+                        && cluster_flag(&gap_filler, base, ctx.fs.cluster_size, previous))
                         || (tail_spans_cluster
-                            && cluster_flag(&gap_filler, base, fs.cluster_size, tail_start))
+                            && cluster_flag(&gap_filler, base, ctx.fs.cluster_size, tail_start))
                     {
                         continue;
                     }
@@ -3699,7 +3747,7 @@ fn candidate_joins(
                             &gap_filler,
                             &gap_headers,
                             base,
-                            fs.cluster_size,
+                            ctx.fs.cluster_size,
                             cut,
                             tail_start,
                         ),
@@ -3713,28 +3761,32 @@ fn candidate_joins(
                     }
                 }
             }
-            let Some(previous) = tail_start.checked_sub(fs.cluster_size) else {
+            let Some(previous) = tail_start.checked_sub(ctx.fs.cluster_size) else {
                 break;
             };
             tail_start = previous;
         }
     }
+    joins
+}
 
-    if opts.fragment_recovery {
+fn candidate_joins(ctx: &CandidateJoinsCtx<'_>, footers: &[u64]) -> Vec<FragmentJoin> {
+    if ctx.fs.cluster_size == 0 || !is_cluster_boundary(ctx.cand.offset, ctx.fs) {
+        return Vec::new();
+    }
+    let mut joins = filler_candidate_joins(ctx, footers);
+    if ctx.opts.fragment_recovery {
         // H-30: high-entropy gaps are outside the original filler/header
         // classes but are explained by a PNG chunk CRC. These candidates are
         // ranked ahead of the weaker local signals above.
-        joins.extend(png_crc_joins(
-            source, cand, fs, footers, extents, opts, budget, stop,
-        ));
+        joins.extend(png_crc_joins(ctx, footers));
     }
-
     // A real split leaves filler (or another file's header) in the gap, while
     // a footer-only splice cuts ordinary bytes out of one contiguous file.
     // Rank the explained gaps first, then prefer small gaps and early tails so
     // the deterministic work-unit budget reaches the real split.
     joins.sort_by_key(join_rank);
-    joins.truncate(opts.max_frag_candidates);
+    joins.truncate(ctx.opts.max_frag_candidates);
     joins
 }
 
@@ -4513,6 +4565,129 @@ struct FragmentJoinCtx<'a> {
     stop: &'a Stop,
 }
 
+#[derive(Default)]
+struct JoinAttemptState {
+    work_budget: usize,
+    checks: u64,
+    alternatives: u64,
+    head_attempts: usize,
+    first_success: Option<CarvedData>,
+    oracle_results: Vec<(FragmentJoin, JoinAlternative)>,
+    oracle_hashes: HashSet<(u64, u64, String)>,
+}
+
+impl JoinAttemptState {
+    fn new(work_budget: usize) -> Self {
+        Self {
+            work_budget,
+            ..Self::default()
+        }
+    }
+
+    fn limit_reached(&self, ctx: &FragmentJoinCtx<'_>, state: &mut FragmentScanState) -> bool {
+        ctx.stop.check()
+            || state.work_exhausted(self.work_budget)
+            || self.head_attempts >= MAX_JOIN_ATTEMPTS_PER_HEAD
+            || state.time_exhausted(ctx.opts)
+    }
+
+    fn done(&self) -> bool {
+        self.alternatives >= MAX_FRAG_ALTERNATIVES
+            || self.head_attempts >= MAX_JOIN_ATTEMPTS_PER_HEAD
+    }
+}
+
+fn run_join_attempt(
+    ctx: &FragmentJoinCtx<'_>,
+    state: &mut FragmentScanState,
+    warnings: &mut Vec<Warning>,
+    internal_errors: &mut Vec<InternalError>,
+    join: &FragmentJoin,
+    attempt: &mut JoinAttemptState,
+) -> Result<()> {
+    let FragmentJoinCtx {
+        source,
+        cand,
+        opts,
+        budget,
+        ..
+    } = *ctx;
+    state.work_units += 1;
+    attempt.head_attempts += 1;
+    let outcome = match catch_unwind(AssertUnwindSafe(|| {
+        try_fragment_join(source, cand, join, opts, budget)
+    })) {
+        Ok(Ok(v)) => v,
+        Ok(Err(e)) => {
+            if opts.verbose {
+                eprintln!("[-] B-06 join at {} failed: {e}", cand.offset);
+            }
+            if e.to_string().contains("--max-memory") {
+                return Err(e);
+            }
+            return Ok(());
+        }
+        Err(payload) => {
+            internal_errors.push(InternalError {
+                offset: cand.offset,
+                file_type: cand.kind,
+                message: panic_message(payload.as_ref()),
+            });
+            return Ok(());
+        }
+    };
+    if outcome.deep_checked {
+        attempt.checks += 1;
+    }
+    if let Some(limit) = outcome.work_limit {
+        state.work_limits.push(limit);
+    }
+    if let Some((offset, needed)) = outcome.skipped_budget {
+        warnings.push(Warning::new(
+            "CANDIDATE_SKIPPED_BUDGET",
+            format!(
+                "B-06 candidate at byte {} needs {} which exceeds --max-memory {}",
+                offset,
+                human_size(needed),
+                human_size(budget.limit())
+            ),
+        ));
+    }
+    let Some(mut data) = outcome.data else {
+        return Ok(());
+    };
+    attempt.alternatives = attempt.alternatives.saturating_add(1);
+    if join.png_oracle && data.validity == Validity::Verified {
+        // Record the geometry keyed by the generated bytes, not by the
+        // cluster gap alone: a different cut and gap can produce the same
+        // output and must not count as a second solution.
+        let key = (join.cut, join.gap_clusters, data.sha256.clone());
+        if attempt.oracle_hashes.insert(key)
+            && attempt.oracle_results.len() < MAX_FRAG_ALTERNATIVES as usize
+        {
+            attempt.oracle_results.push((
+                *join,
+                JoinAlternative {
+                    cut: join.cut,
+                    tail_start: join.tail_start,
+                    gap_clusters: join.gap_clusters,
+                    sha256: data.sha256.clone(),
+                    validity: data.validity,
+                },
+            ));
+        }
+    }
+    if !state.seen_hashes.insert(data.sha256.clone()) {
+        return Ok(());
+    }
+    data.checks = Some(attempt.checks);
+    data.alternatives = Some(attempt.alternatives);
+    if attempt.first_success.is_none() {
+        attempt.first_success = Some(data);
+    }
+    Ok(())
+}
+
 fn attempt_head_joins(
     ctx: &FragmentJoinCtx<'_>,
     state: &mut FragmentScanState,
@@ -4526,7 +4701,7 @@ fn attempt_head_joins(
         found,
         extents,
         opts,
-        budget,
+        budget: _,
         stop,
     } = *ctx;
     let Some(footer_hits) = found.get(&cand.kind) else {
@@ -4535,120 +4710,45 @@ fn attempt_head_joins(
     if !has_plausible_footer(cand, fs, footer_hits, opts) {
         return Ok(None);
     }
-    let joins = candidate_joins(source, cand, fs, footer_hits, extents, opts, budget, stop);
+    let joins = candidate_joins(
+        &CandidateJoinsCtx {
+            source,
+            cand,
+            fs,
+            extents,
+            opts,
+            stop,
+        },
+        footer_hits,
+    );
     // H-30: a PNG CRC hit is only an oracle, not proof. Keep every distinct
     // deep-validated `(cut, gap)` solution so two good-looking joins cannot be
     // collapsed into a silent first-success `verified` result.
     let oracle_joins = joins.iter().filter(|join| join.png_oracle).count();
-    let mut oracle_results: Vec<(FragmentJoin, JoinAlternative)> = Vec::new();
-    let mut oracle_hashes: HashSet<(u64, u64, String)> = HashSet::new();
-    let mut checks = 0u64;
-    let mut alternatives = 0u64;
-    let mut head_attempts = 0usize;
-    let mut first_success: Option<CarvedData> = None;
-    let work_budget = state.work_budget(opts);
-
+    let mut attempt = JoinAttemptState::new(state.work_budget(opts));
     for join in joins {
-        if stop.check() {
+        if attempt.limit_reached(ctx, state) {
             break;
         }
-        if state.work_exhausted(work_budget) {
-            break;
-        }
-        if head_attempts >= MAX_JOIN_ATTEMPTS_PER_HEAD {
-            break;
-        }
-        if state.time_exhausted(opts) {
-            break;
-        }
-        state.work_units += 1;
-        head_attempts += 1;
-        let attempt = match catch_unwind(AssertUnwindSafe(|| {
-            try_fragment_join(source, cand, &join, opts, budget)
-        })) {
-            Ok(Ok(v)) => v,
-            Ok(Err(e)) => {
-                if opts.verbose {
-                    eprintln!("[-] B-06 join at {} failed: {e}", cand.offset);
-                }
-                if e.to_string().contains("--max-memory") {
-                    return Err(e);
-                }
-                continue;
-            }
-            Err(payload) => {
-                internal_errors.push(InternalError {
-                    offset: cand.offset,
-                    file_type: cand.kind,
-                    message: panic_message(payload.as_ref()),
-                });
-                continue;
-            }
-        };
-        if attempt.deep_checked {
-            checks += 1;
-        }
-        if let Some(limit) = attempt.work_limit {
-            state.work_limits.push(limit);
-        }
-        if let Some((offset, needed)) = attempt.skipped_budget {
-            warnings.push(Warning::new(
-                "CANDIDATE_SKIPPED_BUDGET",
-                format!(
-                    "B-06 candidate at byte {} needs {} which exceeds --max-memory {}",
-                    offset,
-                    human_size(needed),
-                    human_size(budget.limit())
-                ),
-            ));
-        }
-        let Some(mut data) = attempt.data else {
-            continue;
-        };
-        alternatives = alternatives.saturating_add(1);
-        if join.png_oracle && data.validity == Validity::Verified {
-            // Record the geometry keyed by the generated bytes, not by the
-            // cluster gap alone: a different cut and gap can produce the same
-            // output and must not count as a second solution.
-            let key = (join.cut, join.gap_clusters, data.sha256.clone());
-            if oracle_hashes.insert(key) && oracle_results.len() < MAX_FRAG_ALTERNATIVES as usize {
-                oracle_results.push((
-                    join,
-                    JoinAlternative {
-                        cut: join.cut,
-                        tail_start: join.tail_start,
-                        gap_clusters: join.gap_clusters,
-                        sha256: data.sha256.clone(),
-                        validity: data.validity,
-                    },
-                ));
-            }
-        }
-        if !state.seen_hashes.insert(data.sha256.clone()) {
-            continue;
-        }
-        data.checks = Some(checks);
-        data.alternatives = Some(alternatives);
-        if first_success.is_none() {
-            first_success = Some(data);
-        }
-        if alternatives >= MAX_FRAG_ALTERNATIVES || head_attempts >= MAX_JOIN_ATTEMPTS_PER_HEAD {
+        run_join_attempt(ctx, state, warnings, internal_errors, &join, &mut attempt)?;
+        if attempt.done() {
             break;
         }
     }
     if oracle_joins > 0 {
         return Ok(finish_oracle_join(
-            oracle_results,
-            first_success,
-            alternatives,
-            checks,
+            attempt.oracle_results,
+            attempt.first_success,
+            attempt.alternatives,
+            attempt.checks,
         ));
     }
-    if let Some(mut data) = first_success {
-        data.alternatives = Some(alternatives);
-        Ok(Some(data))
-    } else {
-        Ok(None)
+    match attempt.first_success {
+        Some(mut data) => {
+            data.alternatives = Some(attempt.alternatives);
+            Ok(Some(data))
+        }
+        None => Ok(None),
     }
 }
 
@@ -5459,6 +5559,436 @@ fn materialize_metadata(
     (data, fragments, read_failed, budget_limited)
 }
 
+struct MetadataPassCtx<'a> {
+    source: &'a dyn ImageSource,
+    existing: &'a [CarvedFile],
+    volumes: &'a [FsInfo],
+    opts: &'a ScanOptions,
+    out_dir: &'a Path,
+    limits: &'a MetadataLimits,
+    vlimits: ValidationLimits,
+    deadline: Option<Instant>,
+}
+
+struct MetadataPassState<'a> {
+    stats: &'a mut MetadataPassStats,
+    warnings: &'a mut Vec<Warning>,
+    files: &'a mut Vec<MetadataResult>,
+    seq: &'a mut u64,
+    written: &'a mut u64,
+    materialized: &'a mut u64,
+    known: &'a mut HashSet<String>,
+}
+
+fn take_metadata_pass(
+    state: &mut MetadataPassState<'_>,
+) -> (Vec<MetadataResult>, MetadataPassStats, Vec<Warning>) {
+    (
+        std::mem::take(state.files),
+        std::mem::take(state.stats),
+        std::mem::take(state.warnings),
+    )
+}
+
+fn metadata_deadline_reached(ctx: &MetadataPassCtx<'_>) -> bool {
+    ctx.deadline
+        .is_some_and(|deadline| Instant::now() >= deadline)
+}
+
+fn deleted_entries_for_volume(
+    ctx: &MetadataPassCtx<'_>,
+    volume: &FsInfo,
+    state: &mut MetadataPassState<'_>,
+) -> Option<Vec<fsx::DeletedEntry>> {
+    let max_len = ctx
+        .source
+        .len()
+        .saturating_sub(volume.offset)
+        .min(volume.length);
+    let volume_ctx = VolumeCtx {
+        source: ctx.source,
+        offset: volume.offset,
+        max_len,
+        partition_index: volume.partition_index,
+        partition_type: volume.partition_type.clone(),
+    };
+    match catch_unwind(AssertUnwindSafe(|| {
+        fsx::deleted_entries(&volume_ctx, ctx.limits)
+    })) {
+        Ok(Ok(entries)) => Some(entries),
+        Ok(Err(_)) => {
+            state.stats.parse_failed = state.stats.parse_failed.saturating_add(1);
+            None
+        }
+        Err(_) => {
+            state.stats.parse_failed = state.stats.parse_failed.saturating_add(1);
+            state.warnings.push(Warning::new(
+                "METADATA_PARSE_FAILED",
+                "deleted-metadata parser panic was contained for one volume",
+            ));
+            None
+        }
+    }
+}
+
+fn metadata_analysis_for_entry(
+    ctx: &MetadataPassCtx<'_>,
+    state: &mut MetadataPassState<'_>,
+    entry: &fsx::DeletedEntry,
+    data: &[u8],
+) -> Option<(FileType, Analysis)> {
+    if data.len() < ctx.limits.min_size as usize {
+        state.stats.parse_failed = state.stats.parse_failed.saturating_add(1);
+        return None;
+    }
+    let kind = FileType::all()
+        .into_iter()
+        .find(|kind| data.starts_with(kind.header()));
+    let Some(kind) = kind else {
+        state.stats.parse_failed = state.stats.parse_failed.saturating_add(1);
+        return None;
+    };
+    if !ctx.opts.types.contains(&kind) {
+        return None;
+    }
+    // A deleted-entry size is authoritative: the reconstructed buffer is exact,
+    // so footer parsers must not ask for trailing bytes.
+    let need = analyze_with_limits(kind, data, true, ctx.opts.pdf_eof, ctx.vlimits);
+    let analysis = match need {
+        Need::Analyzed(analysis) => analysis,
+        Need::More | Need::Reject(_) => {
+            state.stats.parse_failed = state.stats.parse_failed.saturating_add(1);
+            return None;
+        }
+    };
+    let prefix = analysis.end.min(data.len());
+    if !analysis.complete && prefix as u64 > ctx.opts.max_truncated_size {
+        state.stats.parse_failed = state.stats.parse_failed.saturating_add(1);
+        state.warnings.push(Warning::for_candidate(
+            "TRUNCATED_TOO_LARGE",
+            format!(
+                "deleted metadata at byte {} is {prefix} byte(s), exceeding --max-truncated-size {}",
+                entry.record_offset.unwrap_or(0),
+                ctx.opts.max_truncated_size
+            ),
+            kind,
+            entry.record_offset.unwrap_or(0),
+            prefix as u64,
+        ));
+        return None;
+    }
+    if analysis.score < ctx.opts.min_score || (ctx.opts.complete_only && !analysis.complete) {
+        return None;
+    }
+    Some((kind, analysis))
+}
+
+fn metadata_labels(
+    entry: &fsx::DeletedEntry,
+    detail: &ValidationDetail,
+    analysis: &Analysis,
+    read_failed: bool,
+    budget_limited: bool,
+) -> (Validation, Status, Validity, String, Vec<String>) {
+    let downgrade = entry.unsupported
+        || entry.overwritten_clusters > 0
+        || entry.lfn_checksum_mismatch
+        || read_failed
+        || budget_limited
+        || entry.has_nonphysical_pieces()
+        || entry.notes.iter().any(|n| {
+            matches!(
+                n.as_str(),
+                "uninitialized_tail" | "truncated_by_volume" | "runlist_short"
+            )
+        });
+    let (mut validation, mut status, mut validity) = (
+        detail.validation,
+        analysis.status(false),
+        Validity::from_legacy(detail.validation, analysis.status(false)),
+    );
+    if validation == Validation::Decoded {
+        validation = Validation::Structure;
+    }
+    if validity == Validity::Verified {
+        validity = Validity::Structural;
+    }
+    let reason = if downgrade {
+        validation = Validation::Partial;
+        status = Status::Truncated;
+        validity = Validity::Partial;
+        if entry.unsupported {
+            "unsupported"
+        } else if entry.overwritten_clusters > 0 {
+            "overwritten_clusters"
+        } else if read_failed {
+            "metadata_read_failed"
+        } else {
+            "metadata_validation_incomplete"
+        }
+        .to_string()
+    } else {
+        validity_reason_code_raw(validation, status, validity, &detail.checks)
+    };
+
+    let mut notes = entry.notes.clone();
+    notes.extend(detail.notes.iter().cloned());
+    if budget_limited {
+        notes.push("truncated_by_limits".to_string());
+    }
+    if downgrade && !notes.iter().any(|n| n == "metadata_downgraded") {
+        notes.push("metadata_downgraded".to_string());
+    }
+    (validation, status, validity, reason, notes)
+}
+
+fn metadata_seq_path(
+    ctx: &MetadataPassCtx<'_>,
+    state: &mut MetadataPassState<'_>,
+    data: &[u8],
+    attach_to: Option<usize>,
+    kind: FileType,
+    physical: u64,
+) -> Result<(u64, String)> {
+    match attach_to {
+        Some(index) => Ok((
+            ctx.existing.get(index).map_or(*state.seq, |row| row.seq),
+            ctx.existing
+                .get(index)
+                .map_or_else(String::new, |row| row.path.clone()),
+        )),
+        None => {
+            let filename = format!(
+                "{:05}_{}_{:016x}.{}",
+                *state.seq,
+                kind.ext(),
+                physical,
+                kind.ext()
+            );
+            fs::write(ctx.out_dir.join(&filename), data).with_context(|| {
+                format!(
+                    "cannot write metadata result '{filename}' to '{}'",
+                    ctx.out_dir.display()
+                )
+            })?;
+            Ok((*state.seq, filename))
+        }
+    }
+}
+
+struct MetadataRowSpec<'a> {
+    entry: &'a fsx::DeletedEntry,
+    volume: &'a FsInfo,
+    kind: FileType,
+    analysis: &'a Analysis,
+    detail: &'a ValidationDetail,
+    data_len: u64,
+    hash: String,
+    fragments: Vec<Fragment>,
+    physical: u64,
+    size: u64,
+    row_seq: u64,
+    path: String,
+    validation: Validation,
+    status: Status,
+    validity: Validity,
+    reason: String,
+    notes: Vec<String>,
+    contiguous_assumed: bool,
+}
+
+fn metadata_carved_file(spec: &MetadataRowSpec<'_>, ctx: &MetadataPassCtx<'_>) -> CarvedFile {
+    CarvedFile {
+        seq: spec.row_seq,
+        file_type: spec.kind,
+        offset: spec.physical,
+        size: spec.size,
+        carved_size: spec.data_len,
+        sha256: spec.hash.clone(),
+        status: spec.status,
+        score: spec.analysis.score,
+        width: spec.analysis.width,
+        height: spec.analysis.height,
+        repaired: false,
+        path: spec.path.clone(),
+        notes: spec.notes.clone(),
+        validation: spec.validation,
+        validity: spec.validity,
+        validity_reason: spec.reason.clone(),
+        tail_trimmed_bytes: 0,
+        aligned: aligned(spec.physical, ctx.opts.align, ctx.volumes),
+        nested_in: None,
+        sha256_output: None,
+        repair_validated: false,
+        recovered_rows: None,
+        total_rows: None,
+        recovered_fraction: None,
+        validated_bytes: spec.detail.validated_bytes,
+        lba: spec.physical / u64::from(spec.volume.bytes_per_sector.max(1)),
+        cluster: metadata_cluster(spec.physical, spec.volume),
+        partition_index: spec.volume.partition_index,
+        extent_id: 0,
+        allocated: Some(false),
+        source: "metadata".to_string(),
+        fragments: spec.fragments.clone(),
+        validation_checks: spec
+            .detail
+            .checks
+            .iter()
+            .cloned()
+            .chain(metadata_checks(spec.entry))
+            .collect(),
+        checks: None,
+        confidence: None,
+        alternatives: None,
+        join: None,
+        join_alternatives: None,
+        sha256_original: None,
+        original_name: spec.entry.name.clone(),
+        mtime: spec.entry.mtime.clone(),
+        contiguous_assumed: spec.contiguous_assumed.then_some(true),
+        overwritten_clusters: Some(spec.entry.overwritten_clusters),
+        metadata_notes: Some(spec.entry.notes.clone()),
+        sparse_bytes: Some(spec.entry.sparse_bytes()),
+    }
+}
+
+/// Process one deleted entry. `false` means the output budget stopped the pass.
+fn process_metadata_entry(
+    ctx: &MetadataPassCtx<'_>,
+    state: &mut MetadataPassState<'_>,
+    volume: &FsInfo,
+    entry: &fsx::DeletedEntry,
+) -> Result<bool> {
+    state.stats.candidates = state.stats.candidates.saturating_add(1);
+    if entry.unsupported {
+        state.stats.unsupported = state.stats.unsupported.saturating_add(1);
+    }
+    let budget = ctx
+        .limits
+        .max_total_bytes
+        .saturating_sub(*state.materialized);
+    let (data, fragments, read_failed, budget_limited) =
+        materialize_metadata(ctx.source, entry, ctx.limits, budget);
+    *state.materialized = (*state.materialized).saturating_add(data.len() as u64);
+    let Some((kind, analysis)) = metadata_analysis_for_entry(ctx, state, entry, &data) else {
+        return Ok(true);
+    };
+    let prefix = analysis.end.min(data.len());
+    let checked = data.get(..prefix).unwrap_or(&data);
+    let detail = validate_deep_detail(kind, checked, &analysis, ctx.vlimits);
+    let hash = sha256_hex(&data);
+
+    // Resident and sparse bytes have no stable physical start. Never annotate an
+    // unrelated offset-0 carve with those fields.
+    let attachable = !entry.has_nonphysical_pieces() && !fragments.is_empty();
+    let physical = fragments
+        .first()
+        .map(|fragment| fragment.offset)
+        .or(entry.record_offset)
+        .unwrap_or(0);
+    let size = entry.total_length().max(data.len() as u64);
+    // Annotation is decided by location, not content hash: when the normal pass
+    // already carved the same bytes, keep its row and add only metadata fields.
+    let attach_to = attachable
+        .then(|| {
+            ctx.existing
+                .iter()
+                .position(|row| row.offset == physical && row.size == size)
+        })
+        .flatten();
+    let duplicate = !state.known.insert(hash.clone());
+    if attach_to.is_none() && duplicate {
+        state.stats.duplicates = state.stats.duplicates.saturating_add(1);
+        return Ok(true);
+    }
+
+    let (validation, status, validity, reason, notes) =
+        metadata_labels(entry, &detail, &analysis, read_failed, budget_limited);
+    // Reserve the whole write before touching the filesystem: a single write
+    // must never push the run past --max-output.
+    if attach_to.is_none() && ctx.limits.max_output_bytes != u64::MAX {
+        let needed = (*state.written).saturating_add(data.len() as u64);
+        if needed > ctx.limits.max_output_bytes {
+            state.stats.output_limited = true;
+            state.warnings.push(output_limit_warning(
+                state.stats.candidates,
+                *state.written,
+                ctx.limits.max_output_bytes,
+            ));
+            return Ok(false);
+        }
+        *state.written = needed;
+    }
+    let (row_seq, path) = metadata_seq_path(ctx, state, &data, attach_to, kind, physical)?;
+    state.files.push(MetadataResult {
+        attach_to,
+        file: metadata_carved_file(
+            &MetadataRowSpec {
+                entry,
+                volume,
+                kind,
+                analysis: &analysis,
+                detail: &detail,
+                data_len: data.len() as u64,
+                hash,
+                fragments,
+                physical,
+                size,
+                row_seq,
+                path,
+                validation,
+                status,
+                validity,
+                reason,
+                notes,
+                contiguous_assumed: entry.metadata_source == "fat32_dir_entry" && attachable,
+            },
+            ctx,
+        ),
+    });
+    if attach_to.is_some() {
+        state.stats.attached = state.stats.attached.saturating_add(1);
+    } else {
+        *state.seq = (*state.seq).saturating_add(1);
+        state.stats.added = state.stats.added.saturating_add(1);
+    }
+    Ok(true)
+}
+
+fn append_metadata_pass_warnings(state: &mut MetadataPassState<'_>, max_candidates: u64) {
+    if state.stats.time_limited {
+        state.warnings.push(Warning::new(
+            "METADATA_TIME_LIMIT",
+            "deleted-metadata pass stopped at its time limit",
+        ));
+    }
+    if state.stats.candidate_limited {
+        state.warnings.push(Warning::new(
+            "METADATA_CANDIDATE_LIMIT",
+            format!("deleted-metadata pass stopped at its {max_candidates} candidate limit"),
+        ));
+    }
+    if state.stats.parse_failed > 0 {
+        state.warnings.push(Warning::new(
+            "METADATA_PARSE_FAILED",
+            format!(
+                "{} deleted metadata candidate(s) could not be parsed",
+                state.stats.parse_failed
+            ),
+        ));
+    }
+    if state.stats.unsupported > 0 {
+        state.warnings.push(Warning::new(
+            "METADATA_UNSUPPORTED",
+            format!(
+                "{} deleted metadata candidate(s) used unsupported features and were not verified",
+                state.stats.unsupported
+            ),
+        ));
+    }
+}
+
 /// Recover deleted FAT32/NTFS entries and turn them into report rows.
 ///
 /// The pass is deliberately additive: it never rewrites results from the normal
@@ -5488,7 +6018,6 @@ pub fn run_metadata_pass(
     let mut seq = start_seq;
     let mut written = initial_output_bytes;
     let mut materialized = 0u64;
-    let vlimits = ValidationLimits::new(opts.max_validator_memory);
     if opts.verified_only {
         warnings.push(Warning::new(
             "METADATA_VERIFIED_ONLY",
@@ -5497,331 +6026,75 @@ pub fn run_metadata_pass(
         return Ok((files, stats, warnings));
     }
 
+    let ctx = MetadataPassCtx {
+        source,
+        existing,
+        volumes,
+        opts,
+        out_dir,
+        limits: &limits,
+        vlimits: ValidationLimits::new(opts.max_validator_memory),
+        deadline,
+    };
+    let mut state = MetadataPassState {
+        stats: &mut stats,
+        warnings: &mut warnings,
+        files: &mut files,
+        seq: &mut seq,
+        written: &mut written,
+        materialized: &mut materialized,
+        known,
+    };
     for volume in volumes {
-        if deadline.is_some_and(|d| Instant::now() >= d) {
-            stats.time_limited = true;
+        if metadata_deadline_reached(&ctx) {
+            state.stats.time_limited = true;
             break;
         }
-        let max_len = source
-            .len()
-            .saturating_sub(volume.offset)
-            .min(volume.length);
-        let ctx = VolumeCtx {
-            source,
-            offset: volume.offset,
-            max_len,
-            partition_index: volume.partition_index,
-            partition_type: volume.partition_type.clone(),
+        let Some(entries) = deleted_entries_for_volume(&ctx, volume, &mut state) else {
+            continue;
         };
-        let entries = match catch_unwind(AssertUnwindSafe(|| fsx::deleted_entries(&ctx, &limits))) {
-            Ok(Ok(entries)) => entries,
-            Ok(Err(_)) => {
-                stats.parse_failed = stats.parse_failed.saturating_add(1);
-                continue;
-            }
-            Err(_) => {
-                stats.parse_failed = stats.parse_failed.saturating_add(1);
-                warnings.push(Warning::new(
-                    "METADATA_PARSE_FAILED",
-                    "deleted-metadata parser panic was contained for one volume",
-                ));
-                continue;
-            }
-        };
-
-        for entry in entries {
-            if deadline.is_some_and(|d| Instant::now() >= d) {
-                stats.time_limited = true;
+        for entry in &entries {
+            if metadata_deadline_reached(&ctx) {
+                state.stats.time_limited = true;
                 break;
             }
-            if stats.candidates as u64 >= limits.max_candidates {
-                stats.candidate_limited = true;
+            if state.stats.candidates as u64 >= ctx.limits.max_candidates {
+                state.stats.candidate_limited = true;
                 break;
             }
-            if limits.max_output_bytes != u64::MAX && written >= limits.max_output_bytes {
-                stats.output_limited = true;
-                warnings.push(output_limit_warning(
-                    stats.candidates,
-                    written,
-                    limits.max_output_bytes,
+            if ctx.limits.max_output_bytes != u64::MAX
+                && *state.written >= ctx.limits.max_output_bytes
+            {
+                state.stats.output_limited = true;
+                state.warnings.push(output_limit_warning(
+                    state.stats.candidates,
+                    *state.written,
+                    ctx.limits.max_output_bytes,
                 ));
-                return Ok((files, stats, warnings));
+                return Ok(take_metadata_pass(&mut state));
             }
-            let candidate_budget = limits.max_total_bytes.saturating_sub(materialized);
+            let candidate_budget = ctx
+                .limits
+                .max_total_bytes
+                .saturating_sub(*state.materialized);
             if candidate_budget == 0 {
-                stats.memory_limited = true;
-                warnings.push(Warning::new(
+                state.stats.memory_limited = true;
+                state.warnings.push(Warning::new(
                     "METADATA_MEMORY_LIMIT",
                     format!(
                         "deleted-metadata pass reached its {} total materialisation limit",
-                        human_size(limits.max_total_bytes)
+                        human_size(ctx.limits.max_total_bytes)
                     ),
                 ));
-                return Ok((files, stats, warnings));
+                return Ok(take_metadata_pass(&mut state));
             }
-            stats.candidates = stats.candidates.saturating_add(1);
-            if entry.unsupported {
-                stats.unsupported = stats.unsupported.saturating_add(1);
-            }
-            let (data, fragments, read_failed, budget_limited) =
-                materialize_metadata(source, &entry, &limits, candidate_budget);
-            materialized = materialized.saturating_add(data.len() as u64);
-            if data.len() < limits.min_size as usize {
-                stats.parse_failed = stats.parse_failed.saturating_add(1);
-                continue;
-            }
-            let kind = FileType::all()
-                .into_iter()
-                .find(|kind| data.starts_with(kind.header()));
-            let Some(kind) = kind else {
-                stats.parse_failed = stats.parse_failed.saturating_add(1);
-                continue;
-            };
-            if !opts.types.contains(&kind) {
-                continue;
-            }
-            // A deleted-entry size is authoritative: the reconstructed buffer
-            // is exact, so footer parsers must not ask for trailing bytes.
-            let need = analyze_with_limits(kind, &data, true, opts.pdf_eof, vlimits);
-            let analysis = match need {
-                Need::Analyzed(analysis) => analysis,
-                Need::More | Need::Reject(_) => {
-                    stats.parse_failed = stats.parse_failed.saturating_add(1);
-                    continue;
-                }
-            };
-            let prefix = analysis.end.min(data.len());
-            if !analysis.complete && prefix as u64 > opts.max_truncated_size {
-                stats.parse_failed = stats.parse_failed.saturating_add(1);
-                warnings.push(Warning::for_candidate(
-                    "TRUNCATED_TOO_LARGE",
-                    format!(
-                        "deleted metadata at byte {} is {prefix} byte(s), exceeding --max-truncated-size {}",
-                        entry.record_offset.unwrap_or(0),
-                        opts.max_truncated_size
-                    ),
-                    kind,
-                    entry.record_offset.unwrap_or(0),
-                    prefix as u64,
-                ));
-                continue;
-            }
-            if analysis.score < opts.min_score || (opts.complete_only && !analysis.complete) {
-                continue;
-            }
-            let checked = data.get(..prefix).unwrap_or(&data);
-            let detail = validate_deep_detail(kind, checked, &analysis, vlimits);
-            let hash = sha256_hex(&data);
-            // Resident and sparse bytes have no stable physical start. Never
-            // annotate an unrelated offset-0 carve with those fields.
-            let attachable = !entry.has_nonphysical_pieces() && !fragments.is_empty();
-            let physical = fragments
-                .first()
-                .map(|f| f.offset)
-                .or(entry.record_offset)
-                .unwrap_or(0);
-            let size = entry.total_length().max(data.len() as u64);
-            // Annotation is decided by location, not content hash: when the normal
-            // pass already carved the same bytes, keep its row and add only the
-            // metadata fields instead of dropping the candidate as a duplicate.
-            let attach_to = attachable
-                .then(|| {
-                    existing
-                        .iter()
-                        .position(|row| row.offset == physical && row.size == size)
-                })
-                .flatten();
-            let duplicate = !known.insert(hash.clone());
-            if attach_to.is_none() && duplicate {
-                stats.duplicates = stats.duplicates.saturating_add(1);
-                continue;
-            }
-
-            let downgrade = entry.unsupported
-                || entry.overwritten_clusters > 0
-                || entry.lfn_checksum_mismatch
-                || read_failed
-                || budget_limited
-                || entry.has_nonphysical_pieces()
-                || entry.notes.iter().any(|n| {
-                    matches!(
-                        n.as_str(),
-                        "uninitialized_tail" | "truncated_by_volume" | "runlist_short"
-                    )
-                });
-            let (mut validation, mut status, mut validity) = (
-                detail.validation,
-                analysis.status(false),
-                Validity::from_legacy(detail.validation, analysis.status(false)),
-            );
-            if validation == Validation::Decoded {
-                validation = Validation::Structure;
-            }
-            if validity == Validity::Verified {
-                validity = Validity::Structural;
-            }
-            let reason = if downgrade {
-                validation = Validation::Partial;
-                status = Status::Truncated;
-                validity = Validity::Partial;
-                if entry.unsupported {
-                    "unsupported"
-                } else if entry.overwritten_clusters > 0 {
-                    "overwritten_clusters"
-                } else if read_failed {
-                    "metadata_read_failed"
-                } else {
-                    "metadata_validation_incomplete"
-                }
-                .to_string()
-            } else {
-                validity_reason_code_raw(validation, status, validity, &detail.checks)
-            };
-
-            let mut notes = entry.notes.clone();
-            notes.extend(detail.notes.iter().cloned());
-            if budget_limited {
-                notes.push("truncated_by_limits".to_string());
-            }
-            if downgrade && !notes.iter().any(|n| n == "metadata_downgraded") {
-                notes.push("metadata_downgraded".to_string());
-            }
-            // Reserve the whole write before touching the filesystem: a single
-            // write must never push the run past --max-output.
-            if attach_to.is_none() && limits.max_output_bytes != u64::MAX {
-                let needed = written.saturating_add(data.len() as u64);
-                if needed > limits.max_output_bytes {
-                    stats.output_limited = true;
-                    warnings.push(output_limit_warning(
-                        stats.candidates,
-                        written,
-                        limits.max_output_bytes,
-                    ));
-                    return Ok((files, stats, warnings));
-                }
-                written = needed;
-            }
-            let (row_seq, path) = match attach_to {
-                Some(index) => (
-                    existing.get(index).map_or(seq, |row| row.seq),
-                    existing
-                        .get(index)
-                        .map_or_else(String::new, |row| row.path.clone()),
-                ),
-                None => {
-                    let filename =
-                        format!("{:05}_{}_{:016x}.{}", seq, kind.ext(), physical, kind.ext());
-                    fs::write(out_dir.join(&filename), &data).with_context(|| {
-                        format!(
-                            "cannot write metadata result '{filename}' to '{}'",
-                            out_dir.display()
-                        )
-                    })?;
-                    (seq, filename)
-                }
-            };
-            let (lba, cluster, partition_index) = (
-                physical / u64::from(volume.bytes_per_sector.max(1)),
-                metadata_cluster(physical, volume),
-                volume.partition_index,
-            );
-            files.push(MetadataResult {
-                attach_to,
-                file: CarvedFile {
-                    seq: row_seq,
-                    file_type: kind,
-                    offset: physical,
-                    size,
-                    carved_size: data.len() as u64,
-                    sha256: hash,
-                    status,
-                    score: analysis.score,
-                    width: analysis.width,
-                    height: analysis.height,
-                    repaired: false,
-                    path,
-                    notes,
-                    validation,
-                    validity,
-                    validity_reason: reason,
-                    tail_trimmed_bytes: 0,
-                    aligned: aligned(physical, opts.align, volumes),
-                    nested_in: None,
-                    sha256_output: None,
-                    repair_validated: false,
-                    recovered_rows: None,
-                    total_rows: None,
-                    recovered_fraction: None,
-                    validated_bytes: detail.validated_bytes,
-                    lba,
-                    cluster,
-                    partition_index,
-                    extent_id: 0,
-                    allocated: Some(false),
-                    source: "metadata".to_string(),
-                    fragments,
-                    validation_checks: detail
-                        .checks
-                        .into_iter()
-                        .chain(metadata_checks(&entry))
-                        .collect(),
-                    checks: None,
-                    confidence: None,
-                    alternatives: None,
-                    join: None,
-                    join_alternatives: None,
-                    sha256_original: None,
-                    original_name: entry.name.clone(),
-                    mtime: entry.mtime.clone(),
-                    contiguous_assumed: (entry.metadata_source == "fat32_dir_entry" && attachable)
-                        .then_some(true),
-                    overwritten_clusters: Some(entry.overwritten_clusters),
-                    metadata_notes: Some(entry.notes.clone()),
-                    sparse_bytes: Some(entry.sparse_bytes()),
-                },
-            });
-            if attach_to.is_some() {
-                stats.attached = stats.attached.saturating_add(1);
-            } else {
-                seq = seq.saturating_add(1);
-                stats.added = stats.added.saturating_add(1);
+            if !process_metadata_entry(&ctx, &mut state, volume, entry)? {
+                return Ok(take_metadata_pass(&mut state));
             }
         }
     }
-    if stats.time_limited {
-        warnings.push(Warning::new(
-            "METADATA_TIME_LIMIT",
-            "deleted-metadata pass stopped at its time limit",
-        ));
-    }
-    if stats.candidate_limited {
-        warnings.push(Warning::new(
-            "METADATA_CANDIDATE_LIMIT",
-            format!(
-                "deleted-metadata pass stopped at its {} candidate limit",
-                limits.max_candidates
-            ),
-        ));
-    }
-    if stats.parse_failed > 0 {
-        warnings.push(Warning::new(
-            "METADATA_PARSE_FAILED",
-            format!(
-                "{} deleted metadata candidate(s) could not be parsed",
-                stats.parse_failed
-            ),
-        ));
-    }
-    if stats.unsupported > 0 {
-        warnings.push(Warning::new(
-            "METADATA_UNSUPPORTED",
-            format!(
-                "{} deleted metadata candidate(s) used unsupported features and were not verified",
-                stats.unsupported
-            ),
-        ));
-    }
-    Ok((files, stats, warnings))
+    append_metadata_pass_warnings(&mut state, limits.max_candidates);
+    Ok(take_metadata_pass(&mut state))
 }
 
 fn validity_reason_code_raw(

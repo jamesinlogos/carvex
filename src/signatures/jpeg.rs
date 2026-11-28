@@ -260,6 +260,47 @@ fn scan_entropy(
     }
 }
 
+fn next_jpeg_marker(
+    data: &[u8],
+    mut pos: usize,
+    marker_start: usize,
+    progress: &JpegProgress,
+    at_limit: bool,
+) -> Result<(u8, usize), Need> {
+    if data.get(pos) != Some(&0xFF) {
+        if progress.sof {
+            return Err(progress.truncated(
+                marker_start,
+                at_limit,
+                if progress.sos {
+                    "invalid continuation after SOS"
+                } else {
+                    "invalid segment continuation"
+                },
+            ));
+        }
+        return Err(Need::Reject(format!(
+            "expected JPEG marker at offset {pos}"
+        )));
+    }
+    while data.get(pos) == Some(&0xFF) {
+        pos += 1;
+    }
+    if pos >= data.len() {
+        // A trailing FF run after a cut is fill, not entropy data: FF is
+        // stuffed as FF 00 inside a scan. Never claim those bytes.
+        return Err(progress.truncated(
+            marker_start,
+            at_limit,
+            "trailing FF run after truncated data",
+        ));
+    }
+    let Some(&marker) = data.get(pos) else {
+        return Err(progress.truncated(marker_start, at_limit, "truncated marker"));
+    };
+    Ok((marker, pos + 1))
+}
+
 /// Analyze a JPEG candidate and return structural parse results.
 pub fn analyze(data: &[u8], at_limit: bool) -> Need {
     if data.len() < 4 {
@@ -285,36 +326,12 @@ pub fn analyze(data: &[u8], at_limit: bool) -> Need {
         // unrelated data after a cut) ends the salvaged prefix here instead of
         // rejecting everything before it.
         let marker_start = pos;
-        if data.get(pos) != Some(&0xFF) {
-            if progress.sof {
-                return progress.truncated(
-                    marker_start,
-                    at_limit,
-                    if progress.sos {
-                        "invalid continuation after SOS"
-                    } else {
-                        "invalid segment continuation"
-                    },
-                );
-            }
-            return Need::Reject(format!("expected JPEG marker at offset {pos}"));
-        }
-        while data.get(pos) == Some(&0xFF) {
-            pos += 1;
-        }
-        if pos >= data.len() {
-            // A trailing FF run after a cut is fill, not entropy data: FF is
-            // stuffed as FF 00 inside a scan. Never claim those bytes.
-            return progress.truncated(
-                marker_start,
-                at_limit,
-                "trailing FF run after truncated data",
-            );
-        }
-        let Some(&marker) = data.get(pos) else {
-            return progress.truncated(marker_start, at_limit, "truncated marker");
-        };
-        pos += 1;
+        let (marker, next_pos) =
+            match next_jpeg_marker(data, pos, marker_start, &progress, at_limit) {
+                Ok(v) => v,
+                Err(need) => return need,
+            };
+        pos = next_pos;
 
         match marker {
             0x00 => {
@@ -695,28 +712,23 @@ fn skip_jpeg_segment(data: &[u8], pos: usize) -> Option<usize> {
     Some(pos + len)
 }
 
-/// R2-03/H-18: deterministic content-continuity check for decoded baseline
-/// JPEGs. Tail swaps between compatible baseline JPEGs can produce a
-/// structurally self-consistent bitstream; this check looks for an extreme
-/// horizontal seam discontinuity relative to the image's own block-boundary
-/// statistics. It is conservative: only strong outliers become suspect.
-pub(crate) fn content_continuity_check(
-    pixels: &[u8],
-    width: u32,
-    height: u32,
+struct ContinuityGeometry<'a> {
+    pixels: &'a [u8],
+    w: usize,
+    h: usize,
+    stride: usize,
     components: usize,
-) -> Option<Result<(), String>> {
-    if components == 0 || width < 64 || height < 32 {
-        return None;
-    }
-    let w = width as usize;
-    let h = height as usize;
-    let stride = w.checked_mul(components)?;
-    if pixels.len() < stride.checked_mul(h)? {
-        return None;
-    }
+}
+
+fn jpeg_boundary_scores(geometry: &ContinuityGeometry<'_>) -> Option<Vec<f64>> {
+    let ContinuityGeometry {
+        pixels,
+        w,
+        h,
+        stride,
+        components,
+    } = *geometry;
     let mut scores = Vec::new();
-    let mut band_means = Vec::new();
     let mut y = 8usize;
     while y < h {
         let row = y.checked_mul(stride)?;
@@ -749,7 +761,18 @@ pub(crate) fn content_continuity_check(
         }
         y += 8;
     }
-    // 8-row band means for a DC-shift/step signal.
+    Some(scores)
+}
+
+fn jpeg_band_means(geometry: &ContinuityGeometry<'_>) -> Vec<f64> {
+    let ContinuityGeometry {
+        pixels,
+        w,
+        h,
+        stride,
+        components,
+    } = *geometry;
+    let mut band_means = Vec::new();
     let mut by = 0usize;
     while by < h {
         let end = (by + 8).min(h);
@@ -772,6 +795,39 @@ pub(crate) fn content_continuity_check(
         }
         by += 8;
     }
+    band_means
+}
+
+/// R2-03/H-18: deterministic content-continuity check for decoded baseline
+/// JPEGs. Tail swaps between compatible baseline JPEGs can produce a
+/// structurally self-consistent bitstream; this check looks for an extreme
+/// horizontal seam discontinuity relative to the image's own block-boundary
+/// statistics. It is conservative: only strong outliers become suspect.
+pub(crate) fn content_continuity_check(
+    pixels: &[u8],
+    width: u32,
+    height: u32,
+    components: usize,
+) -> Option<Result<(), String>> {
+    if components == 0 || width < 64 || height < 32 {
+        return None;
+    }
+    let w = width as usize;
+    let h = height as usize;
+    let stride = w.checked_mul(components)?;
+    if pixels.len() < stride.checked_mul(h)? {
+        return None;
+    }
+    let geometry = ContinuityGeometry {
+        pixels,
+        w,
+        h,
+        stride,
+        components,
+    };
+    let scores = jpeg_boundary_scores(&geometry)?;
+    // 8-row band means for a DC-shift/step signal.
+    let band_means = jpeg_band_means(&geometry);
     if scores.len() < 4 {
         return None;
     }

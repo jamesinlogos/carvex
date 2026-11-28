@@ -1,7 +1,7 @@
 # Implementation progress (CarveX 0.3.1; frozen benchmark figures remain 0.1.0/0.2.0)
 
-> Last updated: 2026-11-27 (H-04 closure, CI verification and Part T H-27,
-> H-28/H-29 and H-30; historical gate rows below are dated records). Every status below
+> Last updated: 2026-11-28 (H-04 closure, CI verification, Part T H-27/H-28/
+> H-29/H-30 and the A-10/H-22 closure; historical gate rows below are dated records). Every status below
 > is verified
 > by the command recorded with it; items that could not be run due to missing
 > tools are marked `SKIPPED`, with no guessed results. IDs follow the
@@ -180,6 +180,32 @@ Evidence: bench/results/h30_png_crc.txt (archived N=100 per gap kind, 200/200
         bench/render_docs.py --check G9 GREEN (52 scan options, 200 tests)
 Gate: fmt/clippy/build/docs/tests/golden/perf/status green; no threshold,
         flag, report field or default changed; golden D0 and G8 unchanged.
+```
+
+```text
+Task: H-22 — A-10 limits: oversized functions and allow(too_many_arguments) [fb97875]
+Change: scripts/gate.sh (clippy size/argument gate); src/scan.rs (candidate-join
+        and metadata-pass contexts, head-join attempt state);
+        src/signatures/repair_image.rs (PNG/JPEG crop helpers); src/fs/fat32.rs,
+        src/fs/ntfs.rs (deleted-entry decode/build helpers); src/cli.rs
+        (free-stream and metadata pass helpers); src/signatures/pdf_validate.rs
+        (xref-section collector); src/signatures/jpeg.rs (marker, boundary and
+        band-statistic helpers); docs/PROGRESS.md, docs/REVIEW_RESPONSE.md
+New tests: none; no test file was edited for H-22.
+Evidence: red clippy gate had 8 too_many_lines findings and 2
+        too_many_arguments allows (/tmp/opencode/h22-red-clippy.log);
+        scripts/fn_len.py went from 12 raw findings to 0; grep finds no
+        too_many_arguments allow in src/.
+Gate: 195 passed + 5 mkntfs opt-in SKIPs (200 registered); fmt, clippy
+        (all targets plus the new size/argument lint), rustdoc, status, G9 and
+        golden green; full gate re-run after the docs edits.
+Measurement: 220 golden D0 output hashes are byte-identical to the H-30
+        baseline (/tmp/opencode/golden-h30-before.sha256 vs
+        /tmp/opencode/golden-h22-after.sha256). G8 medians: s9_4m 0.566 s vs
+        0.666 s (0.85×), rand64m 0.094 s vs 0.095 s (0.99×); both within 10 %.
+        The informational committed-baseline regression lines are unchanged.
+Residual risk / next: none; the frozen q1 B4 benchmark, dist binary, flags,
+        thresholds and report schema were not touched.
 ```
 
 ### H0 verification — `harness-f5bda4a` (2026-11-26)
@@ -768,7 +794,7 @@ Windows**.
 | A-07 | DONE (steps 1 + 2) | green | `detect_all()` → `VolumeSet{volumes,partitions,unsupported,errors,gaps}`; report schema 2 adds `volumes[]`, `regions[]`, `warnings[]` object; `*_NOT_SCANNED` ⇒ exit 3. **Step 2 approved (D-23):** default `--partition all` + gaps, S1 carves 60 files (30+30, `part1/`/`part2/`) exit 0; `--partition largest --no-gaps` restores 30 files + WARNING + exit 3. `--include-gaps` is still accepted. **Baselines:** red `docs/baseline/A-07_v0.1.0.txt`; step 1 green `docs/baseline/A-07_green_v0.2.0.txt`; step 2 green `docs/baseline/A-07_green_v0.2.0_step2.txt`. Fixture `target/a07/s1.img`. |
 | A-08 | PARTIAL | green | `trait ImageSource {len, read_at}` + unchanged `RawFile` default; `seek(End)` fallback when metadata len = 0. B-04 adds split raw, E01, VHD, VMDK and stdin sources under `src/image/`. `--on-read-error` and report `unreadable_regions[]` are present (H-22); raw/split reads are retried per 512-byte sector, and abort leaves a partial report. No `BlockDevice`/`--sector-size` yet and real device/Windows not tested. |
 | A-09 | PARTIAL | green | Fixed the NTFS sector off-by-one (`field+1`, D-21, unit test `volume_sector_count_includes_the_backup_boot_sector`); FS errors → `FS_DETECTION_FAILED`. No `$ATTRIBUTE_LIST`/multi-extent `$MFT`/`$MFTMirr`/backup boot/FAT #2 yet. |
-| A-10 | PARTIAL | green | Lib crate + thin `main.rs`; pipeline `plan_extents → build_tasks → scan_task → carve_batch → postfilter → write_outputs`; format registry; `ScanInput<'a>` groups the input parameters for `run_scan`. H-34 split the remaining long functions into behavior-preserving helpers, enabled public `missing_docs` and pedantic stage 1, and documented every remaining `too_many_arguments` allow; the change is recorded in commit f38a2ed. No non-test function exceeds 120 lines. |
+| A-10 | DONE | green | Lib crate + thin `main.rs`; pipeline `plan_extents → build_tasks → scan_task → carve_batch → postfilter → write_outputs`; format registry; `ScanInput<'a>` groups the input parameters for `run_scan`. H-34 split the remaining long functions into behavior-preserving helpers (commit f38a2ed). The `fb97875` regression was closed by H-22: `scripts/fn_len.py` reports 0 non-test functions over 120 raw lines, `src/` has no `#[allow(clippy::too_many_arguments)]`, and `scripts/gate.sh` now enforces both clippy limits. Golden D0 is byte-identical and G8 stayed within 10 %; 195 passed + 5 mkntfs opt-in SKIPs; no test was edited. |
 | A-11 | PARTIAL | green | test count and breakdown generated from `cargo test --all-features --locked -- --list` into README by `bench/render_docs.py --check` (G9; the stale 134-test breakdown was removed in H-23); `scripts/review_repro.py --assert/--xfail --carvex` 34 scenarios, 0 failures, 2 SKIPs, 0 XPASS; red baseline `docs/baseline/repro_v0.1.0.txt`. Post-R-01/R-02 `cargo-llvm-cov 0.9.1` measured 4456/6391 lines = **69.72%**; CI/local floor set to 60%, not the earlier aspirational 80%. No new coverage run after H-14/H-16/H-17/H-18/H-19/H-21/H-22/H-25/H-26/H-27/H-29. |
 | A-12 | PARTIAL | green | MSRV 1.85 (`rust-version`, README corrected from "Rust 1.74"); `cargo +1.85 check` in the gate; `.github/workflows/ci.yml` adds actionlint + coverage and uses a pinned direct actionlint install; `rustfmt.toml`/`clippy.toml`/`deny.toml`; 0.3.0 release rebuild + regenerated `SHA256SUMS`. Local `cargo deny check`, `cargo audit` and `actionlint 1.7.12` pass. Earlier GitHub run `44548142275` on `42376a9` succeeded but predates B-04/B-06/R-01/R-02; `45095456201` failed, then CI fixes landed and run `45121233267` at `86ae15f` completed success (27/27 jobs, archived in `bench/results/ci_run_45121233267*.json`; job logs 403 via public API). Current-HEAD CI run `45332545060` (`749ee7a`, 2026-11-24) completed **success** (27/27 jobs), archived in `bench/results/ci_run_45332545060*.json`; job logs 403 via public API. CI run `45749230527` (`eeb4243`, 2026-11-26) completed **success** (27/27 jobs) after the G9 forced-colour fix and is archived in `bench/results/ci_run_45749230527*.json`; job logs 403 via public API. The 0.3.0 packaged Windows binary was executed under Wine 10.0, not on a Windows runner. SBOM generation is wired in; no signatures; removing binaries from `dist/` is STOP-AND-ASK (kept). |
 | A-13 | PARTIAL | green | Exit 0/1/2/3/4 documented + CLI contract tests; coded warnings; `RAW_SCANS_ALLOCATED` informational (D-20); H-28 writes a partial report with `INTERRUPTED` and exit 4. No `thiserror` types, leveled logger or `ProgressSink`/ETA yet. |

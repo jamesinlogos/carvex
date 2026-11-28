@@ -80,8 +80,20 @@ fn png_chunk(out: &mut Vec<u8>, kind: &[u8; 4], body: &[u8]) -> Result<(), Strin
     Ok(())
 }
 
-/// Crop a non-interlaced PNG to the scanlines present in the carved prefix.
-pub(crate) fn crop_png(data: &[u8], limits: ValidationLimits) -> Result<CroppedRepair, String> {
+struct PngRepairLayout {
+    width: u32,
+    height: u32,
+    depth: u8,
+    colour: u8,
+    interlace: u8,
+    before_idat: Vec<Vec<u8>>,
+    idat: Vec<u8>,
+    rowbytes: usize,
+    expected: u64,
+}
+
+/// Read the PNG header chunks and derive the bounded decode geometry.
+fn parse_png_repair(data: &[u8], limits: ValidationLimits) -> Result<PngRepairLayout, String> {
     if !data.starts_with(PNG_SIGNATURE) {
         return Err("not a PNG".into());
     }
@@ -188,13 +200,27 @@ pub(crate) fn crop_png(data: &[u8], limits: ValidationLimits) -> Result<CroppedR
     if expected > limits.max_validator_memory {
         return Err("PNG repair exceeds the decode-validation budget".into());
     }
+    Ok(PngRepairLayout {
+        width,
+        height,
+        depth,
+        colour,
+        interlace,
+        before_idat,
+        idat,
+        rowbytes,
+        expected,
+    })
+}
 
+/// Inflate at most the declared image size; a cut prefix yields fewer rows.
+fn inflate_png_prefix(idat: &[u8], expected: u64) -> Result<Vec<u8>, String> {
     let mut raw = Vec::new();
     raw.try_reserve_exact(usize::try_from(expected).unwrap_or(usize::MAX))
         .map_err(|_| "cannot reserve PNG repair memory".to_string())?;
     let mut inflater = Decompress::new(true);
     let mut scratch = vec![0u8; PNG_INFLATE_BUFFER];
-    let mut input: &[u8] = &idat;
+    let mut input: &[u8] = idat;
     loop {
         let before_in = inflater.total_in();
         let before_out = inflater.total_out();
@@ -219,20 +245,16 @@ pub(crate) fn crop_png(data: &[u8], limits: ValidationLimits) -> Result<CroppedR
         }
         input = input.get(consumed..).unwrap_or(&[]);
     }
-    let complete_rows = raw
-        .len()
-        .checked_div(rowbytes)
-        .ok_or_else(|| "PNG row size is zero".to_string())?;
-    let rows = complete_rows.min(height as usize);
-    if rows == 0 {
-        return Err("no complete PNG scanline in the carved prefix".into());
-    }
-    let keep = rows
-        .checked_mul(rowbytes)
-        .ok_or_else(|| "PNG repaired size overflow".to_string())?;
-    let raw_prefix =
-        range(&raw, 0, keep).ok_or_else(|| "PNG decoded rows are short".to_string())?;
+    Ok(raw)
+}
 
+/// Rebuild a shorter PNG whose IHDR declares only the complete rows retained.
+fn build_png_repair(
+    layout: &PngRepairLayout,
+    raw_prefix: &[u8],
+    rows: usize,
+    limits: ValidationLimits,
+) -> Result<CroppedRepair, String> {
     let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
     encoder
         .write_all(raw_prefix)
@@ -245,11 +267,11 @@ pub(crate) fn crop_png(data: &[u8], limits: ValidationLimits) -> Result<CroppedR
     reserve(&mut out, PNG_SIGNATURE.len())?;
     out.extend_from_slice(PNG_SIGNATURE);
     let mut repaired_ihdr = Vec::with_capacity(13);
-    repaired_ihdr.extend_from_slice(&width.to_be_bytes());
+    repaired_ihdr.extend_from_slice(&layout.width.to_be_bytes());
     repaired_ihdr.extend_from_slice(&(rows as u32).to_be_bytes());
-    repaired_ihdr.extend_from_slice(&[depth, colour, 0, 0, interlace]);
+    repaired_ihdr.extend_from_slice(&[layout.depth, layout.colour, 0, 0, layout.interlace]);
     png_chunk(&mut out, b"IHDR", &repaired_ihdr)?;
-    for chunk in &before_idat {
+    for chunk in &layout.before_idat {
         reserve(&mut out, chunk.len())?;
         out.extend_from_slice(chunk);
     }
@@ -261,8 +283,28 @@ pub(crate) fn crop_png(data: &[u8], limits: ValidationLimits) -> Result<CroppedR
     Ok(CroppedRepair {
         output: out,
         recovered_rows: rows as u32,
-        total_rows: height,
+        total_rows: layout.height,
     })
+}
+
+/// Crop a non-interlaced PNG to the scanlines present in the carved prefix.
+pub(crate) fn crop_png(data: &[u8], limits: ValidationLimits) -> Result<CroppedRepair, String> {
+    let layout = parse_png_repair(data, limits)?;
+    let raw = inflate_png_prefix(&layout.idat, layout.expected)?;
+    let complete_rows = raw
+        .len()
+        .checked_div(layout.rowbytes)
+        .ok_or_else(|| "PNG row size is zero".to_string())?;
+    let rows = complete_rows.min(layout.height as usize);
+    if rows == 0 {
+        return Err("no complete PNG scanline in the carved prefix".into());
+    }
+    let keep = rows
+        .checked_mul(layout.rowbytes)
+        .ok_or_else(|| "PNG repaired size overflow".to_string())?;
+    let raw_prefix =
+        range(&raw, 0, keep).ok_or_else(|| "PNG decoded rows are short".to_string())?;
+    build_png_repair(&layout, raw_prefix, rows, limits)
 }
 
 struct BitReader<'a> {
@@ -292,6 +334,7 @@ impl<'a> BitReader<'a> {
 }
 
 type HuffmanTable = HashMap<(u8, u16), u8>;
+type JpegEntropyBits = (Vec<u8>, Vec<usize>, Vec<usize>);
 
 fn decode_symbol(bits: &mut BitReader<'_>, table: &HuffmanTable) -> Option<u8> {
     let mut code = 0u16;
@@ -343,8 +386,41 @@ fn parse_dht(body: &[u8], tables: &mut Vec<Option<HuffmanTable>>) -> Option<()> 
     Some(())
 }
 
-/// Crop baseline sequential JPEG entropy data to complete MCU rows.
-pub(crate) fn crop_jpeg(data: &[u8], limits: ValidationLimits) -> Result<CroppedRepair, String> {
+struct JpegMarkerScan {
+    pos: usize,
+    sof_pos: usize,
+    sof_body: Vec<u8>,
+    sos_body: Vec<u8>,
+    tables: Vec<Option<HuffmanTable>>,
+}
+
+struct JpegSofInfo {
+    width: u32,
+    height: u32,
+    components: usize,
+    sampling: HashMap<u8, (u32, u32)>,
+}
+
+struct JpegFrameLayout {
+    height: u32,
+    sampling: HashMap<u8, (u32, u32)>,
+    scan: Vec<(u8, usize, usize)>,
+    mcux: u32,
+    mcuy: u32,
+}
+
+struct JpegFinishSpec<'a> {
+    data: &'a [u8],
+    pos: usize,
+    sof_pos: usize,
+    layout: &'a JpegFrameLayout,
+    trimmed: &'a [u8],
+    rows: usize,
+    limits: ValidationLimits,
+}
+
+/// Walk the readable JPEG marker segments up to the start of entropy data.
+fn scan_jpeg_repair_markers(data: &[u8]) -> Result<JpegMarkerScan, String> {
     let mut pos = 2usize;
     let mut tables: Vec<Option<HuffmanTable>> = Vec::new();
     let mut sof: Option<(usize, Vec<u8>)> = None;
@@ -415,9 +491,18 @@ pub(crate) fn crop_jpeg(data: &[u8], limits: ValidationLimits) -> Result<Cropped
     let (sof_pos, sof_body) =
         sof.ok_or_else(|| "no baseline SOF in the readable JPEG prefix".to_string())?;
     let sos_body = sos.ok_or_else(|| "no SOS in the readable JPEG prefix".to_string())?;
+    Ok(JpegMarkerScan {
+        pos,
+        sof_pos,
+        sof_body,
+        sos_body,
+        tables,
+    })
+}
 
-    let height = u16be(&sof_body, 1).ok_or_else(|| "invalid repair structure".to_string())? as u32;
-    let width = u16be(&sof_body, 3).ok_or_else(|| "invalid repair structure".to_string())? as u32;
+fn parse_jpeg_sof(sof_body: &[u8]) -> Result<JpegSofInfo, String> {
+    let height = u16be(sof_body, 1).ok_or_else(|| "invalid repair structure".to_string())? as u32;
+    let width = u16be(sof_body, 3).ok_or_else(|| "invalid repair structure".to_string())? as u32;
     let components = *sof_body
         .get(5)
         .ok_or_else(|| "JPEG SOF component count is missing".to_string())?
@@ -462,7 +547,15 @@ pub(crate) fn crop_jpeg(data: &[u8], limits: ValidationLimits) -> Result<Cropped
         }
         sampling.insert(id, (h, v));
     }
+    Ok(JpegSofInfo {
+        width,
+        height,
+        components,
+        sampling,
+    })
+}
 
+fn parse_jpeg_scan(sos_body: &[u8], components: usize) -> Result<Vec<(u8, usize, usize)>, String> {
     let scan_count = *sos_body
         .first()
         .ok_or_else(|| "invalid repair structure".to_string())? as usize;
@@ -505,6 +598,15 @@ pub(crate) fn crop_jpeg(data: &[u8], limits: ValidationLimits) -> Result<Cropped
     if scan.len() != components {
         return Err("non-interleaved JPEG scan is not repairable".into());
     }
+    Ok(scan)
+}
+
+fn jpeg_mcu_geometry(
+    width: u32,
+    height: u32,
+    sampling: &HashMap<u8, (u32, u32)>,
+    scan: &[(u8, usize, usize)],
+) -> Result<(u32, u32), String> {
     let mut hmax = 0u32;
     let mut vmax = 0u32;
     for &(h, v) in sampling.values() {
@@ -539,7 +641,23 @@ pub(crate) fn crop_jpeg(data: &[u8], limits: ValidationLimits) -> Result<Cropped
     if mcu_count > MAX_JPEG_MCUS {
         return Err("JPEG repair MCU count exceeds the limit".into());
     }
+    Ok((mcux, mcuy))
+}
 
+fn parse_jpeg_frame(markers: &JpegMarkerScan) -> Result<JpegFrameLayout, String> {
+    let sof = parse_jpeg_sof(&markers.sof_body)?;
+    let scan = parse_jpeg_scan(&markers.sos_body, sof.components)?;
+    let (mcux, mcuy) = jpeg_mcu_geometry(sof.width, sof.height, &sof.sampling, &scan)?;
+    Ok(JpegFrameLayout {
+        height: sof.height,
+        sampling: sof.sampling,
+        scan,
+        mcux,
+        mcuy,
+    })
+}
+
+fn unstuff_jpeg_entropy(data: &[u8], pos: usize) -> Result<JpegEntropyBits, String> {
     // Un-stuff the entropy stream while retaining, for every emitted bit, the
     // offset of the original byte that owns it.  The reference algorithm uses
     // that map to trim at an MCU boundary even when `FF 00` stuffing is present.
@@ -581,13 +699,22 @@ pub(crate) fn crop_jpeg(data: &[u8], limits: ValidationLimits) -> Result<Cropped
     if entropy.is_empty() {
         return Err("no JPEG entropy data in the carved prefix".into());
     }
-    let mut bits = BitReader::new(&entropy);
+    Ok((entropy, owners, raw_ends))
+}
+
+fn decode_jpeg_mcu_rows(
+    entropy: &[u8],
+    layout: &JpegFrameLayout,
+    tables: &[Option<HuffmanTable>],
+) -> Result<(usize, usize), String> {
+    let mut bits = BitReader::new(entropy);
     let mut rows = 0usize;
     let mut end_bit = 0usize;
-    'mcus: for _ in 0..mcuy {
-        for _ in 0..mcux {
-            for (component, dc, ac) in &scan {
-                let (h, v) = *sampling
+    'mcus: for _ in 0..layout.mcuy {
+        for _ in 0..layout.mcux {
+            for (component, dc, ac) in &layout.scan {
+                let (h, v) = *layout
+                    .sampling
                     .get(component)
                     .ok_or_else(|| "JPEG scan references an unknown component".to_string())?;
                 for _ in 0..h
@@ -648,6 +775,16 @@ pub(crate) fn crop_jpeg(data: &[u8], limits: ValidationLimits) -> Result<Cropped
     if rows == 0 || end_bit == 0 {
         return Err("no complete JPEG MCU row in the carved prefix".into());
     }
+    Ok((rows, end_bit))
+}
+
+fn trim_jpeg_entropy(
+    data: &[u8],
+    pos: usize,
+    owners: &[usize],
+    raw_ends: &[usize],
+    end_bit: usize,
+) -> Result<Vec<u8>, String> {
     let owner = *owners
         .get(
             end_bit
@@ -683,11 +820,15 @@ pub(crate) fn crop_jpeg(data: &[u8], limits: ValidationLimits) -> Result<Cropped
             trimmed.push(0);
         }
     }
+    Ok(trimmed)
+}
 
-    let mut out = range(data, 0, pos)
+fn finish_jpeg_repair(spec: &JpegFinishSpec<'_>) -> Result<CroppedRepair, String> {
+    let mut out = range(spec.data, 0, spec.pos)
         .ok_or_else(|| "JPEG header is short".to_string())?
         .to_vec();
-    let height_at = sof_pos
+    let height_at = spec
+        .sof_pos
         .checked_add(5)
         .ok_or_else(|| "invalid repair structure".to_string())?;
     let height_end = height_at
@@ -696,31 +837,56 @@ pub(crate) fn crop_jpeg(data: &[u8], limits: ValidationLimits) -> Result<Cropped
     let height_bytes = out
         .get_mut(height_at..height_end)
         .ok_or_else(|| "JPEG SOF height is outside the header".to_string())?;
-    let repaired_height = (rows as u32)
+    let vmax = spec
+        .layout
+        .sampling
+        .values()
+        .map(|&(_, v)| v)
+        .max()
+        .ok_or_else(|| "JPEG sampling maximum is invalid".to_string())?;
+    let repaired_height = (spec.rows as u32)
         .checked_mul(vmax)
         .ok_or_else(|| "invalid repair structure".to_string())?
         .checked_mul(8)
         .ok_or_else(|| "invalid repair structure".to_string())?
-        .min(height);
+        .min(spec.layout.height);
     let repaired_height = u16::try_from(repaired_height)
         .map_err(|_| "JPEG repaired height exceeds the SOF field".to_string())?;
     height_bytes.copy_from_slice(&repaired_height.to_be_bytes());
 
     reserve(
         &mut out,
-        trimmed
+        spec.trimmed
             .len()
             .checked_add(2)
             .ok_or_else(|| "invalid repair structure".to_string())?,
     )?;
-    out.extend_from_slice(&trimmed);
+    out.extend_from_slice(spec.trimmed);
     out.extend_from_slice(&[0xFF, 0xD9]);
-    if out.len() as u64 > limits.max_validator_memory {
+    if out.len() as u64 > spec.limits.max_validator_memory {
         return Err("repaired JPEG exceeds the validator budget".into());
     }
     Ok(CroppedRepair {
         output: out,
-        recovered_rows: rows as u32,
-        total_rows: mcuy,
+        recovered_rows: spec.rows as u32,
+        total_rows: spec.layout.mcuy,
+    })
+}
+
+/// Crop baseline sequential JPEG entropy data to complete MCU rows.
+pub(crate) fn crop_jpeg(data: &[u8], limits: ValidationLimits) -> Result<CroppedRepair, String> {
+    let markers = scan_jpeg_repair_markers(data)?;
+    let layout = parse_jpeg_frame(&markers)?;
+    let (entropy, owners, raw_ends) = unstuff_jpeg_entropy(data, markers.pos)?;
+    let (rows, end_bit) = decode_jpeg_mcu_rows(&entropy, &layout, &markers.tables)?;
+    let trimmed = trim_jpeg_entropy(data, markers.pos, &owners, &raw_ends, end_bit)?;
+    finish_jpeg_repair(&JpegFinishSpec {
+        data,
+        pos: markers.pos,
+        sof_pos: markers.sof_pos,
+        layout: &layout,
+        trimmed: &trimmed,
+        rows,
+        limits,
     })
 }
