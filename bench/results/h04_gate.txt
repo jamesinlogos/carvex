@@ -1,0 +1,28 @@
+H-04 combined release gate (2026-11-28)
+source tree: R1 + R2, equivalent to commits 5924f5c and ffda507 on d62d1c8
+command: scripts/gate.sh
+result: GATE_RC=1 (only the known accepted R5 timing deviation)
+
+Gates reached and passed:
+  cargo fmt --all -- --check
+  cargo clippy --all-targets --all-features --locked -- -D warnings
+  cargo test --all-features --locked (194 tests, all green)
+  RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --locked
+  actionlint, cargo-deny, cargo-audit, MSRV 1.85
+  cargo build --release --locked
+  bench/render_docs.py --check (52 scan options and 194 tests match README)
+  scripts/check_status.py (STATUS GREEN: 38 guide IDs and 34 harness IDs)
+  scripts/perf_gate.py (PERF GREEN; informational s9_4m 1.227x and rand64m 4.990x)
+  coverage floor, all 16 fuzz targets x 60s
+  repro_x08b.py, repro_x26.py, golden.py, benchmark smoke
+
+Known deviation:
+  FAIL  R5   fake-header flood performance: took 1.05s (target <= 1.0s)
+  34 scenario(s), 1 failure(s), 2 SKIP(s), 0 XPASS
+  GATE FAILED at line 106: python3 scripts/review_repro.py "${REPRO_ARGS[@]}"
+
+Disposition: accepted under §9 Q9 (the user's 2026-11-28 answer records timing
+deviations without changing thresholds). scripts/repro_xfail.txt, all benchmark
+thresholds, flags and metric definitions were left untouched. No new speed or
+resource claim is made; the H0 R5 solo measurement was 1.27s with the same
+1.0s target.

@@ -80,7 +80,7 @@ New tests: low_pre_repair_score_is_recovered_with_opt_in_rescoring (red:
         unknown flag/exit 2 → green: one repaired row with Pillow-verified
         crop); low_pre_repair_score_keeps_the_default_drop (green before and
         after: unchanged default drop with BELOW_MIN_SCORE)
-Gate: targeted regress_repair_images 12/12 green; full gate pending end of phase
+Gate: targeted regress_repair_images 12/12 green; combined H-04 gate below
 Measurement: png_04 cut at 30 % (49,960 B, pre-repair score 40): default 0
         repaired rows + 1 BELOW_MIN_SCORE; --repair-rescore 1 verified crop
 Residual risk / next: §9 Q13 remains open by the user's 2026-11-28 answer;
@@ -97,8 +97,8 @@ New tests: pdf_repair_with_no_readable_page_stays_partial (red: the old dispatch
         repaired the 1-page corpus cut; green: truncated/partial, bytes equal
         to the carved prefix), pdf_repair_with_a_readable_page_stays_repaired
         (control: 3-page corpus cut stays repaired with an ok page_tree check)
-Gate: targeted repair_validation 7/7 green; full gate pending (the H0 R5
-        timing deviation remains recorded under Q9)
+Gate: targeted repair_validation 7/7 green; combined H-04 gate below (the H0
+        R5 timing deviation remains recorded under Q9)
 Measurement: pdf_01 30 % cut = 47,655 B with `/Count 1` but its only
         `/Type /Page` object beyond the cut; pypdf sees 0 pages in the previous
         repaired output. Bounds: 64 page-tree nodes, 256 kids/node, depth 8.
@@ -106,6 +106,19 @@ Residual risk / next: nested nonstandard `/Kids` layouts are treated as
         unreadable on the repair path only; no default, threshold, report field
         or metric definition changed.
 ```
+
+### H-04 combined gate record (2026-11-28)
+
+`scripts/gate.sh` was run on the R1 + R2 tree (equivalent to `5924f5c` and
+`ffda507`) after the release build. Every gate section ran: fmt, clippy,
+194 tests, rustdoc, actionlint, cargo-deny/audit, MSRV 1.85, release build,
+G9 (52 options / 194 tests), status, performance, coverage, all 16 fuzz targets,
+repro X08b/X26, golden and the benchmark smoke. The only failure was the known
+environmental R5 timing deviation: `1.05 s` against the unchanged `<= 1.0 s`
+target, with 33 of 34 scenarios passing and 2 SKIPs. Per §9 Q9 this is recorded
+without changing `scripts/repro_xfail.txt`, any threshold or any metric
+definition; no new speed or resource claim is made. Full details:
+`bench/results/h04_gate.txt`.
 
 ### H0 verification — `harness-f5bda4a` (2026-11-26)
 
