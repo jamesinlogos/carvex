@@ -1654,3 +1654,28 @@ decision, and the consequences.
   `--repair-rescore`; if Q13 is later answered yes, the flag becomes the
   default and both tests are updated in that commit. Golden D0 holds only
   intact files and is unaffected.
+
+## D-80. A rebuilt PDF must still have a readable page (H-04 R2, 2026-11-28)
+
+- **Context:** a 30 % cut of `pdf_01_image_1page.pdf` keeps the catalog and
+  `/Pages` node but removes the only `/Type /Page` object. Rebuilding the
+  trailer produced a file that passed structural checks but had zero readable
+  pages (`pypdf`: 0 pages), and CarveX labelled it `repaired`/`decoded` — the
+  over-claim of H-04 R2. The control `pdf_02_image_3pages.pdf` cut at 30 %
+  retains a page and is a genuine repair.
+- **Decision:** the repair revalidation path now walks the catalog's page tree
+  with hard limits (64 nodes, 256 kids per node, depth 8) and requires at least
+  one resolvable `/Type /Page` when `/Count > 0`. If none resolves, the repair
+  is rejected: the carved prefix is written byte-identically with
+  `status=truncated`, `validation=partial`, `validity=partial`, `repaired=false`
+  and the existing note `repair attempted, not validated`. A tree declaring
+  `/Count 0` claims no page and is exempt; this preserves the synthetic
+  `/Count 0` repair fixtures without rewriting any test. Ordinary decode
+  validation remains purely structural, so no non-repair `Decoded` result
+  changes.
+- **Evidence:** `tests/repair_validation.rs`:
+  `pdf_repair_with_no_readable_page_stays_partial` (red with the old dispatch,
+  green after) and `pdf_repair_with_a_readable_page_stays_repaired` (control).
+- **Consequences:** no new report field, threshold or CLI flag; the stricter
+  check is confined to `--repair --validate decode` PDF revalidation. Golden D0
+  and G8 are unchanged because no intact file or benchmark profile is affected.

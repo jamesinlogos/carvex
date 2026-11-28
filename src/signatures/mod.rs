@@ -1275,6 +1275,16 @@ fn validate_pdf_detail(
     pdf_validate::validate(data, analysis, limits)
 }
 
+/// H-04 R2: PDF repairs additionally require a readable page in the rebuilt
+/// document; ordinary decode validation remains purely structural.
+pub(crate) fn validate_pdf_repair_detail(
+    data: &[u8],
+    analysis: &Analysis,
+    limits: ValidationLimits,
+) -> ValidationDetail {
+    pdf_validate::validate_for_repair(data, analysis, limits)
+}
+
 fn expected_png_raw_size(
     width: u32,
     height: u32,

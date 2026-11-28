@@ -108,6 +108,53 @@ fn truncated_pdf() -> Vec<u8> {
     full[..cut].to_vec()
 }
 
+fn corpus_pdf(relative: &str) -> Vec<u8> {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("bench/corpus")
+        .join(relative);
+    fs::read(&path).unwrap_or_else(|e| panic!("missing corpus fixture {}: {e}", path.display()))
+}
+
+/// H-04 R2: rebuilding the trailer must not turn a PDF whose page tree was
+/// cut away into `repaired`/`decoded`. The 30 % cut keeps the catalog and
+/// `/Pages` node of `pdf_01`, but its only `/Type /Page` object is missing.
+#[test]
+fn pdf_repair_with_no_readable_page_stays_partial() {
+    let full = corpus_pdf("pdf/pdf_01_image_1page.pdf");
+    let cut = &full[..full.len() * 3 / 10];
+    let (file, carved) = scan_repaired_mode(cut, "pdf", "decode");
+
+    assert_eq!(carved, cut, "a rejected repair must not alter the bytes");
+    assert_eq!(file["status"], "truncated");
+    assert_eq!(file["validation"], "partial");
+    assert_eq!(file["validity"], "partial");
+    assert_eq!(file["repaired"], false);
+    assert!(file["sha256_original"].is_null());
+    assert_eq!(check(&file, "repair").unwrap()["ok"], false);
+    assert!(file["notes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|note| note.as_str() == Some("repair attempted, not validated")));
+}
+
+/// Control for R2: a cut that leaves at least one readable page still gets a
+/// rebuilt trailer and stays repaired.
+#[test]
+fn pdf_repair_with_a_readable_page_stays_repaired() {
+    let full = corpus_pdf("pdf/pdf_02_image_3pages.pdf");
+    let cut = &full[..full.len() * 3 / 10];
+    let (file, carved) = scan_repaired_mode(cut, "pdf", "decode");
+
+    assert_ne!(carved, cut, "an accepted repair must change the bytes");
+    assert_eq!(file["status"], "repaired");
+    assert_eq!(file["repaired"], true);
+    assert_eq!(file["validation"], "decoded");
+    assert_eq!(file["validity"], "repaired");
+    assert_eq!(check(&file, "repair").unwrap()["ok"], true);
+    assert_eq!(check(&file, "page_tree").unwrap()["ok"], true);
+}
+
 fn check(file: &Value, name: &str) -> Option<Value> {
     file["checks"]
         .as_array()

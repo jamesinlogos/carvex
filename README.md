@@ -331,7 +331,10 @@ Candidates scoring below `--min-score` are discarded. This eliminates most accid
 When `--repair` is enabled, CarveX attempts one of three bounded rebuilds:
 
 - **PDF:** rebuild a classic xref table and trailer from the surviving objects,
-  including a resolvable `/Root`/catalog, and append `%%EOF`.
+  including a resolvable `/Root`/catalog, and append `%%EOF`. A repaired PDF must
+  still resolve at least one readable page when its page tree declares pages; a
+  cut that removes the page object stays `partial` (H-04 R2). Documents that
+  declare `/Count 0` claim no page and are unchanged.
 - **PNG (non-interlaced):** inflate the readable IDAT prefix, keep the complete
   scanlines, rewrite the IHDR height, re-deflate the retained rows and append a
   real IEND chunk.
@@ -578,7 +581,7 @@ cargo test
 ```
 
 <!-- BEGIN GENERATED TEST COUNT -->
-The current suite has 192 tests (44 unit + 15 `cli_contract` + 7 `evidence_formats` + 11 `fragment_recovery` + 3 `free_stream` + 8 `fs_detect` + 2 `jpeg_frame_budget` + 1 `jpeg_unsupported_validation` + 4 `memory_budget` + 22 `metadata` + 3 `panic_containment` + 8 `pdf_structure_validation` + 3 `png_crc_validity` + 4 `png_decode_budget` + 2 `png_validator_budget` + 7 `properties` + 3 `region_coverage` + 4 `regress_e01_safety` + 12 `regress_repair_images` + 5 `regress_tail_padding` + 1 `regress_task_plan` + 4 `regress_vmdk_safety` + 5 `repair_validation` + 6 `scan_integration` + 1 `validity_model` + 3 `volume_parse_errors` + 4 `work_budgets`).
+The current suite has 194 tests (44 unit + 15 `cli_contract` + 7 `evidence_formats` + 11 `fragment_recovery` + 3 `free_stream` + 8 `fs_detect` + 2 `jpeg_frame_budget` + 1 `jpeg_unsupported_validation` + 4 `memory_budget` + 22 `metadata` + 3 `panic_containment` + 8 `pdf_structure_validation` + 3 `png_crc_validity` + 4 `png_decode_budget` + 2 `png_validator_budget` + 7 `properties` + 3 `region_coverage` + 4 `regress_e01_safety` + 12 `regress_repair_images` + 5 `regress_tail_padding` + 1 `regress_task_plan` + 4 `regress_vmdk_safety` + 7 `repair_validation` + 6 `scan_integration` + 1 `validity_model` + 3 `volume_parse_errors` + 4 `work_budgets`).
 <!-- END GENERATED TEST COUNT -->
 Run the full G0-G9 release gate with `bash scripts/gate.sh`: it also runs G7
 golden hashes, G8 performance checks against committed baselines, a generated

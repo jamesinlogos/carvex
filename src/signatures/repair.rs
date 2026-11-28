@@ -102,7 +102,14 @@ pub(crate) fn validate(
     // validation modes require the same deep proof. `Unverified` is not a
     // proof: a mid-stream JPEG can decode with grey MCU rows invented by the
     // decoder, and the structural parser cannot see that.
-    let detail = validate_deep_detail(kind, data, &analysis, limits);
+    let detail = if kind == FileType::Pdf {
+        // H-04 R2: a rebuilt xref/trailer is not a proof of repair when the
+        // page tree was cut away. The stricter check is repair-only so the
+        // ordinary validator's structural contract stays unchanged.
+        super::validate_pdf_repair_detail(data, &analysis, limits)
+    } else {
+        validate_deep_detail(kind, data, &analysis, limits)
+    };
     let accepted = detail.validation == Validation::Decoded;
     if !accepted {
         return Err(format!(

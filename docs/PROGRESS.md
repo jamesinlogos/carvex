@@ -87,6 +87,26 @@ Residual risk / next: §9 Q13 remains open by the user's 2026-11-28 answer;
         golden D0 holds intact files only and was not re-frozen.
 ```
 
+```text
+Task: H-04 R2 — rebuilt PDFs with no readable page stay partial [repo H-21]
+Change: src/signatures/pdf_validate.rs (repair-only page-tree walk and bounded
+        /Kids reader), src/signatures/mod.rs (repair-only dispatch),
+        src/signatures/repair.rs (use it for PDF), tests/repair_validation.rs,
+        docs/DECISIONS.md (D-80), README.md, CHANGELOG.md
+New tests: pdf_repair_with_no_readable_page_stays_partial (red: the old dispatch
+        repaired the 1-page corpus cut; green: truncated/partial, bytes equal
+        to the carved prefix), pdf_repair_with_a_readable_page_stays_repaired
+        (control: 3-page corpus cut stays repaired with an ok page_tree check)
+Gate: targeted repair_validation 7/7 green; full gate pending (the H0 R5
+        timing deviation remains recorded under Q9)
+Measurement: pdf_01 30 % cut = 47,655 B with `/Count 1` but its only
+        `/Type /Page` object beyond the cut; pypdf sees 0 pages in the previous
+        repaired output. Bounds: 64 page-tree nodes, 256 kids/node, depth 8.
+Residual risk / next: nested nonstandard `/Kids` layouts are treated as
+        unreadable on the repair path only; no default, threshold, report field
+        or metric definition changed.
+```
+
 ### H0 verification — `harness-f5bda4a` (2026-11-26)
 
 The external harness revision for `f5bda4a` was copied verbatim to

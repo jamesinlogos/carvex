@@ -18,6 +18,10 @@ const MAX_OBJECT_SCAN: usize = 64 * 1024;
 const MAX_HEADER_PAIRS: usize = 1_000_000;
 const MAX_PREV_DEPTH: usize = 8;
 const INFLATE_BUFFER: usize = 64 * 1024;
+// H-04 R2: bounded page-tree walk used only when validating a rebuilt PDF.
+const MAX_PAGE_TREE_NODES: usize = 64;
+const MAX_PAGE_TREE_KIDS: usize = 256;
+const MAX_PAGE_TREE_DEPTH: usize = 8;
 
 #[derive(Clone, Debug)]
 enum ObjEntry {
@@ -140,6 +144,26 @@ pub(super) fn validate(
     analysis: &Analysis,
     limits: ValidationLimits,
 ) -> ValidationDetail {
+    validate_inner(data, analysis, limits, false)
+}
+
+/// H-04 R2: a rebuilt trailer is only a proof of repair if the document still
+/// has a readable page. Ordinary validation deliberately stays structural; the
+/// stricter check applies only to the repair path.
+pub(super) fn validate_for_repair(
+    data: &[u8],
+    analysis: &Analysis,
+    limits: ValidationLimits,
+) -> ValidationDetail {
+    validate_inner(data, analysis, limits, true)
+}
+
+fn validate_inner(
+    data: &[u8],
+    analysis: &Analysis,
+    limits: ValidationLimits,
+    require_readable_page: bool,
+) -> ValidationDetail {
     let mut out = Collector::default();
     let selected = data.get(..analysis.end).unwrap_or(data);
     let Some(startxref) = find_startxref(selected) else {
@@ -258,7 +282,129 @@ pub(super) fn validate(
         ),
     );
     check_root(&mut out, selected, &entries, newest, limits);
+    if require_readable_page && !out.failed {
+        check_page_tree(&mut out, selected, &entries, newest, limits);
+    }
     out.finish()
+}
+
+/// Resolve one xref object to its dictionary body, using only bounded helpers.
+/// Missing or malformed objects are reported with the same check name as
+/// `check_root`; the page-tree walk treats them as unreadable pages.
+fn object_body_bytes(
+    data: &[u8],
+    entries: &[(u64, ObjEntry)],
+    number: u64,
+    limits: ValidationLimits,
+) -> Result<Vec<u8>, Issue> {
+    let entry = entries
+        .iter()
+        .find(|(obj_number, _)| *obj_number == number)
+        .map(|(_, entry)| entry)
+        .ok_or_else(|| Issue::fail("startxref_target", format!("object {number} is absent")))?;
+    let body: Vec<u8> = match entry {
+        ObjEntry::Uncompressed {
+            offset,
+            generation: gen,
+        } => {
+            let offset = usize::try_from(*offset)
+                .map_err(|_| Issue::fail("startxref_target", "object offset is out of range"))?;
+            let range = object_body(data, offset, number, *gen)?;
+            data.get(range).unwrap_or_default().to_vec()
+        }
+        ObjEntry::Compressed {
+            object_stream,
+            index,
+        } => {
+            let (buffer, range) =
+                compressed_body(data, entries, *object_stream, *index, number, limits)?;
+            buffer.get(range).unwrap_or_default().to_vec()
+        }
+    };
+    Ok(body)
+}
+
+/// H-04 R2: walk the catalog's page tree with hard node/depth bounds. A `/Count 0`
+/// tree claims no page and is left alone (the synthetic repair fixtures use it);
+/// otherwise at least one `/Type /Page` object must resolve inside the carved
+/// bytes. Nested `/Pages` nodes are followed one bounded level at a time.
+fn check_page_tree(
+    out: &mut Collector,
+    data: &[u8],
+    entries: &[(u64, ObjEntry)],
+    newest: &Section,
+    limits: ValidationLimits,
+) {
+    let Some((number, _)) = newest.root else {
+        return;
+    };
+    let Ok(catalog) = object_body_bytes(data, entries, number, limits) else {
+        return;
+    };
+    let Some((pages_number, _)) = ref_value(&catalog, 0..catalog.len(), b"/Pages") else {
+        out.fail("page_tree", "catalog has no direct /Pages reference");
+        return;
+    };
+    let Ok(pages) = object_body_bytes(data, entries, pages_number, limits) else {
+        out.fail(
+            "page_tree",
+            format!("/Pages {pages_number} could not be resolved in the carved bytes"),
+        );
+        return;
+    };
+    if name_value(&pages, 0..pages.len(), b"/Type") != Some(b"/Pages") {
+        out.fail(
+            "page_tree",
+            format!("/Pages {pages_number} has no /Type /Pages entry"),
+        );
+        return;
+    }
+    let Some(declared) = direct_int(&pages, 0..pages.len(), b"/Count") else {
+        out.fail("page_tree", "page tree has no direct /Count value");
+        return;
+    };
+    if declared == 0 {
+        out.pass("page_tree", "page tree declares no pages");
+        return;
+    }
+    let mut queue = vec![(pages_number, 0usize)];
+    let mut visited = HashSet::new();
+    let mut readable = 0usize;
+    let mut examined = 0usize;
+    while let Some((number, depth)) = queue.pop() {
+        if !visited.insert(number) || examined >= MAX_PAGE_TREE_NODES {
+            continue;
+        }
+        examined += 1;
+        let Ok(body) = object_body_bytes(data, entries, number, limits) else {
+            continue;
+        };
+        match name_value(&body, 0..body.len(), b"/Type") {
+            Some(b"/Page") => readable += 1,
+            Some(b"/Pages") if depth < MAX_PAGE_TREE_DEPTH => {
+                let Some(kids) = array_refs(&body, 0..body.len(), b"/Kids") else {
+                    continue;
+                };
+                for kid in kids.into_iter().take(MAX_PAGE_TREE_KIDS) {
+                    queue.push((kid.0, depth + 1));
+                }
+            }
+            _ => {}
+        }
+    }
+    if readable == 0 {
+        out.fail(
+            "page_tree",
+            format!(
+                "page tree declares {declared} page(s) but no /Type /Page object resolved ({examined} node(s) examined)"
+            ),
+        );
+    } else {
+        out.pass(
+            "page_tree",
+            format!("{readable} readable page object(s) resolved in the page tree"),
+        );
+    }
 }
 
 fn check_size(out: &mut Collector, newest: &Section, sections: &[Section]) {
@@ -1233,6 +1379,37 @@ fn array_ints(data: &[u8], dict: std::ops::Range<usize>, key: &[u8]) -> Option<V
                 let (value, next) = parse_uint(data, pos)?;
                 values.push(value);
                 pos = next;
+            }
+            _ => return None,
+        }
+    }
+}
+
+/// Bounded `/Kids [ n g R ... ]` reader for the repair page-tree check.
+fn array_refs(data: &[u8], dict: std::ops::Range<usize>, key: &[u8]) -> Option<Vec<(u64, u16)>> {
+    let pos = find_key(data, dict.start, dict.end, key)?;
+    let mut pos = skip_ws_comments(data, pos, dict.end);
+    if data.get(pos) != Some(&b'[') {
+        return None;
+    }
+    pos += 1;
+    let mut values = Vec::new();
+    loop {
+        pos = skip_ws_comments(data, pos, dict.end);
+        match data.get(pos) {
+            Some(b']') => return Some(values),
+            Some(byte) if byte.is_ascii_digit() => {
+                let (number, next) = parse_uint(data, pos)?;
+                let (generation, next) = parse_uint(data, skip_ws(data, next))?;
+                let rpos = skip_ws(data, next);
+                if !starts_token(data, rpos, b"R") {
+                    return None;
+                }
+                pos = rpos.saturating_add(1);
+                if values.len() >= MAX_PAGE_TREE_KIDS {
+                    return Some(values);
+                }
+                values.push((number, u16::try_from(generation).ok()?));
             }
             _ => return None,
         }
