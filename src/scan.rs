@@ -562,7 +562,7 @@ impl Default for ScanOptions {
             threads: 0,
             min_score: 50,
             repair: false,
-            score_repaired: false,
+            score_repaired: true,
             complete_only: false,
             verified_only: false,
             pdf_eof: PdfEofMode::Smart,
@@ -2407,9 +2407,10 @@ fn prepare_analysis(
         });
     }
     if analysis.score < opts.min_score {
-        // §9 Q13: with the opt-in rescore and repair enabled, judge the
-        // candidate again after a validated repair. If the repair does not
-        // validate, finalize_analyzed_candidate re-applies this same score.
+        // §9 Q13: with repair enabled, judge the candidate again after a
+        // validated repair (the default; --no-repair-rescore keeps the legacy
+        // gate). If the repair does not validate, finalize_analyzed_candidate
+        // re-applies this same score.
         if !opts.repair || !opts.score_repaired || analysis.complete {
             return Err(CarveOutcome::LowScore {
                 offset: cand.offset,
@@ -2831,8 +2832,8 @@ fn finalize_analyzed_candidate(ctx: AnalyzedCandidateCtx<'_>) -> Result<CarveOut
         Err(outcome) => return Ok(outcome),
     };
 
-    // §9 Q13: only the opt-in path defers the first score gate; apply it here
-    // to the validated repair, or to the original score when no repair passed.
+    // §9 Q13: the default path defers the first score gate; apply it here to
+    // the validated repair, or to the original score when no repair passed.
     if opts.repair && opts.score_repaired {
         let score = if repair.repaired {
             repair.post_repair_score.unwrap_or(analysis.score)

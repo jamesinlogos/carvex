@@ -1630,30 +1630,35 @@ decision, and the consequences.
   FAT32/NTFS or golden D0 regression, plus independent OOXML content-type
   validation and ZIP-bomb caps.
 
-## D-79. H-04 R1 scoring is opt-in pending §9 Q13 (2026-11-28)
+## D-79. H-04 R1 scores validated repairs by default after §9 Q13 (2026-11-28)
 
 - **Context:** the external harness measured eight of 30 truncated PNG cuts
   scoring 40 before repair (`ihdr` found, IDAT not yet complete), so the
-  default `--min-score 50` drops them before `--repair` runs; with
-  `--min-score 0` all eight crop-repair correctly. §9 Q13 recommends scoring
-  the validated repair instead, which would change the default output set from
-  19/30 to 27/30.
-- **Decision:** implement the mechanism first and keep the historical default
-  unchanged, as required by §9 until the user answers. New opt-in flag
-  `--repair-rescore`: with `--repair`, defer the pre-repair score gate for a
-  candidate that will be repaired and re-apply it to the rebuilt bytes' score
+  historical `--min-score 50` gate dropped them before `--repair` ran; with
+  `--min-score 0` all eight crop-repair correctly. §9 Q13 asked whether to
+  score the validated repair instead, which changes the repaired output set
+  from 19/30 to 27/30 without changing `--min-score`.
+- **Decision:** the user answered Q13 **yes** on 2026-11-28. `ScanOptions::score_repaired`
+  now defaults to `true`: with `--repair`, the pre-repair score gate is deferred
+  for a candidate that will be repaired and applied to the rebuilt bytes' score
   (`rebuilt_analysis.score`), or to the original score when no repair validates.
-  The report's `analysis.score` and all report/CSV fields stay unchanged; no
-  threshold or metric definition was altered. **Q13 remains open.**
+  The historical behaviour is available as `--no-repair-rescore`; the earlier
+  `--repair-rescore` flag is accepted for compatibility and is a no-op. The
+  report's `analysis.score` and all report/CSV fields stay unchanged; no
+  threshold or metric definition was altered. **Q13 is closed.**
 - **Evidence:** `tests/regress_repair_images.rs`:
-  `low_pre_repair_score_is_recovered_with_opt_in_rescoring` (red before the
-  flag, green after; `png_04` cut at 30 %, default `--min-score`) and
-  `low_pre_repair_score_keeps_the_default_drop` (unchanged default behaviour,
-  `BELOW_MIN_SCORE` plus `stats.below_min_score >= 1`).
-- **Consequences:** users who want the harness recommendation can pass
-  `--repair-rescore`; if Q13 is later answered yes, the flag becomes the
-  default and both tests are updated in that commit. Golden D0 holds only
-  intact files and is unaffected.
+  `low_pre_repair_score_is_recovered_by_default` (red before the default flip,
+  green after; `png_04` cut at 30 %, default `--min-score`),
+  `low_pre_repair_score_is_recovered_with_opt_in_rescoring` (compatibility flag
+  still accepted), and `no_repair_rescore_keeps_the_legacy_drop` (red before
+  the new flag, green after; `BELOW_MIN_SCORE` plus
+  `stats.below_min_score >= 1`). The pre-Q13 default-drop test was adapted to
+  this opt-out; its assertions were not loosened.
+- **Consequences:** default `--repair` runs now recover small truncated PNGs that
+  are independently Pillow-verified, without lowering `--min-score`. Users who
+  need byte-for-byte historical selection can pass `--no-repair-rescore`.
+  Golden D0 holds only intact files and is unaffected; q1 did not use
+  `--repair`, so no archived benchmark cell is re-run or edited.
 
 ## D-80. A rebuilt PDF must still have a readable page (H-04 R2, 2026-11-28)
 

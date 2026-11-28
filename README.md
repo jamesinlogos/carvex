@@ -140,7 +140,8 @@ Main options:
 | `--threads <THREADS>` | `0` | Worker threads (0 = number of CPUs) |
 | `--min-score <MIN_SCORE>` | `50` | Minimum structural validation score (0-100) |
 | `--repair` | `off` | Repair truncated files only with a deep proof (PDF: xref/trailer rebuild; PNG/JPEG: crop to recovered rows); progressive JPEG and interlaced PNG stay partial |
-| `--repair-rescore` | `off` | With --repair, score a deep-validated repair on the repaired bytes for --min-score (opt-in; default keeps the carved-prefix score) |
+| `--repair-rescore` | `off` | With --repair, score a deep-validated repair on the repaired bytes for --min-score; this is the default (§9 Q13 / D-79) |
+| `--no-repair-rescore` | `off` | With --repair, keep the carved-prefix score for --min-score (legacy pre-Q13 behavior) |
 | `--complete-only` | `off` | Only write files whose footer was found, not verified (see validity) |
 | `--verified-only` | `off` | Only write files whose authoritative validity is verified |
 | `--pdf-eof <PDF_EOF>` | `smart` | PDF %%EOF selection strategy |
@@ -322,7 +323,7 @@ Each candidate is bounded by the **end of the extent** containing it, so CarveX 
 | PNG | Walk each chunk; require IHDR first, check bit depth/color type, PLTE for indexed images, IDAT, IEND; compute CRC-32 for each chunk | 100 minus 15 per bad CRC (max 45); 60 if IHDR+IDAT present but truncated |
 | PDF | Check version, object headers, `/Root`, `startxref`, xref/object targets, choose a revision; do not swallow the next `%PDF-` | 50 base + 10 per object + 20 for a valid startxref + 10 for `/Root` + 10 for xref |
 
-Candidates scoring below `--min-score` are discarded. This eliminates most accidental `FF D8 FF` or `%PDF-` sequences in free space. With `--repair`, the default still judges the carved prefix; `--repair-rescore` instead judges a deep-validated repair on the repaired bytes, so small truncated PNGs that score 40 before repair can be recovered without lowering `--min-score` (§9 Q13 / D-79). If no repair validates, the original score is used.
+Candidates scoring below `--min-score` are discarded. This eliminates most accidental `FF D8 FF` or `%PDF-` sequences in free space. With `--repair`, the default judges a deep-validated repair on the repaired bytes, so small truncated PNGs that score 40 before repair can be recovered without lowering `--min-score` (§9 Q13 / D-79). `--no-repair-rescore` restores the legacy carved-prefix gate; `--repair-rescore` is accepted as a compatibility no-op. If no repair validates, the original score is used.
 
 ### 4. Footer selection and truncated-file repair
 
@@ -583,7 +584,7 @@ cargo test
 ```
 
 <!-- BEGIN GENERATED TEST COUNT -->
-The current suite has 200 tests (44 unit + 15 `cli_contract` + 7 `evidence_formats` + 11 `fragment_recovery` + 3 `free_stream` + 8 `fs_detect` + 2 `jpeg_frame_budget` + 1 `jpeg_unsupported_validation` + 4 `memory_budget` + 28 `metadata` + 3 `panic_containment` + 8 `pdf_structure_validation` + 3 `png_crc_validity` + 4 `png_decode_budget` + 2 `png_validator_budget` + 7 `properties` + 3 `region_coverage` + 4 `regress_e01_safety` + 12 `regress_repair_images` + 5 `regress_tail_padding` + 1 `regress_task_plan` + 4 `regress_vmdk_safety` + 7 `repair_validation` + 6 `scan_integration` + 1 `validity_model` + 3 `volume_parse_errors` + 4 `work_budgets`).
+The current suite has 201 tests (44 unit + 15 `cli_contract` + 7 `evidence_formats` + 11 `fragment_recovery` + 3 `free_stream` + 8 `fs_detect` + 2 `jpeg_frame_budget` + 1 `jpeg_unsupported_validation` + 4 `memory_budget` + 28 `metadata` + 3 `panic_containment` + 8 `pdf_structure_validation` + 3 `png_crc_validity` + 4 `png_decode_budget` + 2 `png_validator_budget` + 7 `properties` + 3 `region_coverage` + 4 `regress_e01_safety` + 13 `regress_repair_images` + 5 `regress_tail_padding` + 1 `regress_task_plan` + 4 `regress_vmdk_safety` + 7 `repair_validation` + 6 `scan_integration` + 1 `validity_model` + 3 `volume_parse_errors` + 4 `work_budgets`).
 <!-- END GENERATED TEST COUNT -->
 Run the full G0-G9 release gate with `bash scripts/gate.sh`: it also runs G7
 golden hashes, G8 performance checks against committed baselines, a generated

@@ -1,7 +1,8 @@
 # Implementation progress (CarveX 0.3.1; frozen benchmark figures remain 0.1.0/0.2.0)
 
-> Last updated: 2026-11-28 (H-04 closure, CI verification, Part T H-27/H-28/
-> H-29/H-30 and the A-10/H-22 closure; historical gate rows below are dated records). Every status below
+> Last updated: 2026-11-28 (H-04 closure, Q13 closure, CI verification, Part T
+> H-27/H-28/H-29/H-30 and the A-10/H-22 closure; historical gate rows below are
+> dated records). Every status below
 > is verified
 > by the command recorded with it; items that could not be run due to missing
 > tools are marked `SKIPPED`, with no guessed results. IDs follow the
@@ -66,8 +67,8 @@ Gate: 190/190 tests; G7 golden green; G8 perf green with informational ratios;
       G9/docs green; repro 34/1 timing failure/2 SKIP/0 XPASS
 Measurement: see the commands and values above; all numbers are from this host
 Residual risk / next: Q9 is closed by the user's 2026-11-28 answer (timing
-      deviation recorded, no threshold changed); Q13 stays open and will be
-      implemented mechanism-first with the default unchanged.
+      deviation recorded, no threshold changed); Q13 was answered "yes" later
+      on 2026-11-28 and is closed in the Q13 record below.
 ```
 
 ```text
@@ -83,8 +84,10 @@ New tests: low_pre_repair_score_is_recovered_with_opt_in_rescoring (red:
 Gate: targeted regress_repair_images 12/12 green; combined H-04 gate below
 Measurement: png_04 cut at 30 % (49,960 B, pre-repair score 40): default 0
         repaired rows + 1 BELOW_MIN_SCORE; --repair-rescore 1 verified crop
-Residual risk / next: §9 Q13 remains open by the user's 2026-11-28 answer;
-        golden D0 holds intact files only and was not re-frozen.
+Residual risk / next: Q13 stayed open at this R1 step; the user answered "yes"
+        later on 2026-11-28 (see the Q13 closure record), so the default now
+        uses the repaired score. Golden D0 holds intact files only and was not
+        re-frozen.
 ```
 
 ```text
@@ -230,6 +233,34 @@ Measurement: Linux SHA-256
         lines retained.
 Residual risk / next: the archived q1 results still reference the earlier
         frozen binary hash; no q1 cell was re-run or edited.
+```
+
+```text
+Task: §9 Q13 — score validated repairs by default [H-04 R1, D-79]
+Change: src/scan.rs (score_repaired defaults true), src/cli.rs
+        (--no-repair-rescore opt-out; --repair-rescore kept as a compatibility
+        no-op), tests/regress_repair_images.rs, README.md, CHANGELOG.md,
+        docs/DECISIONS.md, docs/PROGRESS.md
+Behaviour: with --repair, the default --min-score gate now uses the rebuilt
+        bytes' score when a repair validates, or the carved-prefix score when
+        it does not. --min-score stays 50; analysis.score, report/CSV fields
+        and the repair validation proof are unchanged.
+Evidence: red /tmp/opencode/q13-red.log (default test: 0 files; opt-out test:
+        unknown --no-repair-rescore, 2 failures) -> green
+        /tmp/opencode/q13-green.log (3/3 targeted tests).
+Gate: fmt, clippy (all targets + size/argument limits), 201 registered tests
+        (196 passed + 5 mkntfs opt-in SKIPs), status and G9 (53 flags / 201
+        tests) green; golden D0 220/220 output hashes byte-identical to the
+        H-22 baseline; perf gate green with informational committed-baseline
+        ratios. Full gate and dist rebuild pending.
+Measurement: png_04 cut at 30 % now yields one Pillow-verified repaired crop
+        under the default --min-score 50; --no-repair-rescore still reports
+        BELOW_MIN_SCORE and writes 0 files. G8 source binary: s9_4m 0.657s
+        (1.676x committed baseline), rand64m 0.072s (2.387x); both PASS with
+        Q9 informational regression lines retained.
+Residual risk / next: the pre-Q13 default-drop test was adapted to the new
+        explicit opt-out; its assertions were not loosened. q1 did not use
+        --repair, so no archived benchmark cell was re-run or edited.
 ```
 
 ### H0 verification — `harness-f5bda4a` (2026-11-26)
@@ -1888,9 +1919,11 @@ No scenario ID is listed, so no scenario of a finished phase is xfailed.
 
 ### 4. Open questions and deviations
 
-Open §9 questions: Q5, Q8 and Q9 remain STOP-AND-ASK and were not reached in H5.
-Q1–Q4, Q6, Q7 and Q10 were answered by the repository; Q11 and Q12 were answered
-by the user on 2026-11-25 and 2026-11-27. Deviations logged in `docs/DECISIONS.md`:
+Open §9 questions: Q5 and Q8 remain STOP-AND-ASK and were not reached in H5.
+Q9 was closed by the user's 2026-11-28 timing-deviation answer; Q13 was closed
+by the user's 2026-11-28 "yes" answer (D-79). Q1–Q4, Q6, Q7 and Q10 were answered
+by the repository; Q11 and Q12 were answered by the user on 2026-11-25 and
+2026-11-27. Deviations logged in `docs/DECISIONS.md`:
 D-74 (H-27 is a one-volume complement), D-75 (metadata is evidence, never a
 `verified` shortcut), D-76 (H-31/H-32 not promoted), D-77 (bounded H-30 exception
 to D-71) and D-78 (H-33 design-only). No benchmark metric definition or threshold

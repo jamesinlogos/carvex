@@ -159,9 +159,12 @@ struct ScanArgs {
     /// Repair truncated files only with a deep proof (PDF: xref/trailer rebuild; PNG/JPEG: crop to recovered rows); progressive JPEG and interlaced PNG stay partial
     #[arg(long)]
     repair: bool,
-    /// With --repair, score a deep-validated repair on the repaired bytes for --min-score (opt-in; default keeps the carved-prefix score)
-    #[arg(long)]
+    /// With --repair, score a deep-validated repair on the repaired bytes for --min-score; this is the default (§9 Q13 / D-79)
+    #[arg(long, conflicts_with = "no_repair_rescore")]
     repair_rescore: bool,
+    /// With --repair, keep the carved-prefix score for --min-score (legacy pre-Q13 behavior)
+    #[arg(long, conflicts_with = "repair_rescore")]
+    no_repair_rescore: bool,
     /// Only write files whose footer was found, not verified (see validity)
     #[arg(long)]
     complete_only: bool,
@@ -793,7 +796,7 @@ fn build_scan_options(
         threads: args.threads,
         min_score: args.min_score,
         repair: args.repair,
-        score_repaired: args.repair_rescore,
+        score_repaired: args.repair_rescore || !args.no_repair_rescore,
         complete_only: args.complete_only,
         verified_only: args.verified_only,
         pdf_eof: args.pdf_eof,

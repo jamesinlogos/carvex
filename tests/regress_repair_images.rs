@@ -27,7 +27,7 @@ fn sha256(data: &[u8]) -> String {
 /// Scan one payload through the CLI with `--repair` and return the first file
 /// row and the bytes actually written. The default helper uses `--min-score 0`
 /// so it reaches the repair stage; `scan_repaired_with` lets a test keep the
-/// default score gate or pass an opt-in flag.
+/// default score gate or pass `--no-repair-rescore` for the legacy gate.
 fn scan_repaired(payload: &[u8], kind: &str, mode: &str) -> (Value, Vec<u8>) {
     scan_repaired_with(payload, kind, mode, &["--min-score", "0"])
 }
@@ -336,8 +336,26 @@ fn intact_images_are_not_repaired() {
 }
 
 /// H-04 R1 / §9 Q13: `png_04` scores 40 before repair (IHDR present, IDAT not
-/// yet complete), so the default `--min-score 50` drops it. The opt-in rescore
-/// mechanism must judge the proven crop instead, without changing the default.
+/// yet complete). The user answered Q13 "yes", so the default `--min-score 50`
+/// gate must judge the proven crop instead of dropping it; `--min-score` stays
+/// 50 and no repair proof is weakened.
+#[test]
+fn low_pre_repair_score_is_recovered_by_default() {
+    let original = corpus("png/png_04_palette_600x400.png");
+    let cut = &original[..original.len() * 3 / 10];
+    let (file, carved) = scan_repaired_with(cut, "png", "decode", &[]);
+    assert_eq!(file["status"], "repaired");
+    assert_eq!(file["validity"], "repaired");
+    assert_eq!(file["repair_validated"], true);
+    let rows = assert_validated_crop(&file, &carved, cut, "png");
+    assert!(rows >= 1, "a validated crop must keep at least one row");
+    assert_eq!(file["sha256_original"].as_str().unwrap(), sha256(cut));
+    assert_eq!(file["sha256_output"].as_str().unwrap(), sha256(&carved));
+    assert_pillow_top_rows(&original, &carved, "png", rows, 0);
+}
+
+/// The pre-Q13 flag remains accepted for compatibility; it is a no-op because
+/// rescoring is now the default.
 #[test]
 fn low_pre_repair_score_is_recovered_with_opt_in_rescoring() {
     let original = corpus("png/png_04_palette_600x400.png");
@@ -353,8 +371,9 @@ fn low_pre_repair_score_is_recovered_with_opt_in_rescoring() {
     assert_pillow_top_rows(&original, &carved, "png", rows, 0);
 }
 
+/// Q13 also adds an explicit opt-out so users can keep the historical gate.
 #[test]
-fn low_pre_repair_score_keeps_the_default_drop() {
+fn no_repair_rescore_keeps_the_legacy_drop() {
     let original = corpus("png/png_04_palette_600x400.png");
     let cut = &original[..original.len() * 3 / 10];
     let dir = tempfile::tempdir().unwrap();
@@ -381,6 +400,7 @@ fn low_pre_repair_score_keeps_the_default_drop() {
             "--min-size",
             "1",
             "--repair",
+            "--no-repair-rescore",
             "--quiet",
             "--json-report",
             report_path.to_str().unwrap(),
@@ -397,6 +417,6 @@ fn low_pre_repair_score_keeps_the_default_drop() {
     assert_eq!(report["files"].as_array().unwrap().len(), 0);
     assert!(
         report["stats"]["below_min_score"].as_u64().unwrap() >= 1,
-        "default must still report the dropped candidate: {report:#}"
+        "--no-repair-rescore must report the dropped candidate: {report:#}"
     );
 }
