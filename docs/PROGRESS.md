@@ -14,7 +14,7 @@
 |---|---|
 | Date | 2026-11-27 (H-04 closure and current-HEAD CI verification; earlier rows below are dated historical records) |
 | OS | Linux x86_64 (Kali), running in a container |
-| carvex | source `3c69432647b1` (H-30 implementation plus H-27/H-28/H-29, 0.3.1); local release binary built from that commit, SHA-256 `d10b9e8327b872f2be149a831376f5de628058fa3be001cbefe1a52f546d16ab`; H-30 acceptance `bench/results/h30_png_crc.txt` is 200/200 exact with 0 false `verified`; `dist/carvex-linux-x86_64` rebuilt from `1189cabe09dd`, SHA-256 `e740b20d560ab782803770cc194a369c09e5da50c21c4c476886ec54ed8e5011` (Windows: `62389a550f38072ba6ece7d31f2efbafe16d59557772b05c993cb9e32522bc6b`), `CI=true scripts/check_dist.sh` = DIST OK. H-30 CI run `45955915197` at the dist commit completed success (30/30, full release gate and 16 fuzz targets); the pre-rebuild run `45955602852` failed only at the release gate with stale `dist/`. H-28/H-29 CI run `45945194205` completed success (30/30); earlier H-27 CI runs `45936082042`, `45930050947` and `45935128607` archived in `bench/results/`; final docs-only H-30 CI `45962680798` completed success (30/30) |
+| carvex | source `3c69432647b1` (H-30 implementation plus H-27/H-28/H-29, 0.3.1); local release binary built from that commit, SHA-256 `d10b9e8327b872f2be149a831376f5de628058fa3be001cbefe1a52f546d16ab`; H-30 acceptance `bench/results/h30_png_crc.txt` is 200/200 exact with 0 false `verified`; `dist/carvex-linux-x86_64` rebuilt from `6da466d5a014` after the q1 freeze was lifted, SHA-256 `3f79897a533f0780acc038cd3fec818401e7397c870be93287dda33281d74fe4` (Windows: `b3f35c24bbfe3b6fa147d7f5595d2aeb22ea393f7857a6f22dc89d2415b3f89e`), `CI=true scripts/check_dist.sh` = DIST OK. H-30 CI run `45955915197` at the dist commit completed success (30/30, full release gate and 16 fuzz targets); the pre-rebuild run `45955602852` failed only at the release gate with stale `dist/`. H-28/H-29 CI run `45945194205` completed success (30/30); earlier H-27 CI runs `45936082042`, `45930050947` and `45935128607` archived in `bench/results/`; final docs-only H-30 CI `45962680798` completed success (30/30) |
 | rustc / cargo | 1.100.0 (0ef1bc386 2026-11-09) / 1.100.0 (pinned toolchain installed; no `RUSTUP_TOOLCHAIN` override needed) |
 | MSRV | 1.85.0, installed via rustup; `cargo +1.85 check --locked` passes |
 | Python | 3.13.12; Pillow 12.2.0; pypdf 6.9.2 |
@@ -205,7 +205,30 @@ Measurement: 220 golden D0 output hashes are byte-identical to the H-30
         0.666 s (0.85×), rand64m 0.094 s vs 0.095 s (0.99×); both within 10 %.
         The informational committed-baseline regression lines are unchanged.
 Residual risk / next: none; the frozen q1 B4 benchmark, dist binary, flags,
-        thresholds and report schema were not touched.
+        thresholds and report schema were not touched at H-22 time.
+```
+
+```text
+Task: R2-10 — rebuild prebuilt binaries after q1 freeze lifted [2026-11-28]
+Change: dist/carvex-linux-x86_64, dist/carvex-windows-x86_64.exe,
+        dist/SHA256SUMS, dist/README.md, docs/PROGRESS.md
+Behaviour: none; both binaries are rebuilt from the unchanged H-22 source at
+        6da466d5a014 and report tool_info.commit = 6da466d5a014. No source,
+        flag, threshold, report field or test was changed.
+Evidence: CI run 46175814422 failed only at scripts/gate.sh line 134 with
+        DIST STALE for the previous binary built from 1189cabe09dd; the user
+        lifted the temporary q1 freeze after the benchmark ended.
+Gate: CI=true scripts/check_dist.sh -> DIST OK (Linux and Windows);
+        full gate re-run and remote CI verification pending.
+Measurement: Linux SHA-256
+        3f79897a533f0780acc038cd3fec818401e7397c870be93287dda33281d74fe4;
+        Windows SHA-256
+        b3f35c24bbfe3b6fa147d7f5595d2aeb22ea393f7857a6f22dc89d2415b3f89e.
+        G8: s9_4m 0.661s (1.687x committed baseline), rand64m 0.093s
+        (3.110x); both PASS the gate with the informational Q9 regression
+        lines retained.
+Residual risk / next: the archived q1 results still reference the earlier
+        frozen binary hash; no q1 cell was re-run or edited.
 ```
 
 ### H0 verification — `harness-f5bda4a` (2026-11-26)
@@ -459,8 +482,10 @@ Residual risk / next: after B4, run cargo build/test/clippy, scripts/review_repr
         triggers §9 Q9 (STOP-AND-ASK). Verify (do not re-freeze) golden/perf baselines.
 ```
 
-The benchmark freeze is honoured: only source/docs were added; `dist/` and the
-frozen benchmark binary were not rebuilt or modified.
+The benchmark freeze was honoured at H0 time: only source/docs were added;
+`dist/` and the frozen benchmark binary were not rebuilt or modified. The
+temporary q1 benchmark later ended and the freeze was lifted by the user on
+2026-11-28; see the R2-10 rebuild record above.
 
 ```text
 Task: H-01 — validity model, honest labels, missing report fields [repo H-16]
