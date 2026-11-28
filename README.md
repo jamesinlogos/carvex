@@ -154,7 +154,7 @@ Main options:
 | `--include-gaps` | `on` | Scan image regions outside every supported volume (gaps and partitions without a supported filesystem); on by default |
 | `--no-gaps` | `off` | Restore the historical behaviour: do not scan gaps or unsupported partitions (use with `--partition largest`) |
 | `--max-regions <MAX_REGIONS>` | `4096` | Maximum detailed `regions[]` rows before adjacent rows of the same scanned state are summarised (0 = unlimited; H-27) |
-| `--fragment-recovery` | `off` | Opt in to bounded B-06 gap carving (filler/header gaps; PNG chunk-CRC gaps) Filler is zero/low-cardinality (<=8 distinct bytes) or a repeated period <=32. H-30 also joins high-entropy PNG gaps only when a chunk CRC-32 uniquely identifies the stitch; ambiguous joins are suspect. Acceptance always requires deep decode validation |
+| `--fragment-recovery` | `off` | Opt in to bounded B-06 gap carving (filler/header gaps; PNG chunk-CRC gaps) Filler is zero/low-cardinality (<=8 distinct bytes) or a repeated period <=32. PNG chunk-CRC gaps require both --fragment-recovery and --validate decode; with --fragment-recovery alone those gaps are not joined. A unique CRC match is still checked by deep decode validation; ambiguous joins are suspect |
 | `--max-gap <MAX_GAP>` | `16` | Maximum gap between joined fragments, in clusters (B-06) |
 | `--max-frag-candidates <MAX_FRAG_CANDIDATES>` | `1024` | Maximum candidate joins evaluated by B-06 |
 | `--frag-time-limit <FRAG_TIME_LIMIT>` | `5000` | Wall-clock budget for B-06, in milliseconds |
@@ -206,12 +206,14 @@ longer accepted here). This is a precision-over-recall decision (D-71): a
 random gap can leave the file unrecovered, but no stitch is accepted without a
 deep decode proof.
 
-H-30 adds one bounded exception in `--validate decode` mode: a PNG head split
-inside a chunk may be joined when the chunk CRC-32 matches a suffix at the
-candidate tail. This is only a candidate oracle; deep decode validation still
-decides validity. A unique stitch gains `join` provenance and stays `verified`;
-multiple deep-validated geometries are emitted once as `suspect` with
-`join_alternatives[]`. Schema 1 strips both fields and CSV columns are unchanged.
+H-30 adds one bounded exception only when **both** `--fragment-recovery` and
+`--validate decode` are present: a PNG head split inside a chunk may be joined
+when the chunk CRC-32 matches a suffix at the candidate tail. With
+`--fragment-recovery` alone, PNG chunk-CRC gaps are not joined. CRC matching is
+only a candidate oracle; deep decode validation still decides validity. A unique
+stitch gains `join` provenance and stays `verified`; multiple deep-validated
+geometries are emitted once as `suspect` with `join_alternatives[]`. Schema 1
+strips both fields and CSV columns are unchanged.
 
 `--max-frag-candidates` is the authoritative budget: each head probe and each
 join attempt consumes one work unit, and reaching it emits

@@ -168,6 +168,20 @@ Residual risk / next: a machine without CARVEX_REQUIRE_MKNTFS sees five SKIPs
         G8 are unchanged.
 ```
 
+```text
+Task: H-30 — document the PNG CRC-gate [fb97875 H-30]
+Change: src/cli.rs (--fragment-recovery help), README.md (flag table and
+        bounded-fragment-recovery section), docs/PROGRESS.md
+Behaviour: none. This completes the COULD remainder: the help and README now
+        say that PNG chunk-CRC joins require both --fragment-recovery and
+        --validate decode, and that --fragment-recovery alone does not join them.
+Evidence: bench/results/h30_png_crc.txt (archived N=100 per gap kind, 200/200
+        exact, 0 false verified, 0 control failures, ACCEPTANCE=PASS);
+        bench/render_docs.py --check G9 GREEN (52 scan options, 200 tests)
+Gate: fmt/clippy/build/docs/tests/golden/perf/status green; no threshold,
+        flag, report field or default changed; golden D0 and G8 unchanged.
+```
+
 ### H0 verification — `harness-f5bda4a` (2026-11-26)
 
 The external harness revision for `f5bda4a` was copied verbatim to

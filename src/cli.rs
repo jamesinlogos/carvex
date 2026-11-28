@@ -206,8 +206,9 @@ struct ScanArgs {
     max_regions: u64,
     /// Opt in to bounded B-06 gap carving (filler/header gaps; PNG chunk-CRC gaps)
     /// Filler is zero/low-cardinality (<=8 distinct bytes) or a repeated period <=32.
-    /// H-30 also joins high-entropy PNG gaps only when a chunk CRC-32 uniquely identifies the
-    /// stitch; ambiguous joins are suspect. Acceptance always requires deep decode validation.
+    /// PNG chunk-CRC gaps require both --fragment-recovery and --validate decode;
+    /// with --fragment-recovery alone those gaps are not joined. A unique CRC match
+    /// is still checked by deep decode validation; ambiguous joins are suspect.
     #[arg(long)]
     fragment_recovery: bool,
     /// Maximum gap between joined fragments, in clusters (B-06)
