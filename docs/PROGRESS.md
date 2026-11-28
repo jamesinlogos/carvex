@@ -70,6 +70,23 @@ Residual risk / next: Q9 is closed by the user's 2026-11-28 answer (timing
       implemented mechanism-first with the default unchanged.
 ```
 
+```text
+Task: H-04 R1 — score validated repairs on repaired bytes [repo H-21]
+Change: src/scan.rs (ScanOptions::score_repaired, RepairState::post_repair_score,
+        deferred/re-applied score gate), src/cli.rs (--repair-rescore),
+        tests/common/mod.rs (struct literal), tests/regress_repair_images.rs,
+        docs/DECISIONS.md (D-79), README.md, CHANGELOG.md
+New tests: low_pre_repair_score_is_recovered_with_opt_in_rescoring (red:
+        unknown flag/exit 2 → green: one repaired row with Pillow-verified
+        crop); low_pre_repair_score_keeps_the_default_drop (green before and
+        after: unchanged default drop with BELOW_MIN_SCORE)
+Gate: targeted regress_repair_images 12/12 green; full gate pending end of phase
+Measurement: png_04 cut at 30 % (49,960 B, pre-repair score 40): default 0
+        repaired rows + 1 BELOW_MIN_SCORE; --repair-rescore 1 verified crop
+Residual risk / next: §9 Q13 remains open by the user's 2026-11-28 answer;
+        golden D0 holds intact files only and was not re-frozen.
+```
+
 ### H0 verification — `harness-f5bda4a` (2026-11-26)
 
 The external harness revision for `f5bda4a` was copied verbatim to

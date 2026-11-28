@@ -8,6 +8,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- H-04 R1: `--repair-rescore` is an opt-in way to judge a deep-validated repair
+  on the repaired bytes for `--min-score`. The default score gate is unchanged
+  (§9 Q13 open; D-79); no report field or threshold changed.
 - H0: `docs/harness-fb97875.md` records the external harness revision for
   `fb97875` verbatim; its baseline checks (190/190 tests, golden/docs green,
   one environmental R5 timing deviation recorded under §9 Q9) are in

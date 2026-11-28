@@ -1629,3 +1629,28 @@ decision, and the consequences.
   fixtures where a deleted JPEG is carved exactly, `regions[]` tiling, no
   FAT32/NTFS or golden D0 regression, plus independent OOXML content-type
   validation and ZIP-bomb caps.
+
+## D-79. H-04 R1 scoring is opt-in pending §9 Q13 (2026-11-28)
+
+- **Context:** the external harness measured eight of 30 truncated PNG cuts
+  scoring 40 before repair (`ihdr` found, IDAT not yet complete), so the
+  default `--min-score 50` drops them before `--repair` runs; with
+  `--min-score 0` all eight crop-repair correctly. §9 Q13 recommends scoring
+  the validated repair instead, which would change the default output set from
+  19/30 to 27/30.
+- **Decision:** implement the mechanism first and keep the historical default
+  unchanged, as required by §9 until the user answers. New opt-in flag
+  `--repair-rescore`: with `--repair`, defer the pre-repair score gate for a
+  candidate that will be repaired and re-apply it to the rebuilt bytes' score
+  (`rebuilt_analysis.score`), or to the original score when no repair validates.
+  The report's `analysis.score` and all report/CSV fields stay unchanged; no
+  threshold or metric definition was altered. **Q13 remains open.**
+- **Evidence:** `tests/regress_repair_images.rs`:
+  `low_pre_repair_score_is_recovered_with_opt_in_rescoring` (red before the
+  flag, green after; `png_04` cut at 30 %, default `--min-score`) and
+  `low_pre_repair_score_keeps_the_default_drop` (unchanged default behaviour,
+  `BELOW_MIN_SCORE` plus `stats.below_min_score >= 1`).
+- **Consequences:** users who want the harness recommendation can pass
+  `--repair-rescore`; if Q13 is later answered yes, the flag becomes the
+  default and both tests are updated in that commit. Golden D0 holds only
+  intact files and is unaffected.

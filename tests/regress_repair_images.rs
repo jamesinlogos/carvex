@@ -25,8 +25,14 @@ fn sha256(data: &[u8]) -> String {
 }
 
 /// Scan one payload through the CLI with `--repair` and return the first file
-/// row and the bytes actually written.
+/// row and the bytes actually written. The default helper uses `--min-score 0`
+/// so it reaches the repair stage; `scan_repaired_with` lets a test keep the
+/// default score gate or pass an opt-in flag.
 fn scan_repaired(payload: &[u8], kind: &str, mode: &str) -> (Value, Vec<u8>) {
+    scan_repaired_with(payload, kind, mode, &["--min-score", "0"])
+}
+
+fn scan_repaired_with(payload: &[u8], kind: &str, mode: &str, extra: &[&str]) -> (Value, Vec<u8>) {
     let dir = tempfile::tempdir().unwrap();
     let mut image = vec![0u8; 4096];
     image.extend_from_slice(payload);
@@ -35,28 +41,26 @@ fn scan_repaired(payload: &[u8], kind: &str, mode: &str) -> (Value, Vec<u8>) {
     fs::write(&image_path, &image).unwrap();
     let out = dir.path().join("out");
     let report_path = dir.path().join("report.json");
+    let mut args: Vec<&str> = vec![
+        "scan",
+        image_path.to_str().unwrap(),
+        "-o",
+        out.to_str().unwrap(),
+        "--mode",
+        "raw",
+        "--no-fs",
+        "--types",
+        kind,
+        "--validate",
+        mode,
+        "--min-size",
+        "1",
+        "--repair",
+    ];
+    args.extend_from_slice(extra);
+    args.extend_from_slice(&["--quiet", "--json-report", report_path.to_str().unwrap()]);
     let proc = Command::new(env!("CARGO_BIN_EXE_carvex"))
-        .args([
-            "scan",
-            image_path.to_str().unwrap(),
-            "-o",
-            out.to_str().unwrap(),
-            "--mode",
-            "raw",
-            "--no-fs",
-            "--types",
-            kind,
-            "--validate",
-            mode,
-            "--min-score",
-            "0",
-            "--min-size",
-            "1",
-            "--repair",
-            "--quiet",
-            "--json-report",
-            report_path.to_str().unwrap(),
-        ])
+        .args(args)
         .output()
         .unwrap();
     assert_eq!(
@@ -329,4 +333,70 @@ fn intact_images_are_not_repaired() {
         assert_eq!(file["repair_validated"], false);
         assert!(file["sha256_original"].is_null());
     }
+}
+
+/// H-04 R1 / §9 Q13: `png_04` scores 40 before repair (IHDR present, IDAT not
+/// yet complete), so the default `--min-score 50` drops it. The opt-in rescore
+/// mechanism must judge the proven crop instead, without changing the default.
+#[test]
+fn low_pre_repair_score_is_recovered_with_opt_in_rescoring() {
+    let original = corpus("png/png_04_palette_600x400.png");
+    let cut = &original[..original.len() * 3 / 10];
+    let (file, carved) = scan_repaired_with(cut, "png", "decode", &["--repair-rescore"]);
+    assert_eq!(file["status"], "repaired");
+    assert_eq!(file["validity"], "repaired");
+    assert_eq!(file["repair_validated"], true);
+    let rows = assert_validated_crop(&file, &carved, cut, "png");
+    assert!(rows >= 1, "a validated crop must keep at least one row");
+    assert_eq!(file["sha256_original"].as_str().unwrap(), sha256(cut));
+    assert_eq!(file["sha256_output"].as_str().unwrap(), sha256(&carved));
+    assert_pillow_top_rows(&original, &carved, "png", rows, 0);
+}
+
+#[test]
+fn low_pre_repair_score_keeps_the_default_drop() {
+    let original = corpus("png/png_04_palette_600x400.png");
+    let cut = &original[..original.len() * 3 / 10];
+    let dir = tempfile::tempdir().unwrap();
+    let mut image = vec![0u8; 4096];
+    image.extend_from_slice(cut);
+    image.extend_from_slice(&[0u8; 4096]);
+    let image_path = dir.path().join("image.img");
+    fs::write(&image_path, &image).unwrap();
+    let out = dir.path().join("out");
+    let report_path = dir.path().join("report.json");
+    let proc = Command::new(env!("CARGO_BIN_EXE_carvex"))
+        .args([
+            "scan",
+            image_path.to_str().unwrap(),
+            "-o",
+            out.to_str().unwrap(),
+            "--mode",
+            "raw",
+            "--no-fs",
+            "--types",
+            "png",
+            "--validate",
+            "decode",
+            "--min-size",
+            "1",
+            "--repair",
+            "--quiet",
+            "--json-report",
+            report_path.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(
+        proc.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&proc.stderr)
+    );
+    let report: Value = serde_json::from_slice(&fs::read(&report_path).unwrap()).unwrap();
+    assert_eq!(report["files"].as_array().unwrap().len(), 0);
+    assert!(
+        report["stats"]["below_min_score"].as_u64().unwrap() >= 1,
+        "default must still report the dropped candidate: {report:#}"
+    );
 }

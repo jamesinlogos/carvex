@@ -447,6 +447,8 @@ pub struct ScanOptions {
     pub min_score: u8,
     /// Whether repair attempts are enabled.
     pub repair: bool,
+    /// Score a validated repair on the repaired bytes (§9 Q13; opt-in).
+    pub score_repaired: bool,
     /// Emit only complete files when true.
     pub complete_only: bool,
     /// Emit only files whose authoritative validity is verified.
@@ -560,6 +562,7 @@ impl Default for ScanOptions {
             threads: 0,
             min_score: 50,
             repair: false,
+            score_repaired: false,
             complete_only: false,
             verified_only: false,
             pdf_eof: PdfEofMode::Smart,
@@ -2404,11 +2407,16 @@ fn prepare_analysis(
         });
     }
     if analysis.score < opts.min_score {
-        return Err(CarveOutcome::LowScore {
-            offset: cand.offset,
-            kind: cand.kind,
-            score: analysis.score,
-        });
+        // §9 Q13: with the opt-in rescore and repair enabled, judge the
+        // candidate again after a validated repair. If the repair does not
+        // validate, finalize_analyzed_candidate re-applies this same score.
+        if !opts.repair || !opts.score_repaired || analysis.complete {
+            return Err(CarveOutcome::LowScore {
+                offset: cand.offset,
+                kind: cand.kind,
+                score: analysis.score,
+            });
+        }
     }
     if opts.complete_only && !analysis.complete {
         return Err(CarveOutcome::NotComplete);
@@ -2421,6 +2429,7 @@ struct RepairState {
     suffix: Vec<u8>,
     replacement: Option<Vec<u8>>,
     repaired: bool,
+    post_repair_score: Option<u8>,
     sha256_output: Option<String>,
     sha256_original: Option<String>,
     recovered_rows: Option<u32>,
@@ -2437,6 +2446,7 @@ impl RepairState {
             suffix: Vec::new(),
             replacement: None,
             repaired: false,
+            post_repair_score: None,
             sha256_output: None,
             sha256_original: None,
             recovered_rows: None,
@@ -2528,6 +2538,7 @@ fn attempt_repair(ctx: RepairAttempt<'_>) -> Result<RepairState, CarveOutcome> {
                                     detail,
                                     note,
                                 }) => {
+                                    state.post_repair_score = Some(rebuilt_analysis.score);
                                     state.sha256_output = Some(sha256_hex(&rebuilt));
                                     state.repaired = true;
                                     state.suffix = suffix;
@@ -2540,7 +2551,9 @@ fn attempt_repair(ctx: RepairAttempt<'_>) -> Result<RepairState, CarveOutcome> {
                                     state.sha256_original = Some(sha256_hex(&prefix[..end]));
                                     // Keep the original score and provenance
                                     // notes; only the footer status becomes
-                                    // complete after revalidation.
+                                    // complete after revalidation. §9 Q13:
+                                    // the rebuilt score is kept separately so
+                                    // an opt-in rescore can use it later.
                                     analysis.complete = true;
                                     analysis.notes.extend(rebuilt_analysis.notes);
                                     analysis.notes.push(note);
@@ -2817,6 +2830,23 @@ fn finalize_analyzed_candidate(ctx: AnalyzedCandidateCtx<'_>) -> Result<CarveOut
         Ok(state) => state,
         Err(outcome) => return Ok(outcome),
     };
+
+    // §9 Q13: only the opt-in path defers the first score gate; apply it here
+    // to the validated repair, or to the original score when no repair passed.
+    if opts.repair && opts.score_repaired {
+        let score = if repair.repaired {
+            repair.post_repair_score.unwrap_or(analysis.score)
+        } else {
+            analysis.score
+        };
+        if score < opts.min_score {
+            return Ok(CarveOutcome::LowScore {
+                offset: cand.offset,
+                kind: cand.kind,
+                score,
+            });
+        }
+    }
 
     let output_len = repair.replacement.as_ref().map_or_else(
         || (end as u64).saturating_add(repair.suffix.len() as u64),
